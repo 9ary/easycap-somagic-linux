@@ -1,0 +1,68 @@
+WARNING:
+This software is in alpha version, and may crash or permanently
+damage your computer and/or usb devices.
+
+------------------------------------------------------------------
+
+This is the first part of a usb driver implementation
+for the Easycap DC60 video capture device with usb id 1c88:0007
+
+This part of the driver is uploading a firmware for the device
+using the kernel firmware api.
+
+To use this driver you need a copy of the firmware file.
+Due to legal complications, I cannot distribute the firmware with this package,
+but it can be extracted from UsbSnoop logs, that you can generate
+when you plug the device into a windows machine. 
+
+Your log file should include lots outgoing packets called "Control_URB".
+The packages are 128 Bytes long, and you are interested in the last 62 Bytes
+of each package.
+
+Example:
+0000  80 e6 ee 2e 01 88 ff ff 53 02 00 4f 02 00 00 00   ........S..O....
+0010  e3 e2 dc 4e 00 00 00 00 d0 41 0f 00 8d ff ff ff   ...N.....A......
+0020  40 00 00 00 40 00 00 00 40 01 05 00 00 00 40 00   @...@...@.....@.
+0030  00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00   ................
+0040  05 ff 0c 94 ce 00 ff ff ff ff ff ff ff ff ff ff   ................
+0050  ff ff ff ff ff ff ff ff ff ff ff ff ff ff ff ff   ................
+0060  ff ff ff ff ff ff ff ff ff ff ff ff ff ff 0c 94   ................
+0070  72 06 ff ff ff ff ff ff ff ff ff ff ff ff ff ff   r...............
+
+You will have to extract the bytes from offset 0x0042 to the end of the packet.
+You can identify the place by the two bytes "0x05 0xff",
+and extract the rest of the bytes.
+
+This should result in a file with 7502 Bytes, if your firmware
+is the same version as mine.
+The important part is that the firmware size is evenly dividable by 62.
+
+My firmware file has the following md5sum:
+90f78491e831e8db44cfdd6204a2b602
+And my Windows driver cd has Version 2.1C
+
+The firmware should be named somagic_firmware.bin,
+and placed in /lib/firmware
+
+USAGE:
+make
+sudo insmod somagic.ko
+
+This has been tested, and is working on my OpenSUSE 11.4 (Tumbleweed) box,
+with kernel 3.1.0-46-desktop
+
+TODO:
+* Make part 2 of this driver, and link it with the V4L subsystem.
+* Make a script to parse the firmware out of a Wireshark log
+* Reverse-engeneer the firmware.
+
+
+Jon Arne Jørgensen <jonjon.arnearne@gmail.com>
+
+This program is based on research for easycap-somagic-linux by Tony Brown
+https://github.com/bonybrown/easycap-somagic-linux
+
+After using my driver, the "capture" program from Tony Brown, should work fine.
+(It allso seems like you don't need to run the "init2" program,
+because the "capture" program does all the needed setup of the video interface)
+
