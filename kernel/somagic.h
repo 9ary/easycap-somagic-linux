@@ -5,8 +5,8 @@
  * USB ID 1c88:0007                                                            *
  *                                                                             *
  * This driver will only upload the firmware for the somagic chip,             *
- * and reconnect the usb-dongle with new product id: 1c88:0003c.               *
- * ******************************************************************************
+ * and reconnect the usb-dongle with new product id: 1c88:003c.                *
+ * *****************************************************************************
  *
  * Copyright 2011 Jon Arne Jørgensen
  *

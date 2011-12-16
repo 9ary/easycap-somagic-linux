@@ -5,7 +5,7 @@
  * USB ID 1c88:0007                                                            *
  *                                                                             *
  * This driver will only upload the firmware for the somagic chip,             *
- * and reconnect the usb-dongle with new product id: 1c88:0003c.               *
+ * and reconnect the usb-dongle with new product id: 1c88:003c.                *
  * *****************************************************************************
  *
  * Copyright 2011 Jon Arne Jørgensen
@@ -46,8 +46,7 @@ struct usb_driver somagic_usb_driver = {
 	.disconnect = somagic_usb_disconnect
 };
 
-int somagic_usb_probe(struct usb_interface *interface,
-											const struct usb_device_id *interface_dev_id)
+int somagic_usb_probe(struct usb_interface *interface, const struct usb_device_id *interface_dev_id)
 {
 	struct usb_device * somagic_device;
 
