@@ -53,7 +53,7 @@
 #define USB_SOMAGIC_PRODUCT_ID 0x003c
 
 #define SOMAGIC_DRIVER_VERSION "0.1"
-#define SOMAGIC_DRIVER_DESCRIPTION "Driver for Easycap DC60, with Somagic SMI2021CBE chipset"
+#define SOMAGIC_DRIVER_DESCRIPTION "Driver for EasyCAP DC60, with Somagic SMI2021CBE chipset"
 
 #define SOMAGIC_FIRMWARE "somagic_firmware.bin"
 
