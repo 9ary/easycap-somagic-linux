@@ -45,7 +45,11 @@ The firmware should be named somagic_firmware.bin, and placed in
 
 USAGE:
 make
-sudo insmod somagic.ko
+sudo insmod somagic.ko [register_capture_device=0]
+
+If you set register_capture_device=0 (defaults to 1),
+the driver will only upload the firmware.
+Use this option if you want to use the capture program.
 
 This has been tested, and is working on an OpenSUSE 11.4 (Tumbleweed) box,
 with kernel 3.1.0-46-desktop
@@ -57,10 +61,4 @@ TODO:
 
 
 Jon Arne Jørgensen <jonjon.arnearne@gmail.com>
-
-This program is based on research for easycap-somagic-linux by Tony Brown
-https://github.com/bonybrown/easycap-somagic-linux
-
-After using this driver, the "capture" program from Tony Brown should work.
-The "init1" and "init2" programs from that package are not needed.
 
