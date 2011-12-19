@@ -1,9 +1,10 @@
-This is a small tool to create a
-binary firmware file from a textfile with hex values.
+This is a small tool to create a binary firmware file from a text file with
+hex values.
 
-The file with the hex values must be converted to a c header file,
-that contains this:
-------------------------
+The file with the hex values must be converted to a c header file, that 
+contains the following:
+
+---------------------------------------------------------------------------
 
 #define BYTECOUNT 7502
 
@@ -14,7 +15,8 @@ unsigned char file[] = {
 0xff,0xcf,0x34
 };
 
-------------------------
+---------------------------------------------------------------------------
+
 The number after BYTECOUNT, must be the number of bytes in the array.
 
 This file must be named "file.h".
