@@ -97,7 +97,7 @@ module_init(somagic_module_init);
 module_exit(somagic_module_exit);
 
 MODULE_LICENSE("GPL");
-MODULE_AUTHOR("Jon Arne Jørgensen <jonjon.arnearne@gmail.com");
+MODULE_AUTHOR("Jon Arne Jørgensen <jonjon.arnearne@gmail.com>");
 MODULE_DESCRIPTION(SOMAGIC_DRIVER_DESCRIPTION);
 MODULE_VERSION(SOMAGIC_DRIVER_VERSION);
 

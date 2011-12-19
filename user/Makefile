@@ -23,7 +23,7 @@
 # along with this program; if not, see <http://www.gnu.org/licenses/>.
 
 BINDIR=/usr/local/bin
-PROGRAMS=init1 init2 capture capture-ntsc
+PROGRAMS=init capture
 LFLAGS=-lusb -lusb-1.0
 CC=gcc
 INSTALL=install -D

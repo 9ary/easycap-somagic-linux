@@ -55,7 +55,7 @@ void somagic_upload_firmware(struct usb_device *somagic_device)
 		return;
 	}
 
-	// Prepare device for firmware upload!
+	/* Prepare device for firmware upload! */
 	rc = usb_control_msg(somagic_device, usb_rcvctrlpipe(somagic_device, SOMAGIC_URB_RECEIVE_ENDPOINT),
 											 (__u8)SOMAGIC_URB_STD_REQUEST,
 											 (__u8)(USB_DIR_IN | USB_TYPE_VENDOR | USB_RECIP_DEVICE),
@@ -92,15 +92,15 @@ void somagic_upload_firmware(struct usb_device *somagic_device)
 												 SOMAGIC_URB_STD_TIMEOUT);
 
 		if (rc < 0) {
-      printk(KERN_ERR "somagic::%s: error while uploading firmware,"
-                      " usb_control_message #%d returned: %d",
-                      __func__, i, rc);
+			printk(KERN_ERR "somagic::%s: error while uploading firmware,"
+			    " usb_control_message #%d returned: %d",
+			    __func__, i, rc);
 			return;
 		}
 	}
 
-	igot = igot >> 8; // 0x0701 -> 0x0007
-	// Done with firmware upload!
+	igot = igot >> 8; /* 0x0701 -> 0x0007 */
+	/* Done with firmware upload! */
 	rc = usb_control_msg(somagic_device, usb_sndctrlpipe(somagic_device, SOMAGIC_URB_SEND_ENDPOINT),
 											 (__u8)SOMAGIC_URB_STD_REQUEST,
 											 (__u8)(USB_DIR_OUT | USB_TYPE_VENDOR | USB_RECIP_DEVICE),
@@ -110,6 +110,6 @@ void somagic_upload_firmware(struct usb_device *somagic_device)
 											 (__u16)sizeof(igot),
 											 SOMAGIC_URB_STD_TIMEOUT);
 	
-	//printk(KERN_DEBUG "somagic: last request returned %d bytes\n", rc);
+	/* printk(KERN_DEBUG "somagic: last request returned %d bytes\n", rc); */
 	return;
 }
