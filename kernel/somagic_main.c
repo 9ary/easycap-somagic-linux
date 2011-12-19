@@ -40,6 +40,12 @@ struct usb_device_id somagic_usb_device_id_table[] = {
 
 MODULE_DEVICE_TABLE(usb, somagic_usb_device_id_table);
 
+// Set this to false, if you want to use the userspace tools!
+bool somagic_register_capture_device = true;
+module_param_named(register_capture_device,
+                   somagic_register_capture_device, bool, 0);
+
+
 struct usb_driver somagic_usb_driver = {
 	.name = "somagic_easycap",
 	.id_table = somagic_usb_device_id_table,
@@ -82,6 +88,16 @@ int somagic_usb_probe(struct usb_interface *interface,
 
 	if (interface_dev_id->idProduct == USB_SOMAGIC_BOOTLOADER_PRODUCT_ID) {
 		somagic_upload_firmware(somagic_device);
+		return -ENODEV;
+	}
+
+	if (somagic_register_capture_device) {
+		printk(KERN_DEBUG "somagic: register_capture_device = true\n");
+	} else {
+		printk(KERN_DEBUG "somagic: register_capture_device = false\n");
+	}
+
+	if (!somagic_register_capture_device) {
 		return -ENODEV;
 	}
 
