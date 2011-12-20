@@ -241,7 +241,7 @@ int main(int argc, char **argv)
 		memcpy(buf + 0x0000002, firmware + i, 0x000003e);
 		ret = usb_control_msg(devh, USB_TYPE_VENDOR + USB_RECIP_DEVICE, 0x0000001, 0x0000005, 0x0000000, buf, 0x0000040, 1000);
 		/*
-		printf("%i control msg returned %d, bytes: ", j, ret); 
+		printf("%i control msg returned %d, bytes: ", j, ret);
 		print_bytes(buf, ret);
 		printf("\n");
 		*/
