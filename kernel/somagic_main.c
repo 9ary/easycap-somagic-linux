@@ -28,9 +28,10 @@
  *
  */
 
+#include "somagic_main.h"
 #include "somagic.h"
 #include "somagic_bootloader.h"
-#include "somagic_main.h"
+#include "somagic_capture_device.h"
 
 MODULE_LICENSE("GPL");
 MODULE_AUTHOR("Jon Arne Jørgensen <jonjon.arnearne@gmail.com>");

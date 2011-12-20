@@ -33,15 +33,9 @@
 
 #include "somagic.h"
 
-int somagic_usb_probe(struct usb_interface *interface,
-                      const struct usb_device_id *interface_dev_id);
+static int somagic_usb_probe(struct usb_interface *intf,
+                      const struct usb_device_id *devid);
 
-void somagic_usb_disconnect(struct usb_interface *interface);
+static void somagic_usb_disconnect(struct usb_interface *intf);
 
-int somagic_usb_open(struct inode *inode, struct file *file);
-int somagic_usb_release(struct inode *inode, struct file *file);
-long somagic_usb_unlocked_ioctl(struct file *file, unsigned int cmd,
-                                unsigned long arg);
-unsigned int somagic_usb_poll(struct file *file, poll_table *wait);
-int somagic_usb_mmap(struct file *file, struct vm_area_struct *vma);
 #endif /* SOMAGIC_MAIN_H */
