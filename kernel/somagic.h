@@ -48,9 +48,9 @@
 #include <linux/delay.h>
 #include <linux/types.h>
 
-#define USB_SOMAGIC_VENDOR_ID 0x1c88
-#define USB_SOMAGIC_BOOTLOADER_PRODUCT_ID 0x0007
-#define USB_SOMAGIC_PRODUCT_ID 0x003c
+#define SOMAGIC_USB_VENDOR_ID 0x1c88
+#define SOMAGIC_USB_BOOTLOADER_PRODUCT_ID 0x0007
+#define SOMAGIC_USB_PRODUCT_ID 0x003c
 
 #define SOMAGIC_DRIVER_VERSION "0.1"
 #define SOMAGIC_DRIVER_DESCRIPTION "Driver for EasyCAP DC60, with Somagic SMI2021CBE chipset"
