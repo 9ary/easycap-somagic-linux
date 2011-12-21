@@ -59,6 +59,8 @@ TODO:
 * Make a script to parse the firmware out of a Wireshark log.
 * Reverse-engeneer the firmware.
 
+This driver is based on the kernel USBVision driver:
+linux/drivers/media/video/usbvision
 
 Jon Arne Jørgensen <jonjon.arnearne@gmail.com>
 

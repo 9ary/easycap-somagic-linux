@@ -24,7 +24,9 @@
 
 obj-m += somagic.o
 
-somagic-y += somagic_main.o somagic_bootloader.o
+somagic-y += somagic_capture_device.o \
+             somagic_bootloader.o \
+             somagic_main.o
 
 KDIR ?= /lib/modules/$(shell uname -r)/build
 PWD := $(shell pwd)
