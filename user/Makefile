@@ -26,12 +26,13 @@ BINDIR=/usr/local/bin
 PROGRAMS=init capture
 LFLAGS=-lusb -lusb-1.0
 CC=gcc
+CFLAGS=-W -Wall
 INSTALL=install -D
 
 all: $(PROGRAMS)
 
 .c:
-	$(CC) $< -o $@ $(LFLAGS)
+	$(CC) $(CFLAGS) $< -o $@ $(LFLAGS)
 
 install:
 	$(INSTALL) $(PROGRAMS) $(BINDIR)/

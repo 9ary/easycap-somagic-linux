@@ -45,15 +45,13 @@
 
 struct usb_dev_handle *devh;
 
-void release_usb_device(int dummy)
+void release_usb_device(int ret)
 {
-	int ret;
-
 	ret = usb_release_interface(devh, 0);
 	if (!ret) {
 		perror("Failed to release interface");
 	}
-	usb_close(devh);
+	ret = usb_close(devh);
 	if (!ret) {
 		perror("Failed to close interface");
 	}
@@ -106,12 +104,11 @@ void print_bytes(char *bytes, int len)
 }
 */
 
-int main(int argc, char **argv)
+int main()
 {
 	int ret;
 	struct usb_device *dev;
 	char buf[65535];
-	char *endptr;
 	char firmware[SOMAGIC_FIRMWARE_LENGTH];
 	FILE *infile;
 	int i;

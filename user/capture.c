@@ -31,7 +31,7 @@
  * Usage:
  * sudo init
  * sudo capture pal 2> /dev/null | mplayer - -vf screenshot -demuxer rawvideo -rawvideo "w=720:h=576:format=uyvy:fps=25"
- * sudo capture ntsc 2> /dev/null | mplayer - -vf screenshot -demuxer rawvideo -rawvideo "w=720:h=480:format=uyvy:fps=30000/1001"
+ * sudo capture ntsc 2> /dev/null | mplayer - -vf screenshot -demuxer rawvideo -rawvideo "ntsc:format=uyvy:fps=30000/1001"
  */
 
 /* This file was originally generated with usbsnoop2libusb.pl from a usbsnoop log file. */
@@ -43,6 +43,8 @@
 #include <signal.h>
 #include <ctype.h>
 #include <libusb-1.0/libusb.h>
+#include <execinfo.h>
+#include <unistd.h>
 
 #define VENDOR 0x1c88
 #define PRODUCT 0x003c
@@ -56,22 +58,17 @@ enum tv_standards {
 };
 int tv_standard = NTSC;
 
-void release_usb_device(int dummy)
+void release_usb_device(int ret)
 {
-	int ret;
 	fprintf(stderr, "Emergency exit\n");
 	ret = libusb_release_interface(devh, 0);
 	if (!ret) {
-		fprintf(stderr, "failed to release interface: %d\n", ret);
+		perror("Failed to release interface");
 	}
 	libusb_close(devh);
-	if (!ret) {
-		fprintf(stderr, "failed to close interface: %d\n", ret);
-	}
 	libusb_exit(NULL);
 	exit(1);
 }
-
 
 struct libusb_device *find_device(int vendor, int product)
 {
@@ -94,12 +91,12 @@ struct libusb_device *find_device(int vendor, int product)
 	return dev;
 }
 
-void print_bytes(char *bytes, int len)
+void print_bytes(unsigned char *bytes, int len)
 {
 	int i;
 	if (len > 0) {
 		for (i = 0; i < len; i++) {
-			fprintf(stderr, "%02x ", (int)((unsigned char)bytes[i]));
+			fprintf(stderr, "%02x ", (int)bytes[i]);
 		}
 		fprintf(stderr, "\"");
 		for (i = 0; i < len; i++) {
@@ -142,7 +139,7 @@ int vbi = 0;
 int buffer_pos = 0;
 int buffer_size;
 int next_boundary = 0;
-char *pbuffer = NULL;
+unsigned char *pbuffer = NULL;
 
 void check_fence()
 {
@@ -153,7 +150,7 @@ void check_fence()
 		/* on 1024 byte boundaries */
 		/* fprintf(stderr, "boundary at %04x ", buffer_pos); */
 		next_boundary = buffer_pos + 0x400;
-		if (pbuffer[buffer_pos] == (char)0xaa) {
+		if (pbuffer[buffer_pos] == (unsigned char)0xaa) {
 			/* the byte is 0xaa, skip this marker */
 			buffer_pos += 4;
 			/* fprintf(stderr, " is video\n"); */
@@ -179,7 +176,7 @@ void check_fence()
 	}
 }
 
-void init_buffer(char *buffer, int size)
+void init_buffer(unsigned char *buffer, int size)
 {
 	/* fprintf(stderr, "buffer init, size %d (%04x)\n", size, size); */
 	pbuffer = buffer;
@@ -244,7 +241,7 @@ int skip_buffer(int count)
 
 enum sync_state {
 	HSYNC,
-	SYNCFF,
+	/*SYNCFF,*/
 	SYNCZ1,
 	SYNCZ2,
 	SYNCAV,
@@ -278,8 +275,8 @@ void process_data()
 		 * Timing reference code (TRC):
 		 *     [ff 00 00 SAV] [ff 00 00 EAV]
 		 * Where SAV is 80 or c7, and EAV is 9d or da.
-		 * A line of video will look like:
-		 *     [FF 00 00 EAV] [FF 00 00 SAV] [bytes] (repeat on next line)
+		 * A line of video will look like (1448 bytes total):
+		 *     [ff 00 00 EAV] [ff 00 00 SAV] [1440 bytes of UYVY video] (repeat on next line)
 		 */
 		switch (state) {
 		case HSYNC:
@@ -292,10 +289,10 @@ void process_data()
 				bs = 0;
 			} else if (bs != 1) {
 				/*
-				 * The 1st byte in the TRC must be FF. It
+				 * The 1st byte in the TRC must be 0xff. It
 				 * wasn't, so sync was either lost or has not
 				 * yet been regained. Sync is regained by
-				 * ignoring bytes until the next FF.
+				 * ignoring bytes until the next 0xff.
 				 */
 				fprintf(stderr, "bad sync on line %d @%d (%04x)\n", active_line_count, buffer_pos, buffer_pos);
 				/*
@@ -310,7 +307,7 @@ void process_data()
 				state = SYNCZ2;
 			} else {
 				/*
-				 * The 2nd byte in the TRC must be 00. It
+				 * The 2nd byte in the TRC must be 0x00. It
 				 * wasn't, so sync was lost.
 				 */
 				state = HSYNC;
@@ -321,7 +318,7 @@ void process_data()
 				state = SYNCAV;
 			} else {
 				/*
-				 * The 3rd byte in the TRC must be 00. It
+				 * The 3rd byte in the TRC must be 0x00. It
 				 * wasn't, so sync was lost.
 				 */
 				state = HSYNC;
@@ -329,8 +326,8 @@ void process_data()
 			break;
 		case SYNCAV:
 			/*
-			 * Found FF 00 00, now expecting SAV or EAV. Might also
-			 * be the SDID (sliced data ID), 0x00.
+			 * Found 0xff 0x00 0x00, now expecting SAV or EAV. Might
+			 * also be the SDID (sliced data ID), 0x00.
 			 */
 			/* fprintf(stderr,"%02x", nc); */
 			if (nc == (unsigned char)0x00) {
@@ -354,7 +351,7 @@ void process_data()
 				 * F (field bit) = Bit 6 (mask 0x40).
 				 * 0: first field, 1: 2nd field.
 				 */
-				field = (nc & (char)0x40) ? 1 : 0;
+				field = (nc & (unsigned char)0x40) ? 1 : 0;
 				/*
 				 * V (vertical blanking bit) = Bit 5 (mask 0x20).
 				 * 0: in VBI, 1: in active video.
@@ -535,10 +532,10 @@ void save_bytes(char *bytes, int len) {
 }
 #endif
 
-char isobuf[64 * 3072];
-char isobuf1[64 * 3072];
-char isobuf2[64 * 3072];
-char isobuf3[64 * 3072];
+unsigned char isobuf[64 * 3072];
+unsigned char isobuf1[64 * 3072];
+unsigned char isobuf2[64 * 3072];
+unsigned char isobuf3[64 * 3072];
 int pcount = 0;
 const int FCOUNT = 800000;
 
@@ -546,7 +543,7 @@ void gotdata(struct libusb_transfer *tfr)
 {
 	int ret;
 	int num = tfr->num_iso_packets;
-	char *data = libusb_get_iso_packet_buffer_simple(tfr, 0);
+	unsigned char *data = libusb_get_iso_packet_buffer_simple(tfr, 0);
 	int length = tfr->iso_packet_desc[0].length;
 	int total = 0;
 	int i = 0;
@@ -587,11 +584,8 @@ void usage(char * name)
 int main(int argc, char **argv)
 {
 	int ret;
-	int vendor;
-	int product;
 	struct libusb_device *dev;
-	char buf[65535];
-	char *endptr;
+	unsigned char buf[65535];
 	struct libusb_transfer *tfr0;
 	struct libusb_transfer *tfr1;
 	struct libusb_transfer *tfr2;
