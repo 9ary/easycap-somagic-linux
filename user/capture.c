@@ -532,10 +532,6 @@ void save_bytes(char *bytes, int len) {
 }
 #endif
 
-unsigned char isobuf[64 * 3072];
-unsigned char isobuf1[64 * 3072];
-unsigned char isobuf2[64 * 3072];
-unsigned char isobuf3[64 * 3072];
 int pcount = 0;
 const int FCOUNT = 800000;
 
@@ -546,18 +542,20 @@ void gotdata(struct libusb_transfer *tfr)
 	unsigned char *data = libusb_get_iso_packet_buffer_simple(tfr, 0);
 	int length = tfr->iso_packet_desc[0].length;
 	int total = 0;
-	int i = 0;
-	for (; i < num; i++) {
+	int i;
+	for (i = 0; i < num; i++) {
 		total += tfr->iso_packet_desc[i].actual_length;
+		init_buffer(libusb_get_iso_packet_buffer_simple(tfr, i), tfr->iso_packet_desc[i].actual_length);
+		process_data();
 	}
 	/* fprintf(stderr, "id %d got %d pkts of length %d. calc=%d, total=%d (%04x)\n", pcount, num, length, num*length, total, total); */
 	pcount++;
 
 	if (pcount >= 0) {
 		/* find_sync(data, num * length); */
-		init_buffer(data, num * length);
+		//init_buffer(data, num * length);
 		/* init_buffer(data, total); */
-		process_data();
+		//process_data();
 		/*
 		fprintf(stderr, "write\n");
 		write(1, data, total);
@@ -590,6 +588,10 @@ int main(int argc, char **argv)
 	struct libusb_transfer *tfr1;
 	struct libusb_transfer *tfr2;
 	struct libusb_transfer *tfr3;
+	unsigned char isobuf0[64 * 3072];
+	unsigned char isobuf1[64 * 3072];
+	unsigned char isobuf2[64 * 3072];
+	unsigned char isobuf3[64 * 3072];
 
 	if (argc != 2) {
 		usage(argv[0]);
@@ -1181,7 +1183,7 @@ int main(int argc, char **argv)
 	usleep(30 * 1000);
 	tfr0 = libusb_alloc_transfer(64);
 	assert(tfr0 != NULL);
-	libusb_fill_iso_transfer(tfr0, devh, 0x00000082, isobuf, 64 * 3072, 64, gotdata, NULL, 2000);
+	libusb_fill_iso_transfer(tfr0, devh, 0x00000082, isobuf0, 64 * 3072, 64, gotdata, NULL, 2000);
 	libusb_set_iso_packet_lengths(tfr0, 3072);
 
 	tfr1 = libusb_alloc_transfer(64);
