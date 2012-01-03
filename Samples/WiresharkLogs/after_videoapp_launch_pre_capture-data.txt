@@ -11,12 +11,14 @@ End by sending Value 0x0007, with data 0x0007 (len 2Bytes)
 Request (Dev2Host, endpoint 0x80, Value 0x0001)
 Reply 0x01 0x03
 
-Send the following data to value 0x000b
+Send the following data with URB_Value = 0x000b
 
-(0b 00) 00 82 01 00 3a 80 80 14 1b 89 00
-(0b 00) 00 82 01 00 3b 00 80 14 1b 89 00
-(0b 00) 00 82 01 00 34 01 80 14 1b 89 00
-(0b 00) 00 82 01 00 35 00 80 14 1b 89 00
+ c5 c6  c7 c8 c9 ca cb cc cd ce cf d0 d1  // (Low Byte of somagic_sram where data is stored)
+-----------------------------------------
+(0b 00) 00 82 01 00 3a 80 80 14 1b 89 00  ---- Send 0x80 to Port 0x3a (?? PortA DataDirection Register - Pin7 Output ??)
+(0b 00) 00 82 01 00 3b 00 80 14 1b 89 00  ---- Send 0x00 to Port 0x3b (?? PortA DataRegister = 0x00 ??)
+(0b 00) 00 82 01 00 34 01 80 14 1b 89 00  ---- Send 0x01 to Port 0x34 (?? PortC DataDirection Register - Pin1 Output ??)
+(0b 00) 00 82 01 00 35 00 80 14 1b 89 00  ---- Send 0x00 to Port 0x35 (?? PortC DataRegister = 0x00 ??)
 
 
 
@@ -24,7 +26,8 @@ Send the following data to value 0x000b
 
 // ------------------- Setup after start of video capture application --------//
 Send to request 0x01, value 0x000b
-(0b 00) 20 82 01 30 80 89 24 ad 54 80 00
+
+(0b 00) 20 82 01 30 80 89 24 ad 54 80 00 --- Read value of port 0x3080 into 0x019e
 (From dev after next request to endpoint 0x80, value 0x000b)
 (0b 00) 20 82 01 30 80 80 24 ad 54 80 00
 
@@ -92,7 +95,14 @@ First Lots of the previous block!
 
 OBS new header (still sending to 0x000b):
 // Looks like SAA7113 Config!
-                 REG
+// 0x4A Is the I2C Write address of the saa7113 Chip
+               [   ACK-s  ]
+// S? - SLVw - ?? - ?? - ?? - SUBa - VAL - ?? - ?? - ?? - ?? - ?? - ??
+// 0b -  4a  - c0 - 01 - 01 -  01  -  08 - 89 - ed - a6 - 54 - 80 - 18
+
+
+ c5 c6  c7 c8 c9 ca cb cc cd ce cf d0 d1  // (Low Byte of somagic_sram where data is stored)
+-----------------------------------------
 (0b 4a) c0 01 01 01 08 89 ed a6 54 80 18
 (0b 4a) c0 01 01 02 c7 ff 02 01 00 00 10
 (0b 4a) c0 01 01 03 33 ff 02 01 00 00 10
@@ -146,6 +156,9 @@ OBS new header (still sending to 0x000b):
 (0b 4a) c0 01 01 0e 01 89 f8 4b 2f b9 60
 
 /// ------------- NEW HEADER ---------//
+
+ c5 c6  c7 c8 c9 ca cb cc cd ce cf d0 d1  // (Low Byte of somagic_sram where data is stored)
+-----------------------------------------
 (0b 4a) 84 00 01 40 00 00 22 44 6e 80 08
 (0b 4a) a0 00 01 89 2f b9 60 e3 66 89 20
 (From dev after next request to endpoint 0x80, value 0x000b)
