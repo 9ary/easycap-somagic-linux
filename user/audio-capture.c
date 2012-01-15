@@ -28,9 +28,14 @@
  */
 
 /*
+ * I have not implemented any buffer, so you will need to start the capture into a file.
+ * And then start to play from that file a bit later, so the file acts as a buffer!
+ *
  * Usage:
  * init
- * audio-capture | mplayer - -demuxer +rawaudio -rawaudio "channels=2:samplesize=2:rate=22050"
+ * audio-capture > output.raw &
+ * mplayer output.raw -demuxer +rawaudio -rawaudio "channels=2:samplesize=2:rate=25000"
+ *
  */
 
 /* This file was originally generated with usbsnoop2libusb.pl from a usbsnoop log file. */
@@ -84,15 +89,20 @@ struct libusb_device *find_device(int vendor, int product)
 	return dev;
 }
 
-
-const int BYTES_PER_LINE = 1448;
-int lineleft = 1448;
-int vbi = 0;
-int buffer_pos = 0;
-int buffer_size;
-int next_boundary = 0;
-unsigned char *pbuffer = NULL;
-int audio = 0;
+void print_bytes(unsigned char *bytes, int len)
+{
+	int i;
+	if (len > 0) {
+		for (i = 0; i < len; i++) {
+			fprintf(stderr, "%02x ", (int)bytes[i]);
+		}
+		fprintf(stderr, "\"");
+		for (i = 0; i < len; i++) {
+			fprintf(stderr, "%c", isprint(bytes[i]) ? bytes[i] : '.');
+		}
+		fprintf(stderr, "\"");
+	}
+}
 
 int pcount = 0;
 const int FCOUNT = 800000;
@@ -102,10 +112,12 @@ void gotdata(struct libusb_transfer *tfr)
 	int ret;
 	int num = tfr->num_iso_packets;
 	int i;
+
 	for (i = 0; i < num; i++) {
-		write(1, libusb_get_iso_packet_buffer_simple(tfr, i), tfr->iso_packet_desc[i].actual_length); 
+		write(1, libusb_get_iso_packet_buffer_simple(tfr, i), tfr->iso_packet_desc[i].actual_length);
 	}
-	/* fprintf(stderr, "id %d got %d pkts of length %d. calc=%d, total=%d (%04x)\n", pcount, num, length, num*length, total, total); */
+
+	//	fprintf(stderr, "id %d got %d pkts of length %d. calc=%d, total=%d (%04x)\n", pcount, num, length, num*length, total, total);
 	pcount++;
 
 	if (pcount >= 0) {
@@ -130,28 +142,15 @@ void gotdata(struct libusb_transfer *tfr)
 	}
 }
 
-void print_bytes(unsigned char *bytes, int len)
-{
-	int i;
-	if (len > 0) {
-		for (i = 0; i < len; i++) {
-			fprintf(stderr, "%02x ", (int)bytes[i]);
-		}
-		fprintf(stderr, "\"");
-		for (i = 0; i < len; i++) {
-			fprintf(stderr, "%c", isprint(bytes[i]) ? bytes[i] : '.');
-		}
-		fprintf(stderr, "\"");
-	}
-}
-
 int main()
 {
 	int ret;
 	struct libusb_device *dev;
 	unsigned char buf[65535];
 	struct libusb_transfer *tfr0;
-	unsigned char isobuf0[64 * 3072];
+	struct libusb_transfer *tfr1;
+	unsigned char isobuf0[32 * 1008];
+	unsigned char isobuf1[32 * 1008];
 
 	libusb_init(NULL);
 	libusb_set_debug(NULL, 0);
@@ -724,7 +723,7 @@ int main()
 	fprintf(stderr, "191 get descriptor returned %d, bytes: ", ret);
 	print_bytes(buf, ret);
 	fprintf(stderr, "\n");
-	ret = libusb_set_interface_alt_setting(devh, 0, 2);
+	ret = libusb_set_interface_alt_setting(devh, 0, 1);
 	fprintf(stderr, "192 set alternate setting returned %d\n", ret);
 
  	// Disable this to enable audio!
@@ -737,12 +736,24 @@ int main()
 */
 
 	usleep(30 * 1000);
-	tfr0 = libusb_alloc_transfer(64);
+
+	tfr0 = libusb_alloc_transfer(32);
 	assert(tfr0 != NULL);
-	libusb_fill_iso_transfer(tfr0, devh, 0x00000082, isobuf0, 64 * 3072, 64, gotdata, NULL, 2000);
-	libusb_set_iso_packet_lengths(tfr0, 3072);
+	libusb_fill_iso_transfer(tfr0, devh, 0x00000082, isobuf0, 32 * 1008, 32, gotdata, NULL, 2000);
+	libusb_set_iso_packet_lengths(tfr0, 1008);
 
 	ret = libusb_submit_transfer(tfr0);
+	if (ret != 0) {
+		fprintf(stderr, "libusb_submit_transfer failed with error %d\n", ret);
+		exit(1);
+	}
+
+	tfr1 = libusb_alloc_transfer(32);
+	assert(tfr1 != NULL);
+	libusb_fill_iso_transfer(tfr1, devh, 0x00000082, isobuf1, 32 * 1008, 32, gotdata, NULL, 2000);
+	libusb_set_iso_packet_lengths(tfr1, 1008);
+
+	ret = libusb_submit_transfer(tfr1);
 	if (ret != 0) {
 		fprintf(stderr, "libusb_submit_transfer failed with error %d\n", ret);
 		exit(1);
@@ -760,7 +771,10 @@ int main()
 		libusb_handle_events(NULL);
 	}
 
+
 	libusb_free_transfer(tfr0);
+	libusb_free_transfer(tfr1);
+
 	ret = libusb_release_interface(devh, 0);
 	assert(ret == 0);
 	libusb_close(devh);
