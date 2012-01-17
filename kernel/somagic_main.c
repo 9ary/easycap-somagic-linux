@@ -28,15 +28,34 @@
  *
  */
 
-#include "somagic_main.h"
 #include "somagic.h"
 #include "somagic_bootloader.h"
-#include "somagic_capture_device.h"
 
 MODULE_LICENSE("GPL");
 MODULE_AUTHOR("Jon Arne Jørgensen <jonjon.arnearne@gmail.com>");
 MODULE_DESCRIPTION(SOMAGIC_DRIVER_DESCRIPTION);
 MODULE_VERSION(SOMAGIC_DRIVER_VERSION);
+
+/*****************************************************************************/
+/*                                                                           */
+/*          Function declarations                                            */
+/*                                                                           */
+/*****************************************************************************/
+static int somagic_usb_probe(struct usb_interface *intf,
+                      const struct usb_device_id *devid);
+
+static void somagic_usb_disconnect(struct usb_interface *intf);
+
+/*****************************************************************************/
+/*                                                                           */
+/*          Module setup                                                     */
+/*                                                                           */
+/*****************************************************************************/
+// Set this to false, if you want to use the userspace tools!
+bool somagic_register_capture_device = true;
+module_param_named(register_capture_device,
+                   somagic_register_capture_device, bool, 0);
+
 
 struct usb_device_id somagic_usb_device_id_table[] = {
 	{ USB_DEVICE(SOMAGIC_USB_VENDOR_ID, SOMAGIC_USB_BOOTLOADER_PRODUCT_ID) },
@@ -45,13 +64,6 @@ struct usb_device_id somagic_usb_device_id_table[] = {
 };
 
 MODULE_DEVICE_TABLE(usb, somagic_usb_device_id_table);
-
-// Set this to false, if you want to use the userspace tools!
-bool somagic_register_capture_device = true;
-module_param_named(register_capture_device,
-                   somagic_register_capture_device, bool, 0);
-
-
 struct usb_driver somagic_usb_driver = {
 	.name = "somagic_easycap",
 	.id_table = somagic_usb_device_id_table,
@@ -59,55 +71,115 @@ struct usb_driver somagic_usb_driver = {
 	.disconnect = somagic_usb_disconnect
 };
 
+/*****************************************************************************/
+/*                                                                           */
+/*          DEVICE  -  PROBE   &   DISCONNECT                                */
+/*                                                                           */
+/*****************************************************************************/
 static int __devinit somagic_usb_probe(struct usb_interface *intf,
 											const struct usb_device_id *devid)
 {
 	struct usb_device *dev = usb_get_dev(interface_to_usbdev(intf));
+	struct usb_somagic *somagic = NULL;
+	int rc;
 
-  printk(KERN_INFO "%s: Probing for %#04x:%#04x\n", __func__,
+  printk(KERN_INFO "%s: Probing for %04x:%04x\n", __func__,
          dev->descriptor.idVendor,
          dev->descriptor.idProduct);
 
 	if (dev == (struct usb_device *)NULL) {
-		printk(KERN_ERR "somagic: device is NULL\n");
+		printk(KERN_ERR "somagic::%s: device is NULL\n", __func__);
 		return -EFAULT;
 	}
 
-	if (dev->descriptor.idProduct == SOMAGIC_USB_BOOTLOADER_PRODUCT_ID) {
+  if (dev->descriptor.idProduct == SOMAGIC_USB_BOOTLOADER_PRODUCT_ID) {
 		somagic_upload_firmware(dev);
+		return -ENODEV;
+	} else if (dev->descriptor.idProduct != SOMAGIC_USB_PRODUCT_ID) {
 		return -ENODEV;
 	}
 
 	if (!somagic_register_capture_device) {
+		// Module loaded with somagic.register_capture_device = 0
 		return -ENODEV;
 	}
 
-	return somagic_capture_device_register(intf);
+  // We have a valid Somagic-Easycap device. now we setup the driver!
+
+	somagic = kzalloc(sizeof(struct usb_somagic), GFP_KERNEL);
+	if (somagic == NULL) {
+		dev_err(&intf->dev, "%s: couldn't allocate Somagic struct\n", __func__);
+		return -ENOMEM;
+	}
+
+
+	somagic->initialized = 0;
+	somagic->dev = dev;
+
+	// Store a pointer to this driver in the interface
+	usb_set_intfdata(intf, somagic);
+
+	rc = somagic_connect_video(somagic);
+	if (rc != 0) {
+		somagic->dev = NULL;
+		kfree(somagic);
+		return -ENODEV;
+	}
+
+	somagic->initialized = 1;
+
+	return 0;
 }
 
 static void __devexit somagic_usb_disconnect(struct usb_interface *intf)
 {
-	printk(KERN_DEBUG "somagic: Disconnect Called\n");
-	somagic_capture_device_deregister(intf);
+	struct usb_somagic *somagic = NULL;
+	struct usb_device *dev = usb_get_dev(interface_to_usbdev(intf));
+
+	if (dev->descriptor.idProduct != SOMAGIC_USB_PRODUCT_ID) {
+    return;
+	}
+
+	somagic = usb_get_intfdata(intf);
+	if (somagic == NULL) {
+		printk(KERN_WARNING "somagic::%s: "
+                "Could not load driver-structure from interface!\n", __func__);
+		return;
+	}
+
+	somagic->initialized = 0;
+	somagic_disconnect_video(somagic);
+
+	somagic->dev = NULL;
+	kfree(somagic);
+
+	printk(KERN_INFO "somagic:%s: Driver-struct has been removed\n", __func__);
 }
+
+/*****************************************************************************/
+/*                                                                           */
+/*            MODULE  -  INIT  &  EXIT                                       */
+/*                                                                           */
+/*****************************************************************************/
 
 int __init somagic_module_init(void)
 {
 	int rc;
+
+	printk(KERN_INFO "Somagic-Easycap version: "SOMAGIC_DRIVER_VERSION"\n");
+
 	rc = usb_register(&somagic_usb_driver);
-	if (rc == 0) {
-		printk(KERN_INFO "%s: Registered SOMAGIC Driver\n", __func__);
-	} else {
-		printk(KERN_INFO "%s: Failed to register SOMAGIC Driver\n", __func__);
+	if (rc) { 
+		printk(KERN_INFO "%s: Failed to register Somagic-Easycap Driver\n", __func__);
 	}
 	return rc;
 }
 
 
+// What happens if we rmmod the module, and then pulls out the device?
 void __exit somagic_module_exit(void)
 {
 	usb_deregister(&somagic_usb_driver);
-	printk(KERN_INFO "%s: Unregistered SOMAGIC Driver\n", __func__);
 }
 
 module_init(somagic_module_init);

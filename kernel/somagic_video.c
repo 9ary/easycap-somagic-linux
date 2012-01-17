@@ -18,25 +18,56 @@
  * along with this program; if not, see <http://www.gnu.org/licenses/>.
  *
  */
-#include "somagic_capture_device.h"
 #include "somagic.h"
 
 #include <media/v4l2-common.h>
 #include <media/v4l2-ioctl.h>
 
-//static int somagic_nr;
+/*
+ * Module configuration-variables
+ */
 
 static int video_nr = -1;
-
 /* Showing parameters under SYSFS */
 module_param(video_nr, int, 0444);
-
 // TODO: Find the right include for this macro
-//MODULE_PARAM_DESC(video_nr, "Set video device number (/dev/videoX). Default: -1(autodetect)");
+// MODULE_PARAM_DESC(video_nr, "Set video device number (/dev/videoX).
+// Default: -1(autodetect)");
+
+///////////////////////////////////////////////////////////////////////////////
+/*****************************************************************************/
+/*                                                                           */
+/*            Function Declarations                                          */
+/*                                                                           */
+/*****************************************************************************/
+
+/*
+static inline struct usb_somagic *to_somagic(struct v4l2_device *v4l2_dev)
+{
+	return container_of(v4l2_dev, struct usb_somagic, video.v4l2_dev);
+}
+*/
+
+static struct video_device *somagic_vdev_init(
+																struct usb_somagic *somagic,
+        									      struct video_device *vdev_template, char *name);
 
 /*****************************************************************************/
-/* SYSFS Code																																 */
-/* Copied from media/video/usbvision module					 												 */
+/*                                                                           */
+/*            Struct Declarations                                            */
+/*                                                                           */
+/*****************************************************************************/
+static struct video_device somagic_video_template;
+
+
+/*****************************************************************************/
+/*                                                                           */
+/* SYSFS Code	- Copied from the stv680.c usb module.												 */
+/* Device information is located at /sys/class/video4linux/videoX            */
+/* Device parameters information is located at /sys/module/somagic_easycap   */
+/* Device USB information is located at /sys/bus/usb/drivers/somagic_easycap */
+/*                                                                           */
+/*****************************************************************************/
 
 static ssize_t show_version(struct device *cd,
 							struct device_attribute *attr, char *buf)
@@ -46,7 +77,7 @@ static ssize_t show_version(struct device *cd,
 
 static DEVICE_ATTR(version, S_IRUGO, show_version, NULL);
 
-static void somagic_create_sysfs(struct video_device *vdev)
+static void somagic_video_create_sysfs(struct video_device *vdev)
 {
 	int res;
 	if (!vdev) {
@@ -66,17 +97,97 @@ static void somagic_create_sysfs(struct video_device *vdev)
 	dev_err(&vdev->dev, "%s error: %d\n", __func__, res);
 }
 
-static void somagic_remove_sysfs(struct video_device *vdev)
+static void somagic_video_remove_sysfs(struct video_device *vdev)
 {
 	if (vdev) {
 		device_remove_file(&vdev->dev, &dev_attr_version);
 	}
 }
 
+/*****************************************************************************/
+/*                                                                           */
+/*            Video 4 Linux API  -  Init / Exit                              */
+/*                                                                           */
+/*****************************************************************************/
+
+int __devinit somagic_connect_video(struct usb_somagic *somagic)
+{
+  if (v4l2_device_register(&somagic->dev->dev, &somagic->video.v4l2_dev)) {
+    goto err_exit;
+  }
+
+	mutex_init(&somagic->video.v4l2_lock);
+
+  somagic->video.vdev = somagic_vdev_init(somagic, &somagic_video_template, SOMAGIC_DRIVER_NAME);
+	if (somagic->video.vdev == NULL) {
+		goto err_exit;
+	}
+
+	if (video_register_device(somagic->video.vdev, VFL_TYPE_GRABBER, video_nr) < 0) {
+		goto err_exit;
+	}
+
+	printk(KERN_INFO "Somagic[%d]: registered Somagic Video device %s [v4l2]\n",
+					somagic->video.nr, video_device_node_name(somagic->video.vdev));
+
+	somagic_video_create_sysfs(somagic->video.vdev);
+
+	return 0;
+
+	err_exit:
+		dev_err(&somagic->dev->dev, "Somagic[%d]: video_register_device() failed\n",
+						somagic->video.nr);
+
+    if (somagic->video.vdev) {
+      if (video_is_registered(somagic->video.vdev)) {
+        video_unregister_device(somagic->video.vdev);
+      } else {
+        video_device_release(somagic->video.vdev);
+      }
+    }
+    return -1;
+}
+
+void __devexit somagic_disconnect_video(struct usb_somagic *somagic)
+{
+	mutex_lock(&somagic->video.v4l2_lock);
+	v4l2_device_disconnect(&somagic->video.v4l2_dev);
+	usb_put_dev(somagic->dev);
+	mutex_unlock(&somagic->video.v4l2_lock);
+
+	somagic_video_remove_sysfs(somagic->video.vdev);
+
+	if (somagic->video.vdev) {
+		if (video_is_registered(somagic->video.vdev)) {
+			video_unregister_device(somagic->video.vdev);
+		} else {
+			video_device_release(somagic->video.vdev);
+		}
+		somagic->video.vdev = NULL;
+	}	
+	v4l2_device_unregister(&somagic->video.v4l2_dev);
+}
+
+/*****************************************************************************/
+/*                                                                           */
+/*            V4L2 Functions                                                 */
+/*                                                                           */
+/*****************************************************************************/
+
+/*
+ * somagic_v4l2_open()
+ *
+ * This is part of the Video 4 Linux API.
+ */
 static int somagic_v4l2_open(struct file *file)
 {
-	//struct usb_somagic *somagic = video_drvdata(file);
-	return -EBUSY;
+	struct usb_somagic *somagic = video_drvdata(file);
+	int err_code = 0;
+
+	printk(KERN_INFO "somagic::%s: CALLED\n", __func__);
+
+	return 0;
+//	return -EBUSY;
 }
 
 static int somagic_v4l2_close(struct file *file)
@@ -89,7 +200,17 @@ static int somagic_v4l2_close(struct file *file)
 static int vidioc_querycap(struct file *file, void *priv,
 							struct v4l2_capability *vc)
 {
-	return -EINVAL;
+	struct usb_somagic *somagic = video_drvdata(file);
+	if (somagic == NULL) {
+		printk(KERN_ERR "somagic::%s: Driver-structure is NULL pointer\n", __func__);
+		return -EINVAL;
+	}
+	strlcpy(vc->driver, SOMAGIC_DRIVER_NAME, sizeof(vc->driver));
+	strlcpy(vc->card, "EasyCAP DC60", sizeof(vc->card));
+	usb_make_path(somagic->dev, vc->bus_info, sizeof(vc->bus_info));
+	vc->capabilities = 0;
+	printk(KERN_INFO "somagic::%s: CALLED\n", __func__);
+	return 0;
 }
 
 static int vidioc_enum_input(struct file *file, void *priv,
@@ -230,9 +351,14 @@ static ssize_t somagic_v4l2_read(struct file *file, char __user *buf,
 static int somagic_v4l2_mmap(struct file *file, struct vm_area_struct *vma)
 {
 	return -EFAULT;
+
 }
 
-/************* Structs *********/
+/*****************************************************************************/
+/*                                                                           */
+/*            Structs                                                        */
+/*                                                                           */
+/*****************************************************************************/
 
 static const struct v4l2_file_operations somagic_fops = {
 	.owner = THIS_MODULE,
@@ -280,127 +406,9 @@ static struct video_device somagic_video_template = {
 	.current_norm = V4L2_STD_PAL
 };
 
-/** Static function definitions **/
-static struct usb_somagic *somagic_alloc(struct usb_device *dev,
-              struct usb_interface *intf);
-static void somagic_release(struct usb_somagic *somagic);
-
-static int somagic_register_video(struct usb_somagic *somagic);
-static void somagic_unregister_video(struct usb_somagic *somagic);
-
-static struct video_device *somagic_vdev_init(struct usb_somagic *somagic,
-              struct video_device *vdev_template, char *name);
-
-
-int __devinit somagic_capture_device_register(struct usb_interface *intf)
-{
-  struct usb_somagic *somagic	= NULL;
-  struct usb_device *dev = usb_get_dev(interface_to_usbdev(intf));
-  if (dev->descriptor.idVendor != SOMAGIC_USB_VENDOR_ID
-      || dev->descriptor.idProduct != SOMAGIC_USB_PRODUCT_ID) {
-    return -ENODEV;
-  }
-
-	somagic = somagic_alloc(dev, intf);
-	if (somagic == NULL) {
-		dev_err(&intf->dev, "%s: couldn't allocate Somagic struct\n", __func__);
-		return -ENOMEM;
-	}
-
-	//somagic_configure_video(somagic);
-	somagic_register_video(somagic);
-
-	somagic_create_sysfs(somagic->vdev);
-
-	return 0;
-}
-
-void somagic_capture_device_deregister(struct usb_interface *intf)
-{
-	struct usb_somagic *somagic = to_somagic(usb_get_intfdata(intf));
-
-	mutex_lock(&somagic->v4l2_lock);
-
-	v4l2_device_disconnect(&somagic->v4l2_dev);
-
-	usb_put_dev(somagic->dev);
-	somagic->dev = NULL;
-
-	mutex_unlock(&somagic->v4l2_lock);
-
-	somagic_release(somagic);
-}
-
-static struct usb_somagic *somagic_alloc(struct usb_device *dev,
-              struct usb_interface *intf)
-{
-  struct usb_somagic *somagic;
-  somagic = kzalloc(sizeof(struct usb_somagic), GFP_KERNEL);
-  if (somagic == NULL) {
-    return NULL;
-  }
-
-  somagic->dev = dev;
-  if (v4l2_device_register(&intf->dev, &somagic->v4l2_dev)) {
-    kfree(somagic);
-    return NULL;
-  }
-
-	mutex_init(&somagic->v4l2_lock);
-
-  printk(KERN_INFO "%s: v4l2 Device Registered!\n", __func__);
-
-  return somagic;
-}
-
-static void somagic_release(struct usb_somagic *somagic)
-{
-  somagic->initialized = 0;	
-
-	somagic_remove_sysfs(somagic->vdev);
-	somagic_unregister_video(somagic);
-
-  v4l2_device_unregister(&somagic->v4l2_dev);
-  kfree(somagic);
-}
-
-/* Register v4l2 Devices */
-static int __devinit somagic_register_video(struct usb_somagic *somagic)
-{
-  somagic->vdev = somagic_vdev_init(somagic, &somagic_video_template, "Somagic Video");
-	if (somagic->vdev == NULL) {
-		goto err_exit;
-	}
-
-	if (video_register_device(somagic->vdev, VFL_TYPE_GRABBER, video_nr) < 0) {
-		goto err_exit;
-	}
-
-	printk(KERN_INFO "Somagic[%d]: registered Somagic Video device %s [v4l2]\n",
-					somagic->nr, video_device_node_name(somagic->vdev));
-
-	return 0;
-
-	err_exit:
-		dev_err(&somagic->dev->dev, "Somagic[%d]: video_register_device() failed\n",
-						somagic->nr);
-		somagic_unregister_video(somagic);
-		return -1;
-}
-
-/* Unregister v4l2 Devices */
-static void somagic_unregister_video(struct usb_somagic *somagic)
-{
-	if (video_is_registered(somagic->vdev)) {
-		video_unregister_device(somagic->vdev);
-	} else {
-		video_device_release(somagic->vdev);
-	}
-	somagic->vdev = NULL;
-} 
-
-static struct video_device *somagic_vdev_init(struct usb_somagic *somagic,
-              struct video_device *vdev_template, char *name)
+static struct video_device *somagic_vdev_init(
+																struct usb_somagic *somagic,
+        									      struct video_device *vdev_template, char *name)
 {
   struct usb_device *usb_dev = somagic->dev;
   struct video_device *vdev;
@@ -415,8 +423,8 @@ static struct video_device *somagic_vdev_init(struct usb_somagic *somagic,
     return NULL;
   }
 	*vdev = *vdev_template;
-	vdev->lock = &somagic->v4l2_lock;
-	vdev->v4l2_dev = &somagic->v4l2_dev;
+	vdev->lock = &somagic->video.v4l2_lock;
+	vdev->v4l2_dev = &somagic->video.v4l2_dev;
 	snprintf(vdev->name, sizeof(vdev->name), "%s", name);
 	video_set_drvdata(vdev, somagic);
 	return vdev;

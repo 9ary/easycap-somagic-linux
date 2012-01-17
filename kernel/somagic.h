@@ -48,10 +48,13 @@
 #include <linux/delay.h>
 #include <linux/types.h>
 
+#include <media/v4l2-device.h>
+
 #define SOMAGIC_USB_VENDOR_ID 0x1c88
 #define SOMAGIC_USB_BOOTLOADER_PRODUCT_ID 0x0007
 #define SOMAGIC_USB_PRODUCT_ID 0x003c
 
+#define SOMAGIC_DRIVER_NAME "SMI Grabber DEV"
 #define SOMAGIC_DRIVER_VERSION "0.1"
 #define SOMAGIC_DRIVER_DESCRIPTION "Driver for EasyCAP DC60, with Somagic SMI2021CBE chipset"
 
@@ -61,6 +64,11 @@
 #define SOMAGIC_DATAPART_HEADER_LO 0x05
 #define SOMAGIC_DATAPART_HEADER_SIZE 2
 #define SOMAGIC_DATAPART_SIZE 64
+
+#define SOMAGIC_SAA_0A_DEFAULT 0x80
+#define SOMAGIC_SAA_0B_DEFAULT 0x40
+#define SOMAGIC_SAA_0C_DEFAULT 0x40
+#define SOMAGIC_SAA_0D_DEFAULT 0x00
 
 #define SOMAGIC_URB_STD_TIMEOUT 500
 #define SOMAGIC_URB_STD_REQUEST 0x01
@@ -74,4 +82,58 @@
 
 #define SOMAGIC_NORMS (V4L2_STD_PAL | V4L2_STD_NTSC | V4L2_STD_SECAM | V4L2_STD_PAL_M)
 
+struct somagic_audio {
+};
+
+struct somagic_video {
+	struct v4l2_device v4l2_dev;
+	struct video_device *vdev;
+	struct v4l2_capability vcap;
+
+	// Device structure 
+	struct mutex v4l2_lock;
+	unsigned int nr;
+
+	struct urb *ctrl_urb;
+	unsigned char ctrl_urb_buffer[8];
+	struct usb_ctrlrequest ctrl_urb_setup;
+};
+
+struct usb_somagic {
+	int initialized;
+
+	struct usb_device *dev;
+	struct somagic_audio audio;
+	struct somagic_video video;
+};
+
+int somagic_connect_video(struct usb_somagic *somagic);
+void somagic_disconnect_video(struct usb_somagic *somagic);
+
 #endif /* SOMAGIC_H */
+
+
+// VPO 0-7 = Output pins
+// Controlled by I2C-Bus Register LCR2 - LCR24
+// If I2C-Bus bit VIPB = 1, the high bits of digitized inputs are connected to these outputs?
+// This is configured by I2C control signals MODE3 to MODE0
+//
+// After Power-on (reset sequence) a complete I2C-Bus transmission is required. (saa7113h - Table2 - Page 24)
+//
+// The Programming of Multi-Standard VBI - Slicing (Teletext etc.)
+// I2C Bus 41H - 57H (LCR2[7:0] to LCR24[7:0]),
+// 0x5B [2-0], 0x59 (HOFF10-HOFF0) and
+// 0x5B [4] , 0x5A (VOFF8-VOFF0)
+//
+// 8Bit VPO Bus, dataformats (saa7113h - Table 4 - Page 26)
+// Type 3  = Widescreen signaling bits (32 Bytes pr line - Might be less) 
+// Type 6  = YUV 4:2:2 (Testline) (1440 Bytes pr line) Only available on lines with (VREF = 0)
+// Type 7  = RAW (Oversampled CVBS Data) (Programmable Bytecount)
+// Type 15 = YUV 4:2:2 (Active Video) (1440 Bytes pr line) (720Pixels pr line)
+//
+// SAV/EAV format (Start Acttive Video / End Active Video | VBI - Vertical Blanking)
+// Bit 7 = 1
+// Bit 6 = (F)ield Bit (Odd/Even)
+// Bit 5 = (V)ertical blanking bit (1 = VBI , 0 = Active Video)
+// Bit 4 = (H) 0 = in SAV , 1 = in EAV (0 during active data)
+// Bit 3-0 = Reserved!

@@ -24,7 +24,7 @@
 
 obj-m += somagic.o
 
-somagic-y += somagic_capture_device.o \
+somagic-y += somagic_video.o \
              somagic_bootloader.o \
              somagic_main.o
 
