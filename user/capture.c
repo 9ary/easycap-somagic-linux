@@ -7,7 +7,7 @@
  * Initializes the Somagic EasyCAP DC60 registers and performs image capture.  *
  * *****************************************************************************
  *
- * Copyright 2011 Tony Brown, Jeffry Johnston
+ * Copyright 2011 Tony Brown, Jeffry Johnston, Michal Demin	
  *
  * This file is part of somagic_dc60
  * http://code.google.com/p/easycap-somagic-linux/
@@ -398,9 +398,119 @@ void usage(char * name)
 	exit(1);
 }
 
+static int somagic_read_reg(uint16_t reg, uint8_t *val)
+{
+	int ret;
+	uint8_t buf[8];
+
+	memcpy(buf, "\x0b\x00\x20\x82\x01\x30\x80\xFF", 0x0000008);
+
+	buf[5] = reg >> 8;
+	buf[6] = reg & 0xff;
+
+	ret = libusb_control_transfer(devh, LIBUSB_REQUEST_TYPE_VENDOR + LIBUSB_RECIPIENT_DEVICE, 0x0000001, 0x000000b, 0x0000000, buf, 0x0000008, 1000);
+	if (ret != 8) {
+		fprintf(stderr, "read_reg msg returned %d, bytes: ", ret);
+		print_bytes(buf, ret);
+		fprintf(stderr, "\n");
+	}
+
+	ret = libusb_control_transfer(devh, LIBUSB_REQUEST_TYPE_VENDOR + LIBUSB_RECIPIENT_DEVICE + LIBUSB_ENDPOINT_IN, 0x0000001, 0x000000b, 0x0000000, buf, 0x000000d, 1000);
+	if (ret != 0x0d) {
+		fprintf(stderr, "read_reg control msg returned %d, bytes: ", ret);
+		print_bytes(buf, ret);
+		fprintf(stderr, "\n");
+	}
+
+	if (val) {
+		*val = buf[7];
+	}
+
+	return ret;
+}
+
+static int somagic_write_reg(uint16_t reg, uint8_t val)
+{
+	int ret;
+	uint8_t buf[8];
+
+	memcpy(buf, "\x0b\x00\x00\x82\x01\x00\x3a\x00", 0x0000008);
+	buf[5] = reg >> 8;
+	buf[6] = reg & 0xff;
+	buf[7] = val;
+
+	ret = libusb_control_transfer(devh, LIBUSB_REQUEST_TYPE_VENDOR + LIBUSB_RECIPIENT_DEVICE, 0x0000001, 0x000000b, 0x0000000, buf, 0x0000008, 1000);
+	if (ret != 8) {
+		fprintf(stderr, "write reg control msg returned %d, bytes: ", ret);
+		print_bytes(buf, ret);
+		fprintf(stderr, "\n");
+	}
+
+	return ret;
+}
+
+static int somagic_read_i2c(uint8_t dev_addr, uint8_t reg, uint8_t *val)
+{
+	int ret;
+	uint8_t buf[27];
+
+	memcpy(buf, "\x0b\x4a\x84\x00\x01\x10\x00\x00\x00\x00\x00\x00\x00", 0x000000d);
+
+	buf[1] = dev_addr;
+	buf[5] = reg;
+
+	ret = libusb_control_transfer(devh, LIBUSB_REQUEST_TYPE_VENDOR + LIBUSB_RECIPIENT_DEVICE, 0x0000001, 0x000000b, 0x0000000, buf, 0x000000d, 1000);
+	fprintf( stderr, "-> i2c_read msg returned %d, bytes: ", ret);
+	print_bytes(buf, ret);
+	fprintf( stderr, "\n");
+	usleep(18*1000);
+
+	memcpy(buf, "\x0b\x4a\xa0\x00\x01\x00\xff\xff\xff\xff\xff\xff\xff", 0x000000d);
+
+	buf[1] = dev_addr;
+
+	ret = libusb_control_transfer(devh, LIBUSB_REQUEST_TYPE_VENDOR + LIBUSB_RECIPIENT_DEVICE, 0x0000001, 0x000000b, 0x0000000, buf, 0x000000d, 1000);
+	fprintf( stderr, "-> i2c_read msg returned %d, bytes: ", ret);
+	print_bytes(buf, ret);
+	fprintf( stderr, "\n");
+
+	memset(buf, 0xff, 0x000000d);
+	ret = libusb_control_transfer(devh, LIBUSB_REQUEST_TYPE_VENDOR + LIBUSB_RECIPIENT_DEVICE + LIBUSB_ENDPOINT_IN, 0x0000001, 0x000000b, 0x0000000, buf, 0x000000d, 1000);
+	fprintf( stderr, "<- i2c_read msg returned %d, bytes: ", ret);
+	print_bytes(buf, ret);
+	fprintf( stderr, "\n");
+	usleep(11*1000);
+
+	*val = buf[5];
+
+	return ret;
+}
+
+static int somagic_write_i2c(uint8_t dev_addr, uint8_t reg, uint8_t val)
+{
+	int ret;
+	uint8_t buf[8];
+
+	memcpy(buf, "\x0b\x4a\xc0\x01\x01\x01\x08\xf4", 0x0000008);
+
+	buf[1] = dev_addr;
+	buf[5] = reg;
+	buf[6] = val;
+
+	ret = libusb_control_transfer(devh, LIBUSB_REQUEST_TYPE_VENDOR + LIBUSB_RECIPIENT_DEVICE, 0x0000001, 0x000000b, 0x0000000, buf, 0x0000008, 1000);
+	if (ret != 8) {
+		fprintf(stderr, "write_i2c returned %d, bytes: ", ret);
+		print_bytes(buf, ret);
+		fprintf(stderr, "\n");
+	}
+
+	return ret;
+}
+
 int main(int argc, char **argv)
 {
 	int ret;
+	uint8_t status;
 	struct libusb_device *dev;
 	
 	//buffer for control messages
@@ -409,6 +519,8 @@ int main(int argc, char **argv)
 	//buffers and transfer pointers for isochronous data
 	struct libusb_transfer *tfr[NUM_ISO_TRANSFERS];
 	unsigned char isobuf[NUM_ISO_TRANSFERS][64 * 3072];
+
+	int i = 0;
 
 	if (argc != 2) {
 		usage(argv[0]);
@@ -473,513 +585,137 @@ int main(int argc, char **argv)
 	fprintf(stderr, "5 control msg returned %d, bytes: ", ret);
 	print_bytes(buf, ret);
 	fprintf(stderr, "\n");
-	memcpy(buf, "\x0b\x00\x00\x82\x01\x00\x3a\x80", 0x0000008);
-	ret = libusb_control_transfer(devh, LIBUSB_REQUEST_TYPE_VENDOR + LIBUSB_RECIPIENT_DEVICE, 0x0000001, 0x000000b, 0x0000000, buf, 0x0000008, 1000);
-	fprintf(stderr, "6 control msg returned %d, bytes: ", ret);
-	print_bytes(buf, ret);
-	fprintf(stderr, "\n");
-	memcpy(buf, "\x0b\x00\x00\x82\x01\x00\x3b\x00", 0x0000008);
-	ret = libusb_control_transfer(devh, LIBUSB_REQUEST_TYPE_VENDOR + LIBUSB_RECIPIENT_DEVICE, 0x0000001, 0x000000b, 0x0000000, buf, 0x0000008, 1000);
-	fprintf(stderr, "7 control msg returned %d, bytes: ", ret);
-	print_bytes(buf, ret);
-	fprintf(stderr, "\n");
-	memcpy(buf, "\x0b\x00\x00\x82\x01\x00\x34\x01", 0x0000008);
-	ret = libusb_control_transfer(devh, LIBUSB_REQUEST_TYPE_VENDOR + LIBUSB_RECIPIENT_DEVICE, 0x0000001, 0x000000b, 0x0000000, buf, 0x0000008, 1000);
-	fprintf(stderr, "8 control msg returned %d, bytes: ", ret);
-	print_bytes(buf, ret);
-	fprintf(stderr, "\n");
-	memcpy(buf, "\x0b\x00\x00\x82\x01\x00\x35\x00", 0x0000008);
-	ret = libusb_control_transfer(devh, LIBUSB_REQUEST_TYPE_VENDOR + LIBUSB_RECIPIENT_DEVICE, 0x0000001, 0x000000b, 0x0000000, buf, 0x0000008, 1000);
-	fprintf(stderr, "9 control msg returned %d, bytes: ", ret);
-	print_bytes(buf, ret);
-	fprintf(stderr, "\n");
-	memcpy(buf, "\x0b\x00\x20\x82\x01\x30\x80\x80", 0x0000008);
-	ret = libusb_control_transfer(devh, LIBUSB_REQUEST_TYPE_VENDOR + LIBUSB_RECIPIENT_DEVICE, 0x0000001, 0x000000b, 0x0000000, buf, 0x0000008, 1000);
-	fprintf(stderr, "10 control msg returned %d, bytes: ", ret);
-	print_bytes(buf, ret);
-	fprintf(stderr, "\n");
-	ret = libusb_control_transfer(devh, LIBUSB_REQUEST_TYPE_VENDOR + LIBUSB_RECIPIENT_DEVICE + LIBUSB_ENDPOINT_IN, 0x0000001, 0x000000b, 0x0000000, buf, 0x0000008, 1000);
-	fprintf(stderr, "11 control msg returned %d, bytes: ", ret);
-	print_bytes(buf, ret);
-	fprintf(stderr, "\n");
-	memcpy(buf, "\x0b\x00\x00\x82\x01\x00\x34\x11", 0x0000008);
-	ret = libusb_control_transfer(devh, LIBUSB_REQUEST_TYPE_VENDOR + LIBUSB_RECIPIENT_DEVICE, 0x0000001, 0x000000b, 0x0000000, buf, 0x0000008, 1000);
-	fprintf(stderr, "12 control msg returned %d, bytes: ", ret);
-	print_bytes(buf, ret);
-	fprintf(stderr, "\n");
-	memcpy(buf, "\x0b\x00\x00\x82\x01\x00\x35\x11", 0x0000008);
-	ret = libusb_control_transfer(devh, LIBUSB_REQUEST_TYPE_VENDOR + LIBUSB_RECIPIENT_DEVICE, 0x0000001, 0x000000b, 0x0000000, buf, 0x0000008, 1000);
-	fprintf(stderr, "13 control msg returned %d, bytes: ", ret);
-	print_bytes(buf, ret);
-	fprintf(stderr, "\n");
-	memcpy(buf, "\x0b\x00\x00\x82\x01\x00\x3a\x80", 0x0000008);
-	ret = libusb_control_transfer(devh, LIBUSB_REQUEST_TYPE_VENDOR + LIBUSB_RECIPIENT_DEVICE, 0x0000001, 0x000000b, 0x0000000, buf, 0x0000008, 1000);
-	fprintf(stderr, "14 control msg returned %d, bytes: ", ret);
-	print_bytes(buf, ret);
-	fprintf(stderr, "\n");
-	memcpy(buf, "\x0b\x00\x00\x82\x01\x00\x3b\x80", 0x0000008);
-	ret = libusb_control_transfer(devh, LIBUSB_REQUEST_TYPE_VENDOR + LIBUSB_RECIPIENT_DEVICE, 0x0000001, 0x000000b, 0x0000000, buf, 0x0000008, 1000);
-	fprintf(stderr, "15 control msg returned %d, bytes: ", ret);
-	print_bytes(buf, ret);
-	fprintf(stderr, "\n");
-	memcpy(buf, "\x0b\x00\x00\x82\x01\x00\x3a\x80", 0x0000008);
-	ret = libusb_control_transfer(devh, LIBUSB_REQUEST_TYPE_VENDOR + LIBUSB_RECIPIENT_DEVICE, 0x0000001, 0x000000b, 0x0000000, buf, 0x0000008, 1000);
-	fprintf(stderr, "16 control msg returned %d, bytes: ", ret);
-	print_bytes(buf, ret);
-	fprintf(stderr, "\n");
-	memcpy(buf, "\x0b\x00\x00\x82\x01\x00\x3b\x00", 0x0000008);
-	ret = libusb_control_transfer(devh, LIBUSB_REQUEST_TYPE_VENDOR + LIBUSB_RECIPIENT_DEVICE, 0x0000001, 0x000000b, 0x0000000, buf, 0x0000008, 1000);
-	fprintf(stderr, "17 control msg returned %d, bytes: ", ret);
-	print_bytes(buf, ret);
-	fprintf(stderr, "\n");
-	memcpy(buf, "\x0b\x4a\xc0\x01\x01\x01\x08\xf4", 0x0000008);
-	ret = libusb_control_transfer(devh, LIBUSB_REQUEST_TYPE_VENDOR + LIBUSB_RECIPIENT_DEVICE, 0x0000001, 0x000000b, 0x0000000, buf, 0x0000008, 1000);
-	fprintf(stderr, "96 control msg returned %d, bytes: ", ret);
-	print_bytes(buf, ret);
-	fprintf(stderr, "\n");
-	memcpy(buf, "\x0b\x4a\xc0\x01\x01\x02\xc7\x86", 0x0000008);
-	ret = libusb_control_transfer(devh, LIBUSB_REQUEST_TYPE_VENDOR + LIBUSB_RECIPIENT_DEVICE, 0x0000001, 0x000000b, 0x0000000, buf, 0x0000008, 1000);
-	fprintf(stderr, "97 control msg returned %d, bytes: ", ret);
-	print_bytes(buf, ret);
-	fprintf(stderr, "\n");
-	memcpy(buf, "\x0b\x4a\xc0\x01\x01\x03\x33\x86", 0x0000008);
-	ret = libusb_control_transfer(devh, LIBUSB_REQUEST_TYPE_VENDOR + LIBUSB_RECIPIENT_DEVICE, 0x0000001, 0x000000b, 0x0000000, buf, 0x0000008, 1000);
-	fprintf(stderr, "98 control msg returned %d, bytes: ", ret);
-	print_bytes(buf, ret);
-	fprintf(stderr, "\n");
-	memcpy(buf, "\x0b\x4a\xc0\x01\x01\x04\x00\x86", 0x0000008);
-	ret = libusb_control_transfer(devh, LIBUSB_REQUEST_TYPE_VENDOR + LIBUSB_RECIPIENT_DEVICE, 0x0000001, 0x000000b, 0x0000000, buf, 0x0000008, 1000);
-	fprintf(stderr, "99 control msg returned %d, bytes: ", ret);
-	print_bytes(buf, ret);
-	fprintf(stderr, "\n");
-	memcpy(buf, "\x0b\x4a\xc0\x01\x01\x05\x00\x86", 0x0000008);
-	ret = libusb_control_transfer(devh, LIBUSB_REQUEST_TYPE_VENDOR + LIBUSB_RECIPIENT_DEVICE, 0x0000001, 0x000000b, 0x0000000, buf, 0x0000008, 1000);
-	fprintf(stderr, "100 control msg returned %d, bytes: ", ret);
-	print_bytes(buf, ret);
-	fprintf(stderr, "\n");
-	memcpy(buf, "\x0b\x4a\xc0\x01\x01\x06\xe9\x86", 0x0000008);
-	ret = libusb_control_transfer(devh, LIBUSB_REQUEST_TYPE_VENDOR + LIBUSB_RECIPIENT_DEVICE, 0x0000001, 0x000000b, 0x0000000, buf, 0x0000008, 1000);
-	fprintf(stderr, "101 control msg returned %d, bytes: ", ret);
-	print_bytes(buf, ret);
-	fprintf(stderr, "\n");
-	memcpy(buf, "\x0b\x4a\xc0\x01\x01\x07\x0d\x86", 0x0000008);
-	ret = libusb_control_transfer(devh, LIBUSB_REQUEST_TYPE_VENDOR + LIBUSB_RECIPIENT_DEVICE, 0x0000001, 0x000000b, 0x0000000, buf, 0x0000008, 1000);
-	fprintf(stderr, "102 control msg returned %d, bytes: ", ret);
-	print_bytes(buf, ret);
-	fprintf(stderr, "\n");
+
+	somagic_write_reg(0x3a, 0x80);
+	somagic_write_reg(0x3b, 0x00);
+
+	// reset audio chip?
+	somagic_write_reg(0x34, 0x01);
+	somagic_write_reg(0x35, 0x00);
+
+	somagic_read_reg(0x3080, &status);
+	fprintf(stderr, "status is %02x\n", status);
+
+	// reset audio chip?
+	somagic_write_reg(0x34, 0x11);
+	somagic_write_reg(0x35, 0x11);
+
+	// SAAxxx: toggle reset of SAAxxx
+	//somagic_write_reg(0x3a, 0x80); // not necessary
+	somagic_write_reg(0x3b, 0x80);
+
+	// SAAxxx: bring from reset
+	//somagic_write_reg(0x3a, 0x80); // not necessary
+	somagic_write_reg(0x3b, 0x00);
+
+	somagic_write_i2c(0x4a, 0x01, 0x08);
+	somagic_write_i2c(0x4a, 0x02, 0xc7);
+	somagic_write_i2c(0x4a, 0x03, 0x33);
+	somagic_write_i2c(0x4a, 0x04, 0x00);
+	somagic_write_i2c(0x4a, 0x05, 0x00);
+	somagic_write_i2c(0x4a, 0x06, 0xe9);
+	somagic_write_i2c(0x4a, 0x07, 0x0d);
+
 	/* Subaddress 08h: d8 or 98 = auto NTSC/PAL, 58 = force NTSC, 18 = force PAL */
-	memcpy(buf, "\x0b\x4a\xc0\x01\x01\x08\x98\x86", 0x0000008);
-	ret = libusb_control_transfer(devh, LIBUSB_REQUEST_TYPE_VENDOR + LIBUSB_RECIPIENT_DEVICE, 0x0000001, 0x000000b, 0x0000000, buf, 0x0000008, 1000);
-	fprintf(stderr, "103 control msg returned %d, bytes: ", ret);
-	print_bytes(buf, ret);
-	fprintf(stderr, "\n");
-	memcpy(buf, "\x0b\x4a\xc0\x01\x01\x09\x01\x86", 0x0000008);
-	ret = libusb_control_transfer(devh, LIBUSB_REQUEST_TYPE_VENDOR + LIBUSB_RECIPIENT_DEVICE, 0x0000001, 0x000000b, 0x0000000, buf, 0x0000008, 1000);
-	fprintf(stderr, "104 control msg returned %d, bytes: ", ret);
-	print_bytes(buf, ret);
-	fprintf(stderr, "\n");
-	memcpy(buf, "\x0b\x4a\xc0\x01\x01\x0a\x80\x86", 0x0000008);
-	ret = libusb_control_transfer(devh, LIBUSB_REQUEST_TYPE_VENDOR + LIBUSB_RECIPIENT_DEVICE, 0x0000001, 0x000000b, 0x0000000, buf, 0x0000008, 1000);
-	fprintf(stderr, "105 control msg returned %d, bytes: ", ret);
-	print_bytes(buf, ret);
-	fprintf(stderr, "\n");
-	memcpy(buf, "\x0b\x4a\xc0\x01\x01\x0b\x40\xff", 0x0000008);
-	ret = libusb_control_transfer(devh, LIBUSB_REQUEST_TYPE_VENDOR + LIBUSB_RECIPIENT_DEVICE, 0x0000001, 0x000000b, 0x0000000, buf, 0x0000008, 1000);
-	fprintf(stderr, "106 control msg returned %d, bytes: ", ret);
-	print_bytes(buf, ret);
-	fprintf(stderr, "\n");
-	memcpy(buf, "\x0b\x4a\xc0\x01\x01\x0c\x40\xff", 0x0000008);
-	ret = libusb_control_transfer(devh, LIBUSB_REQUEST_TYPE_VENDOR + LIBUSB_RECIPIENT_DEVICE, 0x0000001, 0x000000b, 0x0000000, buf, 0x0000008, 1000);
-	fprintf(stderr, "107 control msg returned %d, bytes: ", ret);
-	print_bytes(buf, ret);
-	fprintf(stderr, "\n");
-	memcpy(buf, "\x0b\x4a\xc0\x01\x01\x0d\x00\x86", 0x0000008);
-	ret = libusb_control_transfer(devh, LIBUSB_REQUEST_TYPE_VENDOR + LIBUSB_RECIPIENT_DEVICE, 0x0000001, 0x000000b, 0x0000000, buf, 0x0000008, 1000);
-	fprintf(stderr, "108 control msg returned %d, bytes: ", ret);
-	print_bytes(buf, ret);
-	fprintf(stderr, "\n");
-	memcpy(buf, "\x0b\x4a\xc0\x01\x01\x0e\x81\x86", 0x0000008);
-	ret = libusb_control_transfer(devh, LIBUSB_REQUEST_TYPE_VENDOR + LIBUSB_RECIPIENT_DEVICE, 0x0000001, 0x000000b, 0x0000000, buf, 0x0000008, 1000);
-	fprintf(stderr, "109 control msg returned %d, bytes: ", ret);
-	print_bytes(buf, ret);
-	fprintf(stderr, "\n");
-	memcpy(buf, "\x0b\x4a\xc0\x01\x01\x0e\x81\x86", 0x0000008);
-	ret = libusb_control_transfer(devh, LIBUSB_REQUEST_TYPE_VENDOR + LIBUSB_RECIPIENT_DEVICE, 0x0000001, 0x000000b, 0x0000000, buf, 0x0000008, 1000);
-	fprintf(stderr, "110 control msg returned %d, bytes: ", ret);
-	print_bytes(buf, ret);
-	fprintf(stderr, "\n");
-	memcpy(buf, "\x0b\x4a\xc0\x01\x01\x0e\x81\x86", 0x0000008);
-	ret = libusb_control_transfer(devh, LIBUSB_REQUEST_TYPE_VENDOR + LIBUSB_RECIPIENT_DEVICE, 0x0000001, 0x000000b, 0x0000000, buf, 0x0000008, 1000);
-	fprintf(stderr, "111 control msg returned %d, bytes: ", ret);
-	print_bytes(buf, ret);
-	fprintf(stderr, "\n");
-	memcpy(buf, "\x0b\x4a\xc0\x01\x01\x0e\x81\x86", 0x0000008);
-	ret = libusb_control_transfer(devh, LIBUSB_REQUEST_TYPE_VENDOR + LIBUSB_RECIPIENT_DEVICE, 0x0000001, 0x000000b, 0x0000000, buf, 0x0000008, 1000);
-	fprintf(stderr, "112 control msg returned %d, bytes: ", ret);
-	print_bytes(buf, ret);
-	fprintf(stderr, "\n");
-	memcpy(buf, "\x0b\x4a\xc0\x01\x01\x0e\x81\x86", 0x0000008);
-	ret = libusb_control_transfer(devh, LIBUSB_REQUEST_TYPE_VENDOR + LIBUSB_RECIPIENT_DEVICE, 0x0000001, 0x000000b, 0x0000000, buf, 0x0000008, 1000);
-	fprintf(stderr, "113 control msg returned %d, bytes: ", ret);
-	print_bytes(buf, ret);
-	fprintf(stderr, "\n");
-	memcpy(buf, "\x0b\x4a\xc0\x01\x01\x0e\x81\x86", 0x0000008);
-	ret = libusb_control_transfer(devh, LIBUSB_REQUEST_TYPE_VENDOR + LIBUSB_RECIPIENT_DEVICE, 0x0000001, 0x000000b, 0x0000000, buf, 0x0000008, 1000);
-	fprintf(stderr, "114 control msg returned %d, bytes: ", ret);
-	print_bytes(buf, ret);
-	fprintf(stderr, "\n");
-	memcpy(buf, "\x0b\x4a\xc0\x01\x01\x0e\x81\x86", 0x0000008);
-	ret = libusb_control_transfer(devh, LIBUSB_REQUEST_TYPE_VENDOR + LIBUSB_RECIPIENT_DEVICE, 0x0000001, 0x000000b, 0x0000000, buf, 0x0000008, 1000);
-	fprintf(stderr, "115 control msg returned %d, bytes: ", ret);
-	print_bytes(buf, ret);
-	fprintf(stderr, "\n");
-	memcpy(buf, "\x0b\x4a\xc0\x01\x01\x0e\x81\x86", 0x0000008);
-	ret = libusb_control_transfer(devh, LIBUSB_REQUEST_TYPE_VENDOR + LIBUSB_RECIPIENT_DEVICE, 0x0000001, 0x000000b, 0x0000000, buf, 0x0000008, 1000);
-	fprintf(stderr, "116 control msg returned %d, bytes: ", ret);
-	print_bytes(buf, ret);
-	fprintf(stderr, "\n");
-	memcpy(buf, "\x0b\x4a\xc0\x01\x01\x0e\x81\x86", 0x0000008);
-	ret = libusb_control_transfer(devh, LIBUSB_REQUEST_TYPE_VENDOR + LIBUSB_RECIPIENT_DEVICE, 0x0000001, 0x000000b, 0x0000000, buf, 0x0000008, 1000);
-	fprintf(stderr, "117 control msg returned %d, bytes: ", ret);
-	print_bytes(buf, ret);
-	fprintf(stderr, "\n");
-	memcpy(buf, "\x0b\x4a\xc0\x01\x01\x0e\x81\x86", 0x0000008);
-	ret = libusb_control_transfer(devh, LIBUSB_REQUEST_TYPE_VENDOR + LIBUSB_RECIPIENT_DEVICE, 0x0000001, 0x000000b, 0x0000000, buf, 0x0000008, 1000);
-	fprintf(stderr, "118 control msg returned %d, bytes: ", ret);
-	print_bytes(buf, ret);
-	fprintf(stderr, "\n");
-	memcpy(buf, "\x0b\x4a\xc0\x01\x01\x0f\x2a\x86", 0x0000008);
-	ret = libusb_control_transfer(devh, LIBUSB_REQUEST_TYPE_VENDOR + LIBUSB_RECIPIENT_DEVICE, 0x0000001, 0x000000b, 0x0000000, buf, 0x0000008, 1000);
-	fprintf(stderr, "119 control msg returned %d, bytes: ", ret);
-	print_bytes(buf, ret);
-	fprintf(stderr, "\n");
-	memcpy(buf, "\x0b\x4a\xc0\x01\x01\x10\x40\x86", 0x0000008);
-	ret = libusb_control_transfer(devh, LIBUSB_REQUEST_TYPE_VENDOR + LIBUSB_RECIPIENT_DEVICE, 0x0000001, 0x000000b, 0x0000000, buf, 0x0000008, 1000);
-	fprintf(stderr, "120 control msg returned %d, bytes: ", ret);
-	print_bytes(buf, ret);
-	fprintf(stderr, "\n");
-	memcpy(buf, "\x0b\x4a\xc0\x01\x01\x11\x0c\x86", 0x0000008);
-	ret = libusb_control_transfer(devh, LIBUSB_REQUEST_TYPE_VENDOR + LIBUSB_RECIPIENT_DEVICE, 0x0000001, 0x000000b, 0x0000000, buf, 0x0000008, 1000);
-	fprintf(stderr, "121 control msg returned %d, bytes: ", ret);
-	print_bytes(buf, ret);
-	fprintf(stderr, "\n");
-	memcpy(buf, "\x0b\x4a\xc0\x01\x01\x12\x01\x86", 0x0000008);
-	ret = libusb_control_transfer(devh, LIBUSB_REQUEST_TYPE_VENDOR + LIBUSB_RECIPIENT_DEVICE, 0x0000001, 0x000000b, 0x0000000, buf, 0x0000008, 1000);
-	fprintf(stderr, "122 control msg returned %d, bytes: ", ret);
-	print_bytes(buf, ret);
-	fprintf(stderr, "\n");
-	memcpy(buf, "\x0b\x4a\xc0\x01\x01\x13\x80\x86", 0x0000008);
-	ret = libusb_control_transfer(devh, LIBUSB_REQUEST_TYPE_VENDOR + LIBUSB_RECIPIENT_DEVICE, 0x0000001, 0x000000b, 0x0000000, buf, 0x0000008, 1000);
-	fprintf(stderr, "123 control msg returned %d, bytes: ", ret);
-	print_bytes(buf, ret);
-	fprintf(stderr, "\n");
-	memcpy(buf, "\x0b\x4a\xc0\x01\x01\x14\x00\x86", 0x0000008);
-	ret = libusb_control_transfer(devh, LIBUSB_REQUEST_TYPE_VENDOR + LIBUSB_RECIPIENT_DEVICE, 0x0000001, 0x000000b, 0x0000000, buf, 0x0000008, 1000);
-	fprintf(stderr, "124 control msg returned %d, bytes: ", ret);
-	print_bytes(buf, ret);
-	fprintf(stderr, "\n");
-	memcpy(buf, "\x0b\x4a\xc0\x01\x01\x15\x00\x86", 0x0000008);
-	ret = libusb_control_transfer(devh, LIBUSB_REQUEST_TYPE_VENDOR + LIBUSB_RECIPIENT_DEVICE, 0x0000001, 0x000000b, 0x0000000, buf, 0x0000008, 1000);
-	fprintf(stderr, "125 control msg returned %d, bytes: ", ret);
-	print_bytes(buf, ret);
-	fprintf(stderr, "\n");
-	memcpy(buf, "\x0b\x4a\xc0\x01\x01\x16\x00\x86", 0x0000008);
-	ret = libusb_control_transfer(devh, LIBUSB_REQUEST_TYPE_VENDOR + LIBUSB_RECIPIENT_DEVICE, 0x0000001, 0x000000b, 0x0000000, buf, 0x0000008, 1000);
-	fprintf(stderr, "126 control msg returned %d, bytes: ", ret);
-	print_bytes(buf, ret);
-	fprintf(stderr, "\n");
-	memcpy(buf, "\x0b\x4a\xc0\x01\x01\x17\x00\x86", 0x0000008);
-	ret = libusb_control_transfer(devh, LIBUSB_REQUEST_TYPE_VENDOR + LIBUSB_RECIPIENT_DEVICE, 0x0000001, 0x000000b, 0x0000000, buf, 0x0000008, 1000);
-	fprintf(stderr, "127 control msg returned %d, bytes: ", ret);
-	print_bytes(buf, ret);
-	fprintf(stderr, "\n");
-	memcpy(buf, "\x0b\x4a\xc0\x01\x01\x40\x02\x86", 0x0000008);
-	ret = libusb_control_transfer(devh, LIBUSB_REQUEST_TYPE_VENDOR + LIBUSB_RECIPIENT_DEVICE, 0x0000001, 0x000000b, 0x0000000, buf, 0x0000008, 1000);
-	fprintf(stderr, "128 control msg returned %d, bytes: ", ret);
-	print_bytes(buf, ret);
-	fprintf(stderr, "\n");
-	memcpy(buf, "\x0b\x4a\xc0\x01\x01\x58\x00\x86", 0x0000008);
-	ret = libusb_control_transfer(devh, LIBUSB_REQUEST_TYPE_VENDOR + LIBUSB_RECIPIENT_DEVICE, 0x0000001, 0x000000b, 0x0000000, buf, 0x0000008, 1000);
-	fprintf(stderr, "129 control msg returned %d, bytes: ", ret);
-	print_bytes(buf, ret);
-	fprintf(stderr, "\n");
+	somagic_write_i2c(0x4a, 0x08, 0x98);
+
+	somagic_write_i2c(0x4a, 0x09, 0x01);
+	somagic_write_i2c(0x4a, 0x0a, 0x80);
+	somagic_write_i2c(0x4a, 0x0b, 0x40);
+	somagic_write_i2c(0x4a, 0x0c, 0x40);
+	somagic_write_i2c(0x4a, 0x0d, 0x00);
+	somagic_write_i2c(0x4a, 0x0e, 0x81);
+	somagic_write_i2c(0x4a, 0x0f, 0x2a);
+	somagic_write_i2c(0x4a, 0x10, 0x40);
+	somagic_write_i2c(0x4a, 0x11, 0x0c);
+	somagic_write_i2c(0x4a, 0x12, 0x01);
+	somagic_write_i2c(0x4a, 0x13, 0x80);
+	somagic_write_i2c(0x4a, 0x14, 0x00);
+	somagic_write_i2c(0x4a, 0x15, 0x00);
+	somagic_write_i2c(0x4a, 0x16, 0x00);
+	somagic_write_i2c(0x4a, 0x17, 0x00);
+
+	somagic_write_i2c(0x4a, 0x40, 0x02);
+	somagic_write_i2c(0x4a, 0x58, 0x00);
+
 	/* Subaddress 59h: HOFF - horizontal offset */
-	memcpy(buf, "\x0b\x4a\xc0\x01\x01\x59\x54\x86", 0x0000008);
-	ret = libusb_control_transfer(devh, LIBUSB_REQUEST_TYPE_VENDOR + LIBUSB_RECIPIENT_DEVICE, 0x0000001, 0x000000b, 0x0000000, buf, 0x0000008, 1000);
-	fprintf(stderr, "130 control msg returned %d, bytes: ", ret);
-	print_bytes(buf, ret);
-	fprintf(stderr, "\n");
+	somagic_write_i2c(0x4a, 0x59, 0x54);
+
 	/* Subaddress 5Ah: VOFF - vertical offset */
-	memcpy(buf, "\x0b\x4a\xc0\x01\x01\x5a\x07\x86", 0x0000008);
-	ret = libusb_control_transfer(devh, LIBUSB_REQUEST_TYPE_VENDOR + LIBUSB_RECIPIENT_DEVICE, 0x0000001, 0x000000b, 0x0000000, buf, 0x0000008, 1000);
-	fprintf(stderr, "131 control msg returned %d, bytes: ", ret);
-	print_bytes(buf, ret);
-	fprintf(stderr, "\n");
+	somagic_write_i2c(0x4a, 0x5a, 0x07);
+
 	/* Subaddress 5Bh: HVOFF - horizontal and vertical offset bits */
-	memcpy(buf, "\x0b\x4a\xc0\x01\x01\x5b\x03\x86", 0x0000008);
-	ret = libusb_control_transfer(devh, LIBUSB_REQUEST_TYPE_VENDOR + LIBUSB_RECIPIENT_DEVICE, 0x0000001, 0x000000b, 0x0000000, buf, 0x0000008, 1000);
-	fprintf(stderr, "132 control msg returned %d, bytes: ", ret);
-	print_bytes(buf, ret);
-	fprintf(stderr, "\n");
+	somagic_write_i2c(0x4a, 0x5b, 0x03);
+
 	/* Subaddress 5Eh: SDID codes. 0 = sets SDID5 to SDID0 active */
-	memcpy(buf, "\x0b\x4a\xc0\x01\x01\x5e\x00\x86", 0x0000008);
-	ret = libusb_control_transfer(devh, LIBUSB_REQUEST_TYPE_VENDOR + LIBUSB_RECIPIENT_DEVICE, 0x0000001, 0x000000b, 0x0000000, buf, 0x0000008, 1000);
-	fprintf(stderr, "133 control msg returned %d, bytes: ", ret);
-	print_bytes(buf, ret);
-	fprintf(stderr, "\n");
-	memcpy(buf, "\x0b\x4a\xc0\x01\x01\x02\xc0\xf4", 0x0000008);
-	ret = libusb_control_transfer(devh, LIBUSB_REQUEST_TYPE_VENDOR + LIBUSB_RECIPIENT_DEVICE, 0x0000001, 0x000000b, 0x0000000, buf, 0x0000008, 1000);
-	fprintf(stderr, "134 control msg returned %d, bytes: ", ret);
-	print_bytes(buf, ret);
-	fprintf(stderr, "\n");
-	memcpy(buf, "\x0b\x4a\xc0\x01\x01\x0e\x01\xf4", 0x0000008);
-	ret = libusb_control_transfer(devh, LIBUSB_REQUEST_TYPE_VENDOR + LIBUSB_RECIPIENT_DEVICE, 0x0000001, 0x000000b, 0x0000000, buf, 0x0000008, 1000);
-	fprintf(stderr, "141 control msg returned %d, bytes: ", ret);
-	print_bytes(buf, ret);
-	fprintf(stderr, "\n");
+	somagic_write_i2c(0x4a, 0x5e, 0x00);
+
+	somagic_write_i2c(0x4a, 0x02, 0xc0);
+	somagic_write_i2c(0x4a, 0x0e, 0x01);
+
 	/* Subaddress 40h: 00 for PAL, 80 for NTSC */
 	if (tv_standard == PAL) {
-		memcpy(buf, "\x0b\x4a\x84\x00\x01\x40\x00\x00", 0x0000008);
+		somagic_write_i2c(0x4a, 0x40, 0x00);
 	} else {
-		memcpy(buf, "\x0b\x4a\x84\x00\x01\x40\x80\xf4", 0x0000008);
+		somagic_write_i2c(0x4a, 0x40, 0x80);
 	}
-	ret = libusb_control_transfer(devh, LIBUSB_REQUEST_TYPE_VENDOR + LIBUSB_RECIPIENT_DEVICE, 0x0000001, 0x000000b, 0x0000000, buf, 0x0000008, 1000);
-	fprintf(stderr, "142 control msg returned %d, bytes: ", ret);
-	print_bytes(buf, ret);
-	fprintf(stderr, "\n");
-	memcpy(buf, "\x0b\x4a\xa0\x00\x01\x86\x30\xf4", 0x0000008);
-	ret = libusb_control_transfer(devh, LIBUSB_REQUEST_TYPE_VENDOR + LIBUSB_RECIPIENT_DEVICE, 0x0000001, 0x000000b, 0x0000000, buf, 0x0000008, 1000);
-	fprintf(stderr, "143 control msg returned %d, bytes: ", ret);
-	print_bytes(buf, ret);
-	fprintf(stderr, "\n");
-	memcpy(buf, "\x0b\x4a\xa0\x00\x01\x00\x30\xf4", 0x0000008);
-	ret = libusb_control_transfer(devh, LIBUSB_REQUEST_TYPE_VENDOR + LIBUSB_RECIPIENT_DEVICE + LIBUSB_ENDPOINT_IN, 0x0000001, 0x000000b, 0x0000000, buf, 0x0000008, 1000);
-	fprintf(stderr, "144 control msg returned %d, bytes: ", ret);
-	print_bytes(buf, ret);
-	fprintf(stderr, "\n");
-	memcpy(buf, "\x0b\x4a\x84\x00\x01\x5b\x30\xf4", 0x0000008);
-	ret = libusb_control_transfer(devh, LIBUSB_REQUEST_TYPE_VENDOR + LIBUSB_RECIPIENT_DEVICE, 0x0000001, 0x000000b, 0x0000000, buf, 0x0000008, 1000);
-	fprintf(stderr, "145 control msg returned %d, bytes: ", ret);
-	print_bytes(buf, ret);
-	fprintf(stderr, "\n");
-	memcpy(buf, "\x0b\x4a\xa0\x00\x01\xf3\x30\xf4", 0x0000008);
-	ret = libusb_control_transfer(devh, LIBUSB_REQUEST_TYPE_VENDOR + LIBUSB_RECIPIENT_DEVICE, 0x0000001, 0x000000b, 0x0000000, buf, 0x0000008, 1000);
-	fprintf(stderr, "146 control msg returned %d, bytes: ", ret);
-	print_bytes(buf, ret);
-	fprintf(stderr, "\n");
-	memcpy(buf, "\x0b\x4a\xa0\x00\x01\x00\x30\xf4", 0x0000008);
-	ret = libusb_control_transfer(devh, LIBUSB_REQUEST_TYPE_VENDOR + LIBUSB_RECIPIENT_DEVICE + LIBUSB_ENDPOINT_IN, 0x0000001, 0x000000b, 0x0000000, buf, 0x0000008, 1000);
-	fprintf(stderr, "147 control msg returned %d, bytes: ", ret);
-	print_bytes(buf, ret);
-	fprintf(stderr, "\n");
-	memcpy(buf, "\x0b\x4a\x84\x00\x01\x10\x30\xf4", 0x0000008);
-	ret = libusb_control_transfer(devh, LIBUSB_REQUEST_TYPE_VENDOR + LIBUSB_RECIPIENT_DEVICE, 0x0000001, 0x000000b, 0x0000000, buf, 0x0000008, 1000);
-	fprintf(stderr, "148 control msg returned %d, bytes: ", ret);
-	print_bytes(buf, ret);
-	fprintf(stderr, "\n");
-	memcpy(buf, "\x0b\x4a\xa0\x00\x01\xc4\x30\xf4", 0x0000008);
-	ret = libusb_control_transfer(devh, LIBUSB_REQUEST_TYPE_VENDOR + LIBUSB_RECIPIENT_DEVICE, 0x0000001, 0x000000b, 0x0000000, buf, 0x0000008, 1000);
-	fprintf(stderr, "149 control msg returned %d, bytes: ", ret);
-	print_bytes(buf, ret);
-	fprintf(stderr, "\n");
-	/* Subaddress 40h: 00 for PAL, 80 for NTSC */
-	if (tv_standard == NTSC) {
-		memcpy(buf, "\x0b\x4a\xa0\x00\x01\x40\x80\xf4", 0x0000008);
-	}
-	ret = libusb_control_transfer(devh, LIBUSB_REQUEST_TYPE_VENDOR + LIBUSB_RECIPIENT_DEVICE + LIBUSB_ENDPOINT_IN, 0x0000001, 0x000000b, 0x0000000, buf, 0x0000008, 1000);
-	fprintf(stderr, "150 control msg returned %d, bytes: ", ret);
-	print_bytes(buf, ret);
-	fprintf(stderr, "\n");
+
+	somagic_read_i2c(0x4a, 0x10, &status);
+	fprintf(stderr,"i2c_read(0x10) = %02x\n", status);
+
+	somagic_read_i2c(0x4a, 0x02, &status);
+	fprintf(stderr,"i2c_stat(0x02) = %02x\n", status);
+
 	/* Subaddress 5Ah: 07 for PAL, 0a for NTSC */
 	if (tv_standard == PAL) {
-		memcpy(buf, "\x0b\x4a\xc0\x01\x01\x5a\x07\x00", 0x0000008);
+		somagic_write_i2c(0x4a, 0x5a, 0x07);
 	} else {
-		memcpy(buf, "\x0b\x4a\xc0\x01\x01\x5a\x0a\x86", 0x0000008);
+		somagic_write_i2c(0x4a, 0x5a, 0x0a);
 	}
-	ret = libusb_control_transfer(devh, LIBUSB_REQUEST_TYPE_VENDOR + LIBUSB_RECIPIENT_DEVICE, 0x0000001, 0x000000b, 0x0000000, buf, 0x0000008, 1000);
-	fprintf(stderr, "151 control msg returned %d, bytes: ", ret);
-	print_bytes(buf, ret);
-	fprintf(stderr, "\n");
-	memcpy(buf, "\x0b\x4a\xc0\x01\x01\x59\x54\x86", 0x0000008);
-	ret = libusb_control_transfer(devh, LIBUSB_REQUEST_TYPE_VENDOR + LIBUSB_RECIPIENT_DEVICE, 0x0000001, 0x000000b, 0x0000000, buf, 0x0000008, 1000);
-	fprintf(stderr, "152 control msg returned %d, bytes: ", ret);
-	print_bytes(buf, ret);
-	fprintf(stderr, "\n");
-	memcpy(buf, "\x0b\x4a\xc0\x01\x01\x5b\x83\x86", 0x0000008);
-	ret = libusb_control_transfer(devh, LIBUSB_REQUEST_TYPE_VENDOR + LIBUSB_RECIPIENT_DEVICE, 0x0000001, 0x000000b, 0x0000000, buf, 0x0000008, 1000);
-	fprintf(stderr, "153 control msg returned %d, bytes: ", ret);
-	print_bytes(buf, ret);
-	fprintf(stderr, "\n");
-	memcpy(buf, "\x0b\x4a\xc0\x01\x01\x10\x40\x86", 0x0000008);
-	ret = libusb_control_transfer(devh, LIBUSB_REQUEST_TYPE_VENDOR + LIBUSB_RECIPIENT_DEVICE, 0x0000001, 0x000000b, 0x0000000, buf, 0x0000008, 1000);
-	fprintf(stderr, "154 control msg returned %d, bytes: ", ret);
-	print_bytes(buf, ret);
-	fprintf(stderr, "\n");
-	memcpy(buf, "\x0b\x4a\xc0\x01\x01\x55\xff\x86", 0x0000008);
-	ret = libusb_control_transfer(devh, LIBUSB_REQUEST_TYPE_VENDOR + LIBUSB_RECIPIENT_DEVICE, 0x0000001, 0x000000b, 0x0000000, buf, 0x0000008, 1000);
-	fprintf(stderr, "154a control msg returned %d, bytes: ", ret);
-	print_bytes(buf, ret);
-	fprintf(stderr, "\n");
-	memcpy(buf, "\x0b\x4a\xc0\x01\x01\x41\x77\x86", 0x0000008);
-	ret = libusb_control_transfer(devh, LIBUSB_REQUEST_TYPE_VENDOR + LIBUSB_RECIPIENT_DEVICE, 0x0000001, 0x000000b, 0x0000000, buf, 0x0000008, 1000);
-	fprintf(stderr, "155 control msg returned %d, bytes: ", ret);
-	print_bytes(buf, ret);
-	fprintf(stderr, "\n");
-	memcpy(buf, "\x0b\x4a\xc0\x01\x01\x42\x77\x86", 0x0000008);
-	ret = libusb_control_transfer(devh, LIBUSB_REQUEST_TYPE_VENDOR + LIBUSB_RECIPIENT_DEVICE, 0x0000001, 0x000000b, 0x0000000, buf, 0x0000008, 1000);
-	fprintf(stderr, "156 control msg returned %d, bytes: ", ret);
-	print_bytes(buf, ret);
-	fprintf(stderr, "\n");
-	memcpy(buf, "\x0b\x4a\xc0\x01\x01\x43\x77\x86", 0x0000008);
-	ret = libusb_control_transfer(devh, LIBUSB_REQUEST_TYPE_VENDOR + LIBUSB_RECIPIENT_DEVICE, 0x0000001, 0x000000b, 0x0000000, buf, 0x0000008, 1000);
-	fprintf(stderr, "157 control msg returned %d, bytes: ", ret);
-	print_bytes(buf, ret);
-	fprintf(stderr, "\n");
-	memcpy(buf, "\x0b\x4a\xc0\x01\x01\x44\x77\x86", 0x0000008);
-	ret = libusb_control_transfer(devh, LIBUSB_REQUEST_TYPE_VENDOR + LIBUSB_RECIPIENT_DEVICE, 0x0000001, 0x000000b, 0x0000000, buf, 0x0000008, 1000);
-	fprintf(stderr, "158 control msg returned %d, bytes: ", ret);
-	print_bytes(buf, ret);
-	fprintf(stderr, "\n");
-	memcpy(buf, "\x0b\x4a\xc0\x01\x01\x45\x77\x86", 0x0000008);
-	ret = libusb_control_transfer(devh, LIBUSB_REQUEST_TYPE_VENDOR + LIBUSB_RECIPIENT_DEVICE, 0x0000001, 0x000000b, 0x0000000, buf, 0x0000008, 1000);
-	fprintf(stderr, "159 control msg returned %d, bytes: ", ret);
-	print_bytes(buf, ret);
-	fprintf(stderr, "\n");
-	memcpy(buf, "\x0b\x4a\xc0\x01\x01\x46\x77\x86", 0x0000008);
-	ret = libusb_control_transfer(devh, LIBUSB_REQUEST_TYPE_VENDOR + LIBUSB_RECIPIENT_DEVICE, 0x0000001, 0x000000b, 0x0000000, buf, 0x0000008, 1000);
-	fprintf(stderr, "160 control msg returned %d, bytes: ", ret);
-	print_bytes(buf, ret);
-	fprintf(stderr, "\n");
-	memcpy(buf, "\x0b\x4a\xc0\x01\x01\x47\x77\x86", 0x0000008);
-	ret = libusb_control_transfer(devh, LIBUSB_REQUEST_TYPE_VENDOR + LIBUSB_RECIPIENT_DEVICE, 0x0000001, 0x000000b, 0x0000000, buf, 0x0000008, 1000);
-	fprintf(stderr, "161 control msg returned %d, bytes: ", ret);
-	print_bytes(buf, ret);
-	fprintf(stderr, "\n");
-	memcpy(buf, "\x0b\x4a\xc0\x01\x01\x48\x77\x86", 0x0000008);
-	ret = libusb_control_transfer(devh, LIBUSB_REQUEST_TYPE_VENDOR + LIBUSB_RECIPIENT_DEVICE, 0x0000001, 0x000000b, 0x0000000, buf, 0x0000008, 1000);
-	fprintf(stderr, "162 control msg returned %d, bytes: ", ret);
-	print_bytes(buf, ret);
-	fprintf(stderr, "\n");
-	memcpy(buf, "\x0b\x4a\xc0\x01\x01\x49\x77\x86", 0x0000008);
-	ret = libusb_control_transfer(devh, LIBUSB_REQUEST_TYPE_VENDOR + LIBUSB_RECIPIENT_DEVICE, 0x0000001, 0x000000b, 0x0000000, buf, 0x0000008, 1000);
-	fprintf(stderr, "163 control msg returned %d, bytes: ", ret);
-	print_bytes(buf, ret);
-	fprintf(stderr, "\n");
-	memcpy(buf, "\x0b\x4a\xc0\x01\x01\x4a\x77\x86", 0x0000008);
-	ret = libusb_control_transfer(devh, LIBUSB_REQUEST_TYPE_VENDOR + LIBUSB_RECIPIENT_DEVICE, 0x0000001, 0x000000b, 0x0000000, buf, 0x0000008, 1000);
-	fprintf(stderr, "164 control msg returned %d, bytes: ", ret);
-	print_bytes(buf, ret);
-	fprintf(stderr, "\n");
-	memcpy(buf, "\x0b\x4a\xc0\x01\x01\x4b\x77\x86", 0x0000008);
-	ret = libusb_control_transfer(devh, LIBUSB_REQUEST_TYPE_VENDOR + LIBUSB_RECIPIENT_DEVICE, 0x0000001, 0x000000b, 0x0000000, buf, 0x0000008, 1000);
-	fprintf(stderr, "165 control msg returned %d, bytes: ", ret);
-	print_bytes(buf, ret);
-	fprintf(stderr, "\n");
-	memcpy(buf, "\x0b\x4a\xc0\x01\x01\x4c\x77\x86", 0x0000008);
-	ret = libusb_control_transfer(devh, LIBUSB_REQUEST_TYPE_VENDOR + LIBUSB_RECIPIENT_DEVICE, 0x0000001, 0x000000b, 0x0000000, buf, 0x0000008, 1000);
-	fprintf(stderr, "166 control msg returned %d, bytes: ", ret);
-	print_bytes(buf, ret);
-	fprintf(stderr, "\n");
-	memcpy(buf, "\x0b\x4a\xc0\x01\x01\x4d\x77\x86", 0x0000008);
-	ret = libusb_control_transfer(devh, LIBUSB_REQUEST_TYPE_VENDOR + LIBUSB_RECIPIENT_DEVICE, 0x0000001, 0x000000b, 0x0000000, buf, 0x0000008, 1000);
-	fprintf(stderr, "167 control msg returned %d, bytes: ", ret);
-	print_bytes(buf, ret);
-	fprintf(stderr, "\n");
-	memcpy(buf, "\x0b\x4a\xc0\x01\x01\x4e\x77\x86", 0x0000008);
-	ret = libusb_control_transfer(devh, LIBUSB_REQUEST_TYPE_VENDOR + LIBUSB_RECIPIENT_DEVICE, 0x0000001, 0x000000b, 0x0000000, buf, 0x0000008, 1000);
-	fprintf(stderr, "168 control msg returned %d, bytes: ", ret);
-	print_bytes(buf, ret);
-	fprintf(stderr, "\n");
-	memcpy(buf, "\x0b\x4a\xc0\x01\x01\x4f\x77\x86", 0x0000008);
-	ret = libusb_control_transfer(devh, LIBUSB_REQUEST_TYPE_VENDOR + LIBUSB_RECIPIENT_DEVICE, 0x0000001, 0x000000b, 0x0000000, buf, 0x0000008, 1000);
-	fprintf(stderr, "169 control msg returned %d, bytes: ", ret);
-	print_bytes(buf, ret);
-	fprintf(stderr, "\n");
-	memcpy(buf, "\x0b\x4a\xc0\x01\x01\x50\x77\x86", 0x0000008);
-	ret = libusb_control_transfer(devh, LIBUSB_REQUEST_TYPE_VENDOR + LIBUSB_RECIPIENT_DEVICE, 0x0000001, 0x000000b, 0x0000000, buf, 0x0000008, 1000);
-	fprintf(stderr, "170 control msg returned %d, bytes: ", ret);
-	print_bytes(buf, ret);
-	fprintf(stderr, "\n");
-	memcpy(buf, "\x0b\x4a\xc0\x01\x01\x51\x77\x86", 0x0000008);
-	ret = libusb_control_transfer(devh, LIBUSB_REQUEST_TYPE_VENDOR + LIBUSB_RECIPIENT_DEVICE, 0x0000001, 0x000000b, 0x0000000, buf, 0x0000008, 1000);
-	fprintf(stderr, "171 control msg returned %d, bytes: ", ret);
-	print_bytes(buf, ret);
-	fprintf(stderr, "\n");
-	memcpy(buf, "\x0b\x4a\xc0\x01\x01\x52\x77\x86", 0x0000008);
-	ret = libusb_control_transfer(devh, LIBUSB_REQUEST_TYPE_VENDOR + LIBUSB_RECIPIENT_DEVICE, 0x0000001, 0x000000b, 0x0000000, buf, 0x0000008, 1000);
-	fprintf(stderr, "172 control msg returned %d, bytes: ", ret);
-	print_bytes(buf, ret);
-	fprintf(stderr, "\n");
-	memcpy(buf, "\x0b\x4a\xc0\x01\x01\x53\x77\x86", 0x0000008);
-	ret = libusb_control_transfer(devh, LIBUSB_REQUEST_TYPE_VENDOR + LIBUSB_RECIPIENT_DEVICE, 0x0000001, 0x000000b, 0x0000000, buf, 0x0000008, 1000);
-	fprintf(stderr, "173 control msg returned %d, bytes: ", ret);
-	print_bytes(buf, ret);
-	fprintf(stderr, "\n");
-	memcpy(buf, "\x0b\x4a\xc0\x01\x01\x54\x77\x86", 0x0000008);
-	ret = libusb_control_transfer(devh, LIBUSB_REQUEST_TYPE_VENDOR + LIBUSB_RECIPIENT_DEVICE, 0x0000001, 0x000000b, 0x0000000, buf, 0x0000008, 1000);
-	fprintf(stderr, "174 control msg returned %d, bytes: ", ret);
-	print_bytes(buf, ret);
-	fprintf(stderr, "\n");
-	memcpy(buf, "\x0b\x4a\xc0\x01\x01\x0a\x80\x01", 0x0000008);
-	ret = libusb_control_transfer(devh, LIBUSB_REQUEST_TYPE_VENDOR + LIBUSB_RECIPIENT_DEVICE, 0x0000001, 0x000000b, 0x0000000, buf, 0x0000008, 1000);
-	fprintf(stderr, "176 control msg returned %d, bytes: ", ret);
-	print_bytes(buf, ret);
-	fprintf(stderr, "\n");
-	memcpy(buf, "\x0b\x4a\xc0\x01\x01\x0b\x40\x01", 0x0000008);
-	ret = libusb_control_transfer(devh, LIBUSB_REQUEST_TYPE_VENDOR + LIBUSB_RECIPIENT_DEVICE, 0x0000001, 0x000000b, 0x0000000, buf, 0x0000008, 1000);
-	fprintf(stderr, "177 control msg returned %d, bytes: ", ret);
-	print_bytes(buf, ret);
-	fprintf(stderr, "\n");
-	memcpy(buf, "\x0b\x4a\xc0\x01\x01\x0d\x00\x01", 0x0000008);
-	ret = libusb_control_transfer(devh, LIBUSB_REQUEST_TYPE_VENDOR + LIBUSB_RECIPIENT_DEVICE, 0x0000001, 0x000000b, 0x0000000, buf, 0x0000008, 1000);
-	fprintf(stderr, "178 control msg returned %d, bytes: ", ret);
-	print_bytes(buf, ret);
-	fprintf(stderr, "\n");
-	memcpy(buf, "\x0b\x4a\xc0\x01\x01\x0c\x40\x01", 0x0000008);
-	ret = libusb_control_transfer(devh, LIBUSB_REQUEST_TYPE_VENDOR + LIBUSB_RECIPIENT_DEVICE, 0x0000001, 0x000000b, 0x0000000, buf, 0x0000008, 1000);
-	fprintf(stderr, "179 control msg returned %d, bytes: ", ret);
-	print_bytes(buf, ret);
-	fprintf(stderr, "\n");
-	memcpy(buf, "\x0b\x4a\xc0\x01\x01\x09\x01\x00", 0x0000008);
-	ret = libusb_control_transfer(devh, LIBUSB_REQUEST_TYPE_VENDOR + LIBUSB_RECIPIENT_DEVICE, 0x0000001, 0x000000b, 0x0000000, buf, 0x0000008, 1000);
-	fprintf(stderr, "180 control msg returned %d, bytes: ", ret);
-	print_bytes(buf, ret);
-	fprintf(stderr, "\n");
-	memcpy(buf, "\x0b\x00\x00\x82\x01\x17\x40\x00", 0x0000008);
-	ret = libusb_control_transfer(devh, LIBUSB_REQUEST_TYPE_VENDOR + LIBUSB_RECIPIENT_DEVICE, 0x0000001, 0x000000b, 0x0000000, buf, 0x0000008, 1000);
-	fprintf(stderr, "183 control msg returned %d, bytes: ", ret);
-	print_bytes(buf, ret);
-	fprintf(stderr, "\n");
-	memcpy(buf, "\x0b\x00\x20\x82\x01\x30\x80\x1b", 0x0000008);
-	ret = libusb_control_transfer(devh, LIBUSB_REQUEST_TYPE_VENDOR + LIBUSB_RECIPIENT_DEVICE, 0x0000001, 0x000000b, 0x0000000, buf, 0x0000008, 1000);
-	fprintf(stderr, "184 control msg returned %d, bytes: ", ret);
-	print_bytes(buf, ret);
-	fprintf(stderr, "\n");
-	ret = libusb_control_transfer(devh, LIBUSB_REQUEST_TYPE_VENDOR + LIBUSB_RECIPIENT_DEVICE + LIBUSB_ENDPOINT_IN, 0x0000001, 0x000000b, 0x0000000, buf, 0x0000008, 1000);
-	fprintf(stderr, "185 control msg returned %d, bytes: ", ret);
-	print_bytes(buf, ret);
-	fprintf(stderr, "\n");
-	memcpy(buf, "\x0b\x00\x00\x82\x01\x17\x40\x00", 0x0000008);
-	ret = libusb_control_transfer(devh, LIBUSB_REQUEST_TYPE_VENDOR + LIBUSB_RECIPIENT_DEVICE, 0x0000001, 0x000000b, 0x0000000, buf, 0x0000008, 1000);
-	fprintf(stderr, "186 control msg returned %d, bytes: ", ret);
-	print_bytes(buf, ret);
-	fprintf(stderr, "\n");
 
+	somagic_write_i2c(0x4a, 0x59, 0x54);
+	somagic_write_i2c(0x4a, 0x5b, 0x83);
+	somagic_write_i2c(0x4a, 0x10, 0x40);
+	somagic_write_i2c(0x4a, 0x55, 0xff);
+	somagic_write_i2c(0x4a, 0x41, 0x77);
+	somagic_write_i2c(0x4a, 0x42, 0x77);
+	somagic_write_i2c(0x4a, 0x43, 0x77);
+	somagic_write_i2c(0x4a, 0x44, 0x77);
+	somagic_write_i2c(0x4a, 0x45, 0x77);
+	somagic_write_i2c(0x4a, 0x46, 0x77);
+	somagic_write_i2c(0x4a, 0x47, 0x77);
+	somagic_write_i2c(0x4a, 0x48, 0x77);
+	somagic_write_i2c(0x4a, 0x49, 0x77);
+	somagic_write_i2c(0x4a, 0x4a, 0x77);
+	somagic_write_i2c(0x4a, 0x4b, 0x77);
+	somagic_write_i2c(0x4a, 0x4c, 0x77);
+	somagic_write_i2c(0x4a, 0x4d, 0x77);
+	somagic_write_i2c(0x4a, 0x4e, 0x77);
+	somagic_write_i2c(0x4a, 0x4f, 0x77);
+	somagic_write_i2c(0x4a, 0x50, 0x77);
+	somagic_write_i2c(0x4a, 0x51, 0x77);
+	somagic_write_i2c(0x4a, 0x52, 0x77);
+	somagic_write_i2c(0x4a, 0x53, 0x77);
+	somagic_write_i2c(0x4a, 0x54, 0x77);
+
+	somagic_write_i2c(0x4a, 0x0a, 0x80);
+	somagic_write_i2c(0x4a, 0x0b, 0x40);
+	somagic_write_i2c(0x4a, 0x0d, 0x00);
+	somagic_write_i2c(0x4a, 0x0c, 0x40);
+	somagic_write_i2c(0x4a, 0x09, 0x01);
+
+	somagic_write_reg(0x1740, 0x40);
+
+	somagic_read_reg(0x3080, &status);
+	fprintf(stderr, "status is %02x\n", status);
+
+	somagic_write_reg(0x1740, 0x00);
 	usleep(250 * 1000);
-	memcpy(buf, "\x0b\x00\x00\x82\x01\x17\x40\x00", 0x0000008);
-	ret = libusb_control_transfer(devh, LIBUSB_REQUEST_TYPE_VENDOR + LIBUSB_RECIPIENT_DEVICE, 0x0000001, 0x000000b, 0x0000000, buf, 0x0000008, 1000);
-	fprintf(stderr, "187 control msg returned %d, bytes: ", ret);
-	print_bytes(buf, ret);
-	fprintf(stderr, "\n");
-	memcpy(buf, "\x0b\x00\x20\x82\x01\x30\x80\x10", 0x0000008);
-	ret = libusb_control_transfer(devh, LIBUSB_REQUEST_TYPE_VENDOR + LIBUSB_RECIPIENT_DEVICE, 0x0000001, 0x000000b, 0x0000000, buf, 0x0000008, 1000);
-	fprintf(stderr, "188 control msg returned %d, bytes: ", ret);
-	print_bytes(buf, ret);
-	fprintf(stderr, "\n");
-	ret = libusb_control_transfer(devh, LIBUSB_REQUEST_TYPE_VENDOR + LIBUSB_RECIPIENT_DEVICE + LIBUSB_ENDPOINT_IN, 0x0000001, 0x000000b, 0x0000000, buf, 0x0000008, 1000);
-	fprintf(stderr, "189 control msg returned %d, bytes: ", ret);
-	print_bytes(buf, ret);
-	fprintf(stderr, "\n");
+	somagic_write_reg(0x1740, 0x00);
+
+	somagic_read_reg(0x3080, &status);
+	fprintf(stderr, "status is %02x\n", status);
+
 	memcpy(buf, "\x01\x05", 0x0000002);
 	ret = libusb_control_transfer(devh, LIBUSB_REQUEST_TYPE_VENDOR + LIBUSB_RECIPIENT_DEVICE, 0x0000001, 0x0000001, 0x0000000, buf, 0x0000002, 1000);
 	fprintf(stderr, "190 control msg returned %d, bytes: ", ret);
@@ -991,15 +727,10 @@ int main(int argc, char **argv)
 	fprintf(stderr, "\n");
 	ret = libusb_set_interface_alt_setting(devh, 0, 2);
 	fprintf(stderr, "192 set alternate setting returned %d\n", ret);
-	memcpy(buf, "\x0b\x00\x00\x82\x01\x17\x40\x00", 0x0000008);
-	ret = libusb_control_transfer(devh, LIBUSB_REQUEST_TYPE_VENDOR + LIBUSB_RECIPIENT_DEVICE, 0x0000001, 0x000000b, 0x0000000, buf, 0x0000008, 1000);
-	fprintf(stderr, "193 control msg returned %d, bytes: ", ret);
-	print_bytes(buf, ret);
-	fprintf(stderr, "\n");
 
+	somagic_write_reg(0x1740, 0x00);
 	usleep(30 * 1000);
 	
-	int i = 0;
 	for( i = 0 ; i < NUM_ISO_TRANSFERS ; i++ )
 	{
 		tfr[i] = libusb_alloc_transfer(64);
@@ -1018,11 +749,7 @@ int main(int argc, char **argv)
 		}
 	}
 		
-	memcpy(buf, "\x0b\x00\x00\x82\x01\x18\x00\x0d", 0x0000008);
-	ret = libusb_control_transfer(devh, LIBUSB_REQUEST_TYPE_VENDOR + LIBUSB_RECIPIENT_DEVICE, 0x0000001, 0x000000b, 0x0000000, buf, 0x0000008, 1000);
-	fprintf(stderr, "242 control msg returned %d, bytes: ", ret);
-		print_bytes(buf, ret);
-	fprintf(stderr, "\n");
+	somagic_write_reg(0x1800, 0x0d);
 
 	while (pending_requests > 0 ) {
 		libusb_handle_events(NULL);
