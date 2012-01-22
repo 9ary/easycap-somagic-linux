@@ -7,7 +7,7 @@
  * Initializes the Somagic EasyCAP DC60 registers and performs image capture.  *
  * *****************************************************************************
  *
- * Copyright 2011 Tony Brown, Jeffry Johnston, Michal Demin	
+ * Copyright 2011, 2012 Tony Brown, Jeffry Johnston, Michal Demin	
  *
  * This file is part of somagic_dc60
  * http://code.google.com/p/easycap-somagic-linux/
@@ -28,10 +28,10 @@
  */
 
 /*
- * Usage:
- * sudo init
- * sudo capture pal 2> /dev/null | mplayer - -vf screenshot -demuxer rawvideo -rawvideo "w=720:h=576:format=uyvy:fps=25"
- * sudo capture ntsc 2> /dev/null | mplayer - -vf screenshot -demuxer rawvideo -rawvideo "ntsc:format=uyvy:fps=30000/1001"
+ * Usage (run as root):
+ * init
+ * capture pal 2> /dev/null | mplayer - -vf screenshot -demuxer rawvideo -rawvideo "w=720:h=576:format=uyvy:fps=25"
+ * capture ntsc 2> /dev/null | mplayer - -vf screenshot -demuxer rawvideo -rawvideo "ntsc:format=uyvy:fps=30000/1001"
  */
 
 /* This file was originally generated with usbsnoop2libusb.pl from a usbsnoop log file. */
@@ -39,7 +39,6 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include <assert.h>
 #include <signal.h>
 #include <ctype.h>
 #include <libusb-1.0/libusb.h>
@@ -50,17 +49,15 @@
 #define PRODUCT 0x003c
 #define MIN(a, b) (((a) < (b)) ? (a) : (b))
 
-//control the number of concurrent ISO transfers we have running
+/* control the number of concurrent ISO transfers we have running */
 static const int NUM_ISO_TRANSFERS = 4;
 
-//control the number of frames to generate. -1 = unlimited. Should be a command line option
+/* control the number of frames to generate. -1 = unlimited. Should be a command line option */
 static const int FRAME_COUNT = -1;
-
 
 int frames_generated = 0;
 int stop_sending_requests = 0;
 int pending_requests = 0;
-
 
 struct libusb_device_handle *devh;
 
@@ -185,13 +182,10 @@ int field = 0;
 
 unsigned char frame[720 * 2 * 288 * 2];
 
-
-
 void process_data(unsigned char* buffer, int length)
 {
 	unsigned char *next = buffer;
-	unsigned char *end = buffer + length ;
-	
+	unsigned char *end = buffer + length;
 	int bs = 0; /* bad (lost) sync: 0=no, 1=yes */
 	int hs = 0;
 	int lines_per_field = (tv_standard == PAL ? 288 : 240);
@@ -293,11 +287,11 @@ void process_data(unsigned char* buffer, int length)
 						vblank_found++;
 						if (active_line_count > (lines_per_field - 8)) {
 							if (field == 0) {
-								if( frames_generated < FRAME_COUNT || FRAME_COUNT == -1 ){
+								if (frames_generated < FRAME_COUNT || FRAME_COUNT == -1) {
 									write(1, frame, 720 * 2 * lines_per_field * 2);
 									frames_generated++;
 								}
-								if( frames_generated >= FRAME_COUNT && FRAME_COUNT != -1){
+								if (frames_generated >= FRAME_COUNT && FRAME_COUNT != -1) {
 									stop_sending_requests = 1;
 								}
 								
@@ -317,21 +311,18 @@ void process_data(unsigned char* buffer, int length)
 			case VBLANK:
 			case VACTIVE:
 			case REMAINDER:
-				
-				// 		  fprintf(stderr,"line %d, rem=%d ,next=%08x, end=%08x ", active_line_count, line_remaining, next,end);
+				/* fprintf(stderr,"line %d, rem=%d ,next=%08x, end=%08x ", active_line_count, line_remaining, next, end); */
 				if (state == VBLANK || vblank_found < 20) {
-					int skip = MIN(line_remaining, (end - next) );
-					// fprintf(stderr,"skipped: %d\n", skip);
-					
+					int skip = MIN(line_remaining, (end - next));
+					/* fprintf(stderr,"skipped: %d\n", skip); */
 					line_remaining -= skip;
 					next += skip ;
 					/* fprintf(stderr, "vblank_found=%d\n", vblank_found); */
 				} else {
 					int wrote = write_buffer(next, end, line_remaining, frame, active_line_count, field);
-					// fprintf(stderr,"wrote: %d\n", wrote);
-					
+					/* fprintf(stderr,"wrote: %d\n", wrote); */
 					line_remaining -= wrote;
-					next+= wrote  ;
+					next += wrote;
 					if (line_remaining <= 0) {
 						active_line_count++;
 					}
@@ -346,11 +337,9 @@ void process_data(unsigned char* buffer, int length)
 					next = end;
 				}
 				break;
-		} //end switch
-		
+		} /* end switch */
 	} while (next < end);
 }
-
 
 void gotdata(struct libusb_transfer *tfr)
 {
@@ -364,25 +353,22 @@ void gotdata(struct libusb_transfer *tfr)
 		unsigned char *data = libusb_get_iso_packet_buffer_simple(tfr, i);
 		int length = tfr->iso_packet_desc[i].actual_length;
 		int pos = 0;
-		while( pos < length )
-		{
+		while (pos < length) {
 			/* within each packet of the transfer, the data is divided into blocks of 0x400 bytes
 			 * beginning with [0xaa 0xaa 0x00 0x00].
 			 * Check for this signature and process each block of data individually
 			 */
-			if( data[pos] == 0xaa && data[pos+1] == 0xaa && data[pos+2] == 0x00 && data[pos+3] == 0x00 )
-			{
-				//process the recieved data, excluding the 4 marker bytes
-				process_data( data + 4 + pos, 0x400 - 4);
-			}
-			else{
-				fprintf(stderr,"Unexpected block, expected [aa aa 00 00] found [%02x %02x %02x %02x] \n",data[pos],data[pos+1], data[pos+2], data[pos+3] );
+			if (data[pos] == 0xaa && data[pos + 1] == 0xaa && data[pos + 2] == 0x00 && data[pos + 3] == 0x00) {
+				/* process the received data, excluding the 4 marker bytes */
+				process_data(data + 4 + pos, 0x400 - 4);
+			} else {
+				fprintf(stderr, "Unexpected block, expected [aa aa 00 00] found [%02x %02x %02x %02x] \n", data[pos], data[pos+1], data[pos+2], data[pos+3]);
 			}
 			pos += 0x400;
 		}
 	}
 	
-	if( ! stop_sending_requests) {
+	if (!stop_sending_requests) {
 		ret = libusb_submit_transfer(tfr);
 		if (ret != 0) {
 			fprintf(stderr, "libusb_submit_transfer failed with error %d\n", ret);
@@ -398,32 +384,30 @@ void usage(char * name)
 	exit(1);
 }
 
+uint8_t read_reg_buf[8];
 static int somagic_read_reg(uint16_t reg, uint8_t *val)
 {
 	int ret;
-	uint8_t buf[8];
+	memcpy(read_reg_buf, "\x0b\x00\x20\x82\x01\x30\x80\xFF", 0x0000008);
 
-	memcpy(buf, "\x0b\x00\x20\x82\x01\x30\x80\xFF", 0x0000008);
+	read_reg_buf[5] = reg >> 8;
+	read_reg_buf[6] = reg & 0xff;
 
-	buf[5] = reg >> 8;
-	buf[6] = reg & 0xff;
-
-	ret = libusb_control_transfer(devh, LIBUSB_REQUEST_TYPE_VENDOR + LIBUSB_RECIPIENT_DEVICE, 0x0000001, 0x000000b, 0x0000000, buf, 0x0000008, 1000);
+	ret = libusb_control_transfer(devh, LIBUSB_REQUEST_TYPE_VENDOR + LIBUSB_RECIPIENT_DEVICE, 0x0000001, 0x000000b, 0x0000000, read_reg_buf, 0x0000008, 1000);
 	if (ret != 8) {
 		fprintf(stderr, "read_reg msg returned %d, bytes: ", ret);
-		print_bytes(buf, ret);
+		print_bytes(read_reg_buf, ret);
 		fprintf(stderr, "\n");
 	}
 
-	ret = libusb_control_transfer(devh, LIBUSB_REQUEST_TYPE_VENDOR + LIBUSB_RECIPIENT_DEVICE + LIBUSB_ENDPOINT_IN, 0x0000001, 0x000000b, 0x0000000, buf, 0x000000d, 1000);
+	ret = libusb_control_transfer(devh, LIBUSB_REQUEST_TYPE_VENDOR + LIBUSB_RECIPIENT_DEVICE + LIBUSB_ENDPOINT_IN, 0x0000001, 0x000000b, 0x0000000, read_reg_buf, 0x000000d, 1000);
 	if (ret != 0x0d) {
 		fprintf(stderr, "read_reg control msg returned %d, bytes: ", ret);
-		print_bytes(buf, ret);
+		print_bytes(read_reg_buf, ret);
 		fprintf(stderr, "\n");
 	}
-
 	if (val) {
-		*val = buf[7];
+		*val = read_reg_buf[7];
 	}
 
 	return ret;
@@ -449,39 +433,39 @@ static int somagic_write_reg(uint16_t reg, uint8_t val)
 	return ret;
 }
 
+uint8_t read_i2c_buf[27];
 static int somagic_read_i2c(uint8_t dev_addr, uint8_t reg, uint8_t *val)
 {
 	int ret;
-	uint8_t buf[27];
 
-	memcpy(buf, "\x0b\x4a\x84\x00\x01\x10\x00\x00\x00\x00\x00\x00\x00", 0x000000d);
+	memcpy(read_i2c_buf, "\x0b\x4a\x84\x00\x01\x10\x00\x00\x00\x00\x00\x00\x00", 0x000000d);
 
-	buf[1] = dev_addr;
-	buf[5] = reg;
+	read_i2c_buf[1] = dev_addr;
+	read_i2c_buf[5] = reg;
 
-	ret = libusb_control_transfer(devh, LIBUSB_REQUEST_TYPE_VENDOR + LIBUSB_RECIPIENT_DEVICE, 0x0000001, 0x000000b, 0x0000000, buf, 0x000000d, 1000);
-	fprintf( stderr, "-> i2c_read msg returned %d, bytes: ", ret);
-	print_bytes(buf, ret);
-	fprintf( stderr, "\n");
-	usleep(18*1000);
+	ret = libusb_control_transfer(devh, LIBUSB_REQUEST_TYPE_VENDOR + LIBUSB_RECIPIENT_DEVICE, 0x0000001, 0x000000b, 0x0000000, read_i2c_buf, 0x000000d, 1000);
+	fprintf(stderr, "-> i2c_read msg returned %d, bytes: ", ret);
+	print_bytes(read_i2c_buf, ret);
+	fprintf(stderr, "\n");
+	usleep(18 * 1000);
 
-	memcpy(buf, "\x0b\x4a\xa0\x00\x01\x00\xff\xff\xff\xff\xff\xff\xff", 0x000000d);
+	memcpy(read_i2c_buf, "\x0b\x4a\xa0\x00\x01\x00\xff\xff\xff\xff\xff\xff\xff", 0x000000d);
 
-	buf[1] = dev_addr;
+	read_i2c_buf[1] = dev_addr;
 
-	ret = libusb_control_transfer(devh, LIBUSB_REQUEST_TYPE_VENDOR + LIBUSB_RECIPIENT_DEVICE, 0x0000001, 0x000000b, 0x0000000, buf, 0x000000d, 1000);
-	fprintf( stderr, "-> i2c_read msg returned %d, bytes: ", ret);
-	print_bytes(buf, ret);
-	fprintf( stderr, "\n");
+	ret = libusb_control_transfer(devh, LIBUSB_REQUEST_TYPE_VENDOR + LIBUSB_RECIPIENT_DEVICE, 0x0000001, 0x000000b, 0x0000000, read_i2c_buf, 0x000000d, 1000);
+	fprintf(stderr, "-> i2c_read msg returned %d, bytes: ", ret);
+	print_bytes(read_i2c_buf, ret);
+	fprintf(stderr, "\n");
 
-	memset(buf, 0xff, 0x000000d);
-	ret = libusb_control_transfer(devh, LIBUSB_REQUEST_TYPE_VENDOR + LIBUSB_RECIPIENT_DEVICE + LIBUSB_ENDPOINT_IN, 0x0000001, 0x000000b, 0x0000000, buf, 0x000000d, 1000);
-	fprintf( stderr, "<- i2c_read msg returned %d, bytes: ", ret);
-	print_bytes(buf, ret);
-	fprintf( stderr, "\n");
-	usleep(11*1000);
+	memset(read_i2c_buf, 0xff, 0x000000d);
+	ret = libusb_control_transfer(devh, LIBUSB_REQUEST_TYPE_VENDOR + LIBUSB_RECIPIENT_DEVICE + LIBUSB_ENDPOINT_IN, 0x0000001, 0x000000b, 0x0000000, read_i2c_buf, 0x000000d, 1000);
+	fprintf(stderr, "<- i2c_read msg returned %d, bytes: ", ret);
+	print_bytes(read_i2c_buf, ret);
+	fprintf(stderr, "\n");
+	usleep(11 * 1000);
 
-	*val = buf[5];
+	*val = read_i2c_buf[5];
 
 	return ret;
 }
@@ -513,10 +497,10 @@ int main(int argc, char **argv)
 	uint8_t status;
 	struct libusb_device *dev;
 	
-	//buffer for control messages
+	/* buffer for control messages */
 	unsigned char buf[65535];
 	
-	//buffers and transfer pointers for isochronous data
+	/* buffers and transfer pointers for isochronous data */
 	struct libusb_transfer *tfr[NUM_ISO_TRANSFERS];
 	unsigned char isobuf[NUM_ISO_TRANSFERS][64 * 3072];
 
@@ -537,11 +521,17 @@ int main(int argc, char **argv)
 	libusb_set_debug(NULL, 0);
 
 	dev = find_device(VENDOR, PRODUCT);
-	assert(dev);
+	if (!dev) {
+		fprintf(stderr, "USB device %04x:%04x was not found.\n", VENDOR, PRODUCT);
+		return 1;
+	}
 
 	ret = libusb_open(dev, &devh);
+	if (!devh) {
+		perror("Failed to open USB device");
+		return 1;
+	}
 	libusb_unref_device(dev);
-	assert(ret == 0);
 	
 	signal(SIGTERM, release_usb_device);
 	ret = libusb_claim_interface(devh, 0);
@@ -589,23 +579,21 @@ int main(int argc, char **argv)
 	somagic_write_reg(0x3a, 0x80);
 	somagic_write_reg(0x3b, 0x00);
 
-	// reset audio chip?
+	/* reset audio chip? */
 	somagic_write_reg(0x34, 0x01);
 	somagic_write_reg(0x35, 0x00);
 
 	somagic_read_reg(0x3080, &status);
 	fprintf(stderr, "status is %02x\n", status);
 
-	// reset audio chip?
+	/* reset audio chip? */
 	somagic_write_reg(0x34, 0x11);
 	somagic_write_reg(0x35, 0x11);
 
-	// SAAxxx: toggle reset of SAAxxx
-	//somagic_write_reg(0x3a, 0x80); // not necessary
+	/* SAAxxx: toggle reset of SAAxxx */
 	somagic_write_reg(0x3b, 0x80);
 
-	// SAAxxx: bring from reset
-	//somagic_write_reg(0x3a, 0x80); // not necessary
+	/* SAAxxx: bring from reset */
 	somagic_write_reg(0x3b, 0x00);
 
 	somagic_write_i2c(0x4a, 0x01, 0x08);
@@ -634,7 +622,6 @@ int main(int argc, char **argv)
 	somagic_write_i2c(0x4a, 0x15, 0x00);
 	somagic_write_i2c(0x4a, 0x16, 0x00);
 	somagic_write_i2c(0x4a, 0x17, 0x00);
-
 	somagic_write_i2c(0x4a, 0x40, 0x02);
 	somagic_write_i2c(0x4a, 0x58, 0x00);
 
@@ -697,7 +684,6 @@ int main(int argc, char **argv)
 	somagic_write_i2c(0x4a, 0x52, 0x77);
 	somagic_write_i2c(0x4a, 0x53, 0x77);
 	somagic_write_i2c(0x4a, 0x54, 0x77);
-
 	somagic_write_i2c(0x4a, 0x0a, 0x80);
 	somagic_write_i2c(0x4a, 0x0b, 0x40);
 	somagic_write_i2c(0x4a, 0x0d, 0x00);
@@ -731,17 +717,18 @@ int main(int argc, char **argv)
 	somagic_write_reg(0x1740, 0x00);
 	usleep(30 * 1000);
 	
-	for( i = 0 ; i < NUM_ISO_TRANSFERS ; i++ )
-	{
+	for (i = 0; i < NUM_ISO_TRANSFERS; i++)	{
 		tfr[i] = libusb_alloc_transfer(64);
-		assert(tfr[i] != NULL);
+		if (tfr[i] == NULL) {
+			fprintf(stderr, "Failed to allocate USB transfer #%d\n", i);
+			return 1;
+		}
 		libusb_fill_iso_transfer(tfr[i], devh, 0x00000082, isobuf[i], 64 * 3072, 64, gotdata, NULL, 2000);
 		libusb_set_iso_packet_lengths(tfr[i], 3072);
 	}
 	
 	pending_requests = NUM_ISO_TRANSFERS;
-	for( i = 0 ; i < NUM_ISO_TRANSFERS ; i++ )
-	{
+	for (i = 0; i < NUM_ISO_TRANSFERS; i++) {
 		ret = libusb_submit_transfer(tfr[i]);
 		if (ret != 0) {
 			fprintf(stderr, "libusb_submit_transfer failed with error %d for transfer %d\n", ret, i);
@@ -751,17 +738,19 @@ int main(int argc, char **argv)
 		
 	somagic_write_reg(0x1800, 0x0d);
 
-	while (pending_requests > 0 ) {
+	while (pending_requests > 0) {
 		libusb_handle_events(NULL);
 	}
 	
-	for( i =0 ; i < NUM_ISO_TRANSFERS; i++)
-	{
+	for (i = 0; i < NUM_ISO_TRANSFERS; i++) {
 		libusb_free_transfer(tfr[i]);
 	}
 
 	ret = libusb_release_interface(devh, 0);
-	assert(ret == 0);
+	if (ret != 0) {
+		perror("Failed to release interface");
+		return 1;
+	}
 	libusb_close(devh);
 	libusb_exit(NULL);
 	return 0;
