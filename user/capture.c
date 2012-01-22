@@ -44,16 +44,18 @@
 #include <libusb-1.0/libusb.h>
 #include <execinfo.h>
 #include <unistd.h>
+#include <getopt.h>
 
+#define VERSION "1.0"
 #define VENDOR 0x1c88
 #define PRODUCT 0x003c
 #define MIN(a, b) (((a) < (b)) ? (a) : (b))
 
-/* control the number of concurrent ISO transfers we have running */
+/* Control the number of concurrent ISO transfers we have running */
 static const int NUM_ISO_TRANSFERS = 4;
 
-/* control the number of frames to generate. -1 = unlimited. Should be a command line option */
-static const int FRAME_COUNT = -1;
+/* Control the number of frames to generate, 0 = unlimited (default) */
+int frame_count = 0;
 
 int frames_generated = 0;
 int stop_sending_requests = 0;
@@ -65,7 +67,12 @@ enum tv_standards {
 	PAL,
 	NTSC
 };
-int tv_standard = NTSC;
+int tv_standard = PAL;
+enum input_types {
+	CVBS,
+	SVIDEO
+};
+int input_type = CVBS;
 
 void release_usb_device(int ret)
 {
@@ -144,7 +151,7 @@ void trace()
 
 
 /*
- * Write  a number of bytes from the iso transfer buffer to the appropriate line and field of the frame buffer.
+ * Write a number of bytes from the iso transfer buffer to the appropriate line and field of the frame buffer.
  * Returns the number of bytes actually used from the buffer
  */
 int write_buffer(unsigned char *data, unsigned char *end, int count, unsigned char *frame, int line, int field)
@@ -287,11 +294,11 @@ void process_data(unsigned char* buffer, int length)
 						vblank_found++;
 						if (active_line_count > (lines_per_field - 8)) {
 							if (field == 0) {
-								if (frames_generated < FRAME_COUNT || FRAME_COUNT == -1) {
+								if (frames_generated < frame_count || frame_count == 0) {
 									write(1, frame, 720 * 2 * lines_per_field * 2);
 									frames_generated++;
 								}
-								if (frames_generated >= FRAME_COUNT && FRAME_COUNT != -1) {
+								if (frames_generated >= frame_count && frame_count != 0) {
 									stop_sending_requests = 1;
 								}
 								
@@ -354,9 +361,10 @@ void gotdata(struct libusb_transfer *tfr)
 		int length = tfr->iso_packet_desc[i].actual_length;
 		int pos = 0;
 		while (pos < length) {
-			/* within each packet of the transfer, the data is divided into blocks of 0x400 bytes
+			/*
+			 * Within each packet of the transfer, the data is divided into blocks of 0x400 bytes
 			 * beginning with [0xaa 0xaa 0x00 0x00].
-			 * Check for this signature and process each block of data individually
+			 * Check for this signature and process each block of data individually.
 			 */
 			if (data[pos] == 0xaa && data[pos + 1] == 0xaa && data[pos + 2] == 0x00 && data[pos + 3] == 0x00) {
 				/* process the received data, excluding the 4 marker bytes */
@@ -378,39 +386,30 @@ void gotdata(struct libusb_transfer *tfr)
 	}
 }
 
-void usage(char * name)
-{
-	fprintf(stderr, "Usage: %s pal | ntsc\n", name);
-	exit(1);
-}
-
-uint8_t read_reg_buf[8];
-static int somagic_read_reg(uint16_t reg, uint8_t *val)
+uint8_t somagic_read_reg(uint16_t reg)
 {
 	int ret;
-	memcpy(read_reg_buf, "\x0b\x00\x20\x82\x01\x30\x80\xFF", 0x0000008);
+	uint8_t buf[13];
+	memcpy(buf, "\x0b\x00\x20\x82\x01\x30\x80\xFF", 0x0000008);
 
-	read_reg_buf[5] = reg >> 8;
-	read_reg_buf[6] = reg & 0xff;
+	buf[5] = reg >> 8;
+	buf[6] = reg & 0xff;
 
-	ret = libusb_control_transfer(devh, LIBUSB_REQUEST_TYPE_VENDOR + LIBUSB_RECIPIENT_DEVICE, 0x0000001, 0x000000b, 0x0000000, read_reg_buf, 0x0000008, 1000);
+	ret = libusb_control_transfer(devh, LIBUSB_REQUEST_TYPE_VENDOR + LIBUSB_RECIPIENT_DEVICE, 0x0000001, 0x000000b, 0x0000000, buf, 8, 1000);
 	if (ret != 8) {
 		fprintf(stderr, "read_reg msg returned %d, bytes: ", ret);
-		print_bytes(read_reg_buf, ret);
+		print_bytes(buf, ret);
 		fprintf(stderr, "\n");
 	}
 
-	ret = libusb_control_transfer(devh, LIBUSB_REQUEST_TYPE_VENDOR + LIBUSB_RECIPIENT_DEVICE + LIBUSB_ENDPOINT_IN, 0x0000001, 0x000000b, 0x0000000, read_reg_buf, 0x000000d, 1000);
+	ret = libusb_control_transfer(devh, LIBUSB_REQUEST_TYPE_VENDOR + LIBUSB_RECIPIENT_DEVICE + LIBUSB_ENDPOINT_IN, 0x0000001, 0x000000b, 0x0000000, buf, 13, 1000);
 	if (ret != 0x0d) {
 		fprintf(stderr, "read_reg control msg returned %d, bytes: ", ret);
-		print_bytes(read_reg_buf, ret);
+		print_bytes(buf, ret);
 		fprintf(stderr, "\n");
 	}
-	if (val) {
-		*val = read_reg_buf[7];
-	}
 
-	return ret;
+	return buf[7];
 }
 
 static int somagic_write_reg(uint16_t reg, uint8_t val)
@@ -423,7 +422,7 @@ static int somagic_write_reg(uint16_t reg, uint8_t val)
 	buf[6] = reg & 0xff;
 	buf[7] = val;
 
-	ret = libusb_control_transfer(devh, LIBUSB_REQUEST_TYPE_VENDOR + LIBUSB_RECIPIENT_DEVICE, 0x0000001, 0x000000b, 0x0000000, buf, 0x0000008, 1000);
+	ret = libusb_control_transfer(devh, LIBUSB_REQUEST_TYPE_VENDOR + LIBUSB_RECIPIENT_DEVICE, 0x0000001, 0x000000b, 0x0000000, buf, 8, 1000);
 	if (ret != 8) {
 		fprintf(stderr, "write reg control msg returned %d, bytes: ", ret);
 		print_bytes(buf, ret);
@@ -433,41 +432,39 @@ static int somagic_write_reg(uint16_t reg, uint8_t val)
 	return ret;
 }
 
-uint8_t read_i2c_buf[27];
-static int somagic_read_i2c(uint8_t dev_addr, uint8_t reg, uint8_t *val)
+static uint8_t somagic_read_i2c(uint8_t dev_addr, uint8_t reg)
 {
 	int ret;
+	uint8_t buf[13];
 
-	memcpy(read_i2c_buf, "\x0b\x4a\x84\x00\x01\x10\x00\x00\x00\x00\x00\x00\x00", 0x000000d);
+	memcpy(buf, "\x0b\x4a\x84\x00\x01\x10\x00\x00\x00\x00\x00\x00\x00", 0x000000d);
 
-	read_i2c_buf[1] = dev_addr;
-	read_i2c_buf[5] = reg;
+	buf[1] = dev_addr;
+	buf[5] = reg;
 
-	ret = libusb_control_transfer(devh, LIBUSB_REQUEST_TYPE_VENDOR + LIBUSB_RECIPIENT_DEVICE, 0x0000001, 0x000000b, 0x0000000, read_i2c_buf, 0x000000d, 1000);
+	ret = libusb_control_transfer(devh, LIBUSB_REQUEST_TYPE_VENDOR + LIBUSB_RECIPIENT_DEVICE, 0x0000001, 0x000000b, 0x0000000, buf, 13, 1000);
 	fprintf(stderr, "-> i2c_read msg returned %d, bytes: ", ret);
-	print_bytes(read_i2c_buf, ret);
+	print_bytes(buf, ret);
 	fprintf(stderr, "\n");
 	usleep(18 * 1000);
 
-	memcpy(read_i2c_buf, "\x0b\x4a\xa0\x00\x01\x00\xff\xff\xff\xff\xff\xff\xff", 0x000000d);
+	memcpy(buf, "\x0b\x4a\xa0\x00\x01\x00\xff\xff\xff\xff\xff\xff\xff", 0x000000d);
 
-	read_i2c_buf[1] = dev_addr;
+	buf[1] = dev_addr;
 
-	ret = libusb_control_transfer(devh, LIBUSB_REQUEST_TYPE_VENDOR + LIBUSB_RECIPIENT_DEVICE, 0x0000001, 0x000000b, 0x0000000, read_i2c_buf, 0x000000d, 1000);
+	ret = libusb_control_transfer(devh, LIBUSB_REQUEST_TYPE_VENDOR + LIBUSB_RECIPIENT_DEVICE, 0x0000001, 0x000000b, 0x0000000, buf, 13, 1000);
 	fprintf(stderr, "-> i2c_read msg returned %d, bytes: ", ret);
-	print_bytes(read_i2c_buf, ret);
+	print_bytes(buf, ret);
 	fprintf(stderr, "\n");
 
-	memset(read_i2c_buf, 0xff, 0x000000d);
-	ret = libusb_control_transfer(devh, LIBUSB_REQUEST_TYPE_VENDOR + LIBUSB_RECIPIENT_DEVICE + LIBUSB_ENDPOINT_IN, 0x0000001, 0x000000b, 0x0000000, read_i2c_buf, 0x000000d, 1000);
+	memset(buf, 0xff, 0x000000d);
+	ret = libusb_control_transfer(devh, LIBUSB_REQUEST_TYPE_VENDOR + LIBUSB_RECIPIENT_DEVICE + LIBUSB_ENDPOINT_IN, 0x0000001, 0x000000b, 0x0000000, buf, 13, 1000);
 	fprintf(stderr, "<- i2c_read msg returned %d, bytes: ", ret);
-	print_bytes(read_i2c_buf, ret);
+	print_bytes(buf, ret);
 	fprintf(stderr, "\n");
 	usleep(11 * 1000);
 
-	*val = read_i2c_buf[5];
-
-	return ret;
+	return buf[5];
 }
 
 static int somagic_write_i2c(uint8_t dev_addr, uint8_t reg, uint8_t val)
@@ -481,7 +478,7 @@ static int somagic_write_i2c(uint8_t dev_addr, uint8_t reg, uint8_t val)
 	buf[5] = reg;
 	buf[6] = val;
 
-	ret = libusb_control_transfer(devh, LIBUSB_REQUEST_TYPE_VENDOR + LIBUSB_RECIPIENT_DEVICE, 0x0000001, 0x000000b, 0x0000000, buf, 0x0000008, 1000);
+	ret = libusb_control_transfer(devh, LIBUSB_REQUEST_TYPE_VENDOR + LIBUSB_RECIPIENT_DEVICE, 0x0000001, 0x000000b, 0x0000000, buf, 8, 1000);
 	if (ret != 8) {
 		fprintf(stderr, "write_i2c returned %d, bytes: ", ret);
 		print_bytes(buf, ret);
@@ -491,12 +488,34 @@ static int somagic_write_i2c(uint8_t dev_addr, uint8_t reg, uint8_t val)
 	return ret;
 }
 
+void version()
+{
+	fprintf(stderr, "capture "VERSION"\n");
+	fprintf(stderr, "Copyright 2011, 2012 Tony Brown, Jeffry Johnston, Michal Demin\n");
+	fprintf(stderr, "License GPLv3+: GNU GPL version 3 or later <http://gnu.org/licenses/gpl.html>.\n");
+	fprintf(stderr, "This is free software: you are free to change and redistribute it.\n");
+	fprintf(stderr, "There is NO WARRANTY, to the extent permitted by law.\n");
+}
+
+void usage()
+{
+	fprintf(stderr, "Usage: capture [options]\n");
+	fprintf(stderr, "  -c, --cvbs           Use CVBS (composite) input (default)\n");
+	fprintf(stderr, "  -f, --frames=COUNT   Number of frames to generate, 0 for unlimited (default)\n");
+	fprintf(stderr, "  -h, --help           Display usage\n");
+	fprintf(stderr, "  -n, --ntsc           Television standard is 60Hz NTSC\n");
+	fprintf(stderr, "  -p, --pal            Television standard is 50Hz PAL (default)\n");
+	fprintf(stderr, "  -s, --s-video        Use S-VIDEO input\n");
+	fprintf(stderr, "  -V, --version        Display version information\n");
+}
+
 int main(int argc, char **argv)
 {
 	int ret;
+	int i = 0;
 	uint8_t status;
 	struct libusb_device *dev;
-	
+
 	/* buffer for control messages */
 	unsigned char buf[65535];
 	
@@ -504,17 +523,56 @@ int main(int argc, char **argv)
 	struct libusb_transfer *tfr[NUM_ISO_TRANSFERS];
 	unsigned char isobuf[NUM_ISO_TRANSFERS][64 * 3072];
 
-	int i = 0;
+	/* parsing */
+	int c;
+	int option_index = 0;
+	static struct option long_options[] = {
+		{"cvbs", 0, 0, 'c'},
+		{"frame-count", 0, 0, 'f'},
+		{"help", 0, 0, 'h'},
+		{"ntsc", 0, 0, 'n'},
+		{"pal", 0, 0, 'p'},
+		{"s-video", 0, 0, 's'},
+		{"version", 0, 0, 'V'},
+		{0, 0, 0, 0}
+	};
 
-	if (argc != 2) {
-		usage(argv[0]);
+	/* parse command line arguments */
+	while (1) {
+		c = getopt_long(argc, argv, "cf:hnpsV", long_options, &option_index);
+		if (c == -1) {
+			break;
+		}
+		switch (c) {
+		case 'c':
+			input_type = CVBS;
+			break;
+		case 'f':
+			frame_count = atoi(optarg);
+			break;
+		case 'h':
+			usage();
+			return 0;
+		case 'n':
+			tv_standard = NTSC;
+			break;
+		case 'p':
+			tv_standard = PAL;
+			break;
+		case 's':
+			input_type = SVIDEO;
+			break;
+		case 'V':
+			version();
+			return 0;
+		default:
+			usage();
+			return 1;
+		}
 	}
-	if (strcmp(argv[1], "pal") == 0) {
-		tv_standard = PAL;
-	} else if (strcmp(argv[1], "ntsc") == 0) {
-		tv_standard = NTSC;
-	} else {
-		usage(argv[0]);
+	if (optind < argc) {
+		usage();
+		return 1;
 	}
 
 	libusb_init(NULL);
@@ -583,7 +641,7 @@ int main(int argc, char **argv)
 	somagic_write_reg(0x34, 0x01);
 	somagic_write_reg(0x35, 0x00);
 
-	somagic_read_reg(0x3080, &status);
+	status = somagic_read_reg(0x3080);
 	fprintf(stderr, "status is %02x\n", status);
 
 	/* reset audio chip? */
@@ -596,74 +654,112 @@ int main(int argc, char **argv)
 	/* SAAxxx: bring from reset */
 	somagic_write_reg(0x3b, 0x00);
 
+	/* Subaddress 0x01, Horizontal Increment delay */
+	/* Recommended position */
 	somagic_write_i2c(0x4a, 0x01, 0x08);
-	somagic_write_i2c(0x4a, 0x02, 0xc7);
-	somagic_write_i2c(0x4a, 0x03, 0x33);
+
+	/* Subaddress 0x02, Analog input control 1 */
+	/* Analog function select FUSE = Amplifier plus anti-alias filter bypassed */
+	/* Update hysteresis for 9-bit gain = Off */
+	/* Mode = 0, CVBS (automatic gain) from AI11 (pin 4) */
+	somagic_write_i2c(0x4a, 0x02, 0xc0);
+
+	/* Subaddress 0x03, Analog input control 2 */ 
+	/* Static gain control channel 1 (GAI18), sign bit of gain control = 1 */
+	/* Static gain control channel 2 (GAI28), sign bit of gain control = 1 */
+	/* Gain control fix (GAFIX) = Automatic gain controlled by MODE3 to MODE0 */
+	/* Automatic gain control integration (HOLDG) = AGC active */
+	/* White peak off (WPOFF) = White peak off */ 
+	/* AGC hold during vertical blanking period (VBSL) = Long vertical blanking (AGC disabled from start of pre-equalization pulses until start of active video (line 22 for 60 Hz, line 24 for 50 Hz) */
+	/* Normal clamping if decoder is in unlocked state */
+	somagic_write_i2c(0x4a, 0x03, 0x33); 
+
+	/* Subaddress 0x04, Gain control analog/Analog input control 3 (AICO3); static gain control channel 1 GAI1 */
+	/* Gain (dB) = -3 (Note: Dependent on subaddress 0x03 GAI18 value) */
 	somagic_write_i2c(0x4a, 0x04, 0x00);
+
+	/* Subaddress 0x05, Gain control analog/Analog input control 4 (AICO4); static gain control channel 2 GAI2 */
+	/* Gain (dB) = -3 (Note: Dependent on subaddress 0x03 GAI28 value) */
 	somagic_write_i2c(0x4a, 0x05, 0x00);
+
+	/* Subaddress 0x06, Horizontal sync start/begin */
+	/* Delay time (step size = 8/LLC) = Recommended value for raw data type */
 	somagic_write_i2c(0x4a, 0x06, 0xe9);
+
+	/* Subaddress 0x07, Horizontal sync stop */
+	/* Delay time (step size = 8/LLC) = Recommended value for raw data type */
 	somagic_write_i2c(0x4a, 0x07, 0x0d);
 
-	/* Subaddress 08h: d8 or 98 = auto NTSC/PAL, 58 = force NTSC, 18 = force PAL */
+	/* Subaddress 0x08, Sync control */ 
+	/* Automatic field detection (AUFD) = Automatic field detection */
+	/* Field selection (FSEL) = 50 Hz, 625 lines (Note: Ignored due to automatic field detection) */
+	/* Forced ODD/EVEN toggle FOET = ODD/EVEN signal toggles only with interlaced source */
+	/* Horizontal time constant selection = Fast locking mode (recommended setting) */
+	/* Horizontal PLL (HPLL) = PLL closed */
+	/* Vertical noise reduction (VNOI) = Normal mode (recommended setting) */
 	somagic_write_i2c(0x4a, 0x08, 0x98);
 
+	/* Subaddress 0x09, Luminance control */ 
+	/* Chrominance trap bypass (BYPS) = Chrominance trap active; default for CVBS mode */
+	/* TODO */
 	somagic_write_i2c(0x4a, 0x09, 0x01);
+
+	/* Subaddress 0x0a, Luminance brightness control */
 	somagic_write_i2c(0x4a, 0x0a, 0x80);
+
+	/* Subaddress 0x0b, Luminance contrast control */
 	somagic_write_i2c(0x4a, 0x0b, 0x40);
+
+	/* Subaddress 0x0c, Chrominance saturation control */
 	somagic_write_i2c(0x4a, 0x0c, 0x40);
+
+	/* Subaddress 0x0d, Chrominance hue control */
 	somagic_write_i2c(0x4a, 0x0d, 0x00);
-	somagic_write_i2c(0x4a, 0x0e, 0x81);
-	somagic_write_i2c(0x4a, 0x0f, 0x2a);
-	somagic_write_i2c(0x4a, 0x10, 0x40);
-	somagic_write_i2c(0x4a, 0x11, 0x0c);
-	somagic_write_i2c(0x4a, 0x12, 0x01);
-	somagic_write_i2c(0x4a, 0x13, 0x80);
-	somagic_write_i2c(0x4a, 0x14, 0x00);
-	somagic_write_i2c(0x4a, 0x15, 0x00);
-	somagic_write_i2c(0x4a, 0x16, 0x00);
-	somagic_write_i2c(0x4a, 0x17, 0x00);
-	somagic_write_i2c(0x4a, 0x40, 0x02);
-	somagic_write_i2c(0x4a, 0x58, 0x00);
 
-	/* Subaddress 59h: HOFF - horizontal offset */
-	somagic_write_i2c(0x4a, 0x59, 0x54);
-
-	/* Subaddress 5Ah: VOFF - vertical offset */
-	somagic_write_i2c(0x4a, 0x5a, 0x07);
-
-	/* Subaddress 5Bh: HVOFF - horizontal and vertical offset bits */
-	somagic_write_i2c(0x4a, 0x5b, 0x03);
-
-	/* Subaddress 5Eh: SDID codes. 0 = sets SDID5 to SDID0 active */
-	somagic_write_i2c(0x4a, 0x5e, 0x00);
-
-	somagic_write_i2c(0x4a, 0x02, 0xc0);
+	/* Subaddress 0x0e, Chrominance control */
 	somagic_write_i2c(0x4a, 0x0e, 0x01);
 
-	/* Subaddress 40h: 00 for PAL, 80 for NTSC */
-	if (tv_standard == PAL) {
-		somagic_write_i2c(0x4a, 0x40, 0x00);
-	} else {
-		somagic_write_i2c(0x4a, 0x40, 0x80);
-	}
+	/* Subaddress 0x0f, Chrominance gain control */
+	somagic_write_i2c(0x4a, 0x0f, 0x2a);
 
-	somagic_read_i2c(0x4a, 0x10, &status);
-	fprintf(stderr,"i2c_read(0x10) = %02x\n", status);
-
-	somagic_read_i2c(0x4a, 0x02, &status);
-	fprintf(stderr,"i2c_stat(0x02) = %02x\n", status);
-
-	/* Subaddress 5Ah: 07 for PAL, 0a for NTSC */
-	if (tv_standard == PAL) {
-		somagic_write_i2c(0x4a, 0x5a, 0x07);
-	} else {
-		somagic_write_i2c(0x4a, 0x5a, 0x0a);
-	}
-
-	somagic_write_i2c(0x4a, 0x59, 0x54);
-	somagic_write_i2c(0x4a, 0x5b, 0x83);
+	/* Subaddress 0x10, Format/delay control */
 	somagic_write_i2c(0x4a, 0x10, 0x40);
-	somagic_write_i2c(0x4a, 0x55, 0xff);
+
+	/* Subaddress 0x11, Output control 1 */
+	somagic_write_i2c(0x4a, 0x11, 0x0c);
+
+	/* Subaddress 0x12, RTS0 output control/Output control 2 */
+	somagic_write_i2c(0x4a, 0x12, 0x01);
+
+	/* Subaddress 0x13, Output control 3 */
+	somagic_write_i2c(0x4a, 0x13, 0x80);
+
+	/* Subaddress 0x15, Start of VGATE pulse (01-transition) and polarity change of FID pulse/V_GATE1_START */
+	somagic_write_i2c(0x4a, 0x15, 0x00);
+
+	/* Subaddress 0x16, Stop of VGATE pulse (10-transition)/V_GATE1_STOP */
+	somagic_write_i2c(0x4a, 0x16, 0x00);
+
+	/* Subaddress 0x17, VGATE MSBs/V_GATE1_MSB */
+	somagic_write_i2c(0x4a, 0x17, 0x00);
+
+	/* Subaddress 0x40, AC1 */
+	if (tv_standard == PAL) {
+		/* Data slicer clock selection, Amplitude searching = 13.5 MHz (default) */
+		/* Amplitude searching = Amplitude searching active (default) */
+		/* Framing code error = One framing code error allowed */
+		/* Hamming check = Hamming check for 2 bytes after framing code, dependent on data type (default) */
+		/* Field size select = 50 Hz field rate */
+		somagic_write_i2c(0x4a, 0x40, 0x02);
+	} else {
+		/* Data slicer clock selection, Amplitude searching = 13.5 MHz (default) */
+		/* Amplitude searching = Amplitude searching active (default) */
+		/* Framing code error = One framing code error allowed */
+		/* Hamming check = Hamming check for 2 bytes after framing code, dependent on data type (default) */
+		/* Field size select = 60 Hz field rate */
+		somagic_write_i2c(0x4a, 0x40, 0x82);
+	}
+
 	somagic_write_i2c(0x4a, 0x41, 0x77);
 	somagic_write_i2c(0x4a, 0x42, 0x77);
 	somagic_write_i2c(0x4a, 0x43, 0x77);
@@ -684,22 +780,43 @@ int main(int argc, char **argv)
 	somagic_write_i2c(0x4a, 0x52, 0x77);
 	somagic_write_i2c(0x4a, 0x53, 0x77);
 	somagic_write_i2c(0x4a, 0x54, 0x77);
-	somagic_write_i2c(0x4a, 0x0a, 0x80);
-	somagic_write_i2c(0x4a, 0x0b, 0x40);
-	somagic_write_i2c(0x4a, 0x0d, 0x00);
-	somagic_write_i2c(0x4a, 0x0c, 0x40);
-	somagic_write_i2c(0x4a, 0x09, 0x01);
+	somagic_write_i2c(0x4a, 0x55, 0xff);
+
+	/* Subaddress 0x58, Framing code for programmable data types/FC */
+	somagic_write_i2c(0x4a, 0x58, 0x00);
+
+	/* Subaddress 0x59, Horizontal offset/HOFF */
+	somagic_write_i2c(0x4a, 0x59, 0x54);
+
+	/* Subaddress 0x5a: Vertical offset/VOFF */
+	if (tv_standard == PAL) {
+		somagic_write_i2c(0x4a, 0x5a, 0x07);
+	} else {
+		somagic_write_i2c(0x4a, 0x5a, 0x0a);
+	}
+
+	/* Subaddress 0x5b, Field offset, MSBs for vertical and horizontal offsets/HVOFF */
+	somagic_write_i2c(0x4a, 0x5b, 0x83);
+
+	/* Subaddress 0x5e, SDID codes */
+	somagic_write_i2c(0x4a, 0x5e, 0x00);
+
+	status = somagic_read_i2c(0x4a, 0x10);
+	fprintf(stderr,"i2c_read(0x10) = %02x\n", status);
+
+	status = somagic_read_i2c(0x4a, 0x02);
+	fprintf(stderr,"i2c_stat(0x02) = %02x\n", status);
 
 	somagic_write_reg(0x1740, 0x40);
 
-	somagic_read_reg(0x3080, &status);
+	status = somagic_read_reg(0x3080);
 	fprintf(stderr, "status is %02x\n", status);
 
 	somagic_write_reg(0x1740, 0x00);
 	usleep(250 * 1000);
 	somagic_write_reg(0x1740, 0x00);
 
-	somagic_read_reg(0x3080, &status);
+	status = somagic_read_reg(0x3080);
 	fprintf(stderr, "status is %02x\n", status);
 
 	memcpy(buf, "\x01\x05", 0x0000002);
