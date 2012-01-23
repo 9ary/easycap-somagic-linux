@@ -28,10 +28,22 @@
  */
 
 /*
- * Usage (run as root):
+ * Usage examples (run as root):
+ * 
+ * # Initialize device (if not using kernel module)
  * init
- * capture -p 2> /dev/null | mplayer - -vf screenshot -demuxer rawvideo -rawvideo "w=720:h=576:format=uyvy:fps=25"
- * capture -n 2> /dev/null | mplayer - -vf screenshot -demuxer rawvideo -rawvideo "ntsc:format=uyvy:fps=30000/1001"
+ *
+ * # PAL, CVBS/composite:
+ * capture 2> /dev/null | mplayer - -vf yadif,screenshot -demuxer rawvideo -rawvideo "w=720:h=576:format=uyvy:fps=25"
+ *
+ * # PAL, S-VIDEO:
+ * capture -s 2> /dev/null | mplayer - -vf yadif,screenshot -demuxer rawvideo -rawvideo "w=720:h=576:format=uyvy:fps=25"
+ * 
+ * # NTSC, CVBS/composite:
+ * capture -n 2> /dev/null | mplayer - -vf yadif,screenshot -demuxer rawvideo -rawvideo "ntsc:format=uyvy:fps=30000/1001"
+ *
+ * # NTSC, S-VIDEO:
+ * capture -n -s 2> /dev/null | mplayer - -vf yadif,screenshot -demuxer rawvideo -rawvideo "ntsc:format=uyvy:fps=30000/1001"
  */
 
 /* This file was originally generated with usbsnoop2libusb.pl from a usbsnoop log file. */
@@ -212,8 +224,15 @@ static void process(struct video_state_t *vs, uint8_t c)
 {
 	int lines_per_field = (tv_standard == PAL ? 288 : 240);
 
+	/*
+	 * Timing reference code (TRC):
+	 *     [ff 00 00 SAV] [ff 00 00 EAV]
+	 * A line of video will look like (1448 bytes total):
+	 *     [ff 00 00 EAV] [ff 00 00 SAV] [1440 bytes of UYVY video] (repeat on next line)
+	 */
 	if (vs->state == HSYNC) {
 		if (c == 0xff) {
+			/* The 1st byte in the TRC must be 0xff. */
 			vs->state++;
 		} else {
 			put_data(vs, c);
@@ -222,6 +241,10 @@ static void process(struct video_state_t *vs, uint8_t c)
 		if (c == 0x00) {
 			vs->state++;
 		} else {
+			/*
+			 * The 2nd byte in the TRC must be 0x00. It
+			 * wasn't, so sync was lost.
+			 */
 			vs->state = HSYNC;
 
 			put_data(vs, 0xff);
@@ -231,6 +254,10 @@ static void process(struct video_state_t *vs, uint8_t c)
 		if (c == 0x00) {
 			vs->state++;
 		} else {
+			/*
+			 * The 3rd byte in the TRC must be 0x00. It
+			 * wasn't, so sync was lost.
+			 */
 			vs->state = HSYNC;
 
 			put_data(vs, 0xff);
@@ -238,12 +265,23 @@ static void process(struct video_state_t *vs, uint8_t c)
 			put_data(vs, c);
 		}
 	} else if (vs->state == SYNCAV) {
+		/*
+		 * Found 0xff 0x00 0x00, now expecting SAV or EAV. Might
+		 * also be the SDID (sliced data ID), 0x00.
+		 */
 		vs->state = HSYNC;
 		if (c == 0x00) {
-			/* slice id */
+			/*
+			 * SDID (sliced data ID) detected, so active YUV data  
+			 * still hasn't been found.
+			 */
 			return;
 		}
 
+		/*
+		 * H = Bit 4 (mask 0x10).
+		 * 0: in SAV, 1: in EAV.
+		 */
 		if (c & 0x10) {
 			/* EAV (end of active data) */
 			if (!vs->blank) {
@@ -257,12 +295,12 @@ static void process(struct video_state_t *vs, uint8_t c)
 
 			/* SAV (start of active data) */
 			/*
-				* F (field bit) = Bit 6 (mask 0x40).
-				* 0: first field, 1: 2nd field.
-				*
-				* V (vertical blanking bit) = Bit 5 (mask 0x20).
-				* 0: in VBI, 1: in active video.
-				*/
+			 * F (field bit) = Bit 6 (mask 0x40).
+			 * 0: first field, 1: 2nd field.
+			 *
+			 * V (vertical blanking bit) = Bit 5 (mask 0x20).
+			 * 0: in VBI, 1: in active video.
+			 */
 			field_edge = vs->field;
 			blank_edge = vs->blank;
 
@@ -313,8 +351,8 @@ void gotdata(struct libusb_transfer *tfr)
 			 */
 			if (data[pos] == 0xaa && data[pos + 1] == 0xaa && data[pos + 2] == 0x00 && data[pos + 3] == 0x00) {
 				/* process the received data, excluding the 4 marker bytes */
-				for (k = 0; k < 0x400 - 4; k++) {
-					process(&vs, data[k + 4 + pos]);
+				for (k = 4; k < 0x400; k++) {
+					process(&vs, data[k + pos]);
 				}
 			} else {
 				fprintf(stderr, "Unexpected block, expected [aa aa 00 00] found [%02x %02x %02x %02x]\n", data[pos], data[pos + 1], data[pos + 2], data[pos + 3]);
@@ -626,7 +664,7 @@ int main(int argc, char **argv)
 
 	dev = find_device(VENDOR, PRODUCT);
 	if (!dev) {
-		fprintf(stderr, "USB device %04x:%04x was not found.\n", VENDOR, PRODUCT);
+		fprintf(stderr, "USB device %04x:%04x was not found. Has device initialization been performed?\n", VENDOR, PRODUCT);
 		return 1;
 	}
 
