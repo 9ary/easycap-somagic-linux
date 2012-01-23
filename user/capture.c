@@ -71,8 +71,8 @@ enum input_types {
 };
 
 /* Options */
-/* Control the number of frames to generate: 0 = unlimited (default) */
-int frame_count = 0;
+/* Control the number of frames to generate: -1 = unlimited (default) */
+int frame_count = -1;
 
 /* Television standard: PAL (default) or NTSC */
 int tv_standard = PAL;
@@ -173,203 +173,122 @@ void trace()
 	exit(1);
 }
 
-
-/*
- * Write a number of bytes from the iso transfer buffer to the appropriate line and field of the frame buffer.
- * Returns the number of bytes actually used from the buffer
- */
-int write_buffer(unsigned char *data, unsigned char *end, int count, unsigned char *frame, int line, int field)
-{
-	int dowrite;
-	int line_pos;
-	int lines_per_field = (tv_standard == PAL ? 288 : 240);
-	dowrite = MIN(end - data, count);
-
-	line_pos = line * (720 * 2) * 2 + (field * 720 * 2) + ((720 * 2) - count);
-
-	if (line < lines_per_field) {
-		memcpy(line_pos + frame, data, dowrite);
-	}
-	return dowrite;
-}
-
-
 enum sync_state {
 	HSYNC,
-	/*SYNCFF,*/
 	SYNCZ1,
 	SYNCZ2,
 	SYNCAV,
-	VBLANK,
-	VACTIVE,
-	REMAINDER
 };
 
-enum sync_state state = HSYNC;
-int line_remaining = 0;
-int active_line_count = 0;
-int vblank_found = 0;
-int field = 0;
+struct video_state_t {
+	uint16_t line;
+	uint16_t col;
 
-unsigned char frame[720 * 2 * 288 * 2];
+	enum sync_state state;
 
-void process_data(unsigned char* buffer, int length)
+	uint8_t field;
+	uint8_t blank;
+};
+
+static struct video_state_t vs = { .line = 0, .col = 0, .state = 0, .field = 0, .blank = 0};
+
+unsigned char frame[720 * 2 * 627 * 2] = { 0, };
+
+static void put_data(struct video_state_t *vs, uint8_t c)
 {
-	unsigned char *next = buffer;
-	unsigned char *end = buffer + length;
-	int bs = 0; /* bad (lost) sync: 0=no, 1=yes */
-	int hs = 0;
+	int line_pos;
+
+	line_pos = (2 * vs->line + vs->field) * (720 * 2) + vs->col;
+	vs->col ++;
+
+	// sanity check
+	if (vs->col > 720 * 2)
+		vs->col = 720*2;
+
+	frame[line_pos] = c;
+}
+
+static void process(struct video_state_t *vs, uint8_t c)
+{
 	int lines_per_field = (tv_standard == PAL ? 288 : 240);
-	do {
-		unsigned char nc = *next;
-		/*
-		 * Timing reference code (TRC):
-		 *     [ff 00 00 SAV] [ff 00 00 EAV]
-		 * Where SAV is 80 or c7, and EAV is 9d or da.
-		 * A line of video will look like (1448 bytes total):
-		 *     [ff 00 00 EAV] [ff 00 00 SAV] [1440 bytes of UYVY video] (repeat on next line)
-		 */
-		switch (state) {
-			case HSYNC:
-				hs++;
-				if (nc == (unsigned char)0xff) {
-					state = SYNCZ1;
-					if (bs == 1) {
-						fprintf(stderr, "resync after %d @%ld(%04lx)\n", hs, next - buffer, next - buffer);
-					}
-					bs = 0;
-				} else if (bs != 1) {
-					/*
-					 * The 1st byte in the TRC must be 0xff. It
-					 * wasn't, so sync was either lost or has not
-					 * yet been regained. Sync is regained by
-					 * ignoring bytes until the next 0xff.
-					 */
-					fprintf(stderr, "bad sync on line %d @%ld (%04lx)\n", active_line_count, next - buffer, next - buffer);
-					/*
-					 *				print_bytes_only(pbuffer, buffer_pos + 64);
-					 *				print_bytes(pbuffer + buffer_pos, 8);
-					 */
-					bs = 1;
-				}
-				next++;
-				break;
-			case SYNCZ1:
-				if (nc == (unsigned char)0x00) {
-					state = SYNCZ2;
-				} else {
-					/*
-					 * The 2nd byte in the TRC must be 0x00. It
-					 * wasn't, so sync was lost.
-					 */
-					state = HSYNC;
-				}
-				next++;
-				break;
-			case SYNCZ2:
-				if (nc == (unsigned char)0x00) {
-					state = SYNCAV;
-				} else {
-					/*
-					 * The 3rd byte in the TRC must be 0x00. It
-					 * wasn't, so sync was lost.
-					 */
-					state = HSYNC;
-				}
-				next++;
-				break;
-			case SYNCAV:
-				/*
-				 * Found 0xff 0x00 0x00, now expecting SAV or EAV. Might
-				 * also be the SDID (sliced data ID), 0x00.
-				 */
-				/* fprintf(stderr,"%02x", nc); */
-				if (nc == (unsigned char)0x00) {
-					/*
-					 * SDID detected, so we still haven't found the
-					 * active YUV data.
-					 */
-					state = HSYNC;
-					next++;
-					break;
+
+	if (vs->state == HSYNC) {
+		if (c == 0xff) {
+			vs->state ++;
+		} else {
+			put_data(vs, c);
+		}
+	} else if (vs->state == SYNCZ1) {
+		if (c == 0x00) {
+			vs->state ++;
+		} else {
+			vs->state = HSYNC;
+
+			put_data(vs, 0xff);
+			put_data(vs, c);
+		}
+	} else if (vs->state == SYNCZ2) {
+		if (c == 0x00) {
+			vs->state ++;
+		} else {
+			vs->state = HSYNC;
+
+			put_data(vs, 0xff);
+			put_data(vs, 0x00);
+			put_data(vs, c);
+		}
+	} else if (vs->state == SYNCAV) {
+		vs->state = HSYNC;
+		if (c == 0x00) {
+			// slice id
+			return;
+		}
+
+		if (c & 0x10) {
+			/* EAV (end of active data) */
+			if (!vs->blank) {
+				vs->line ++;
+				vs->col = 0;
+				if (vs->line > 625) vs->line = 625; // sanity check
+			}
+		} else {
+			int field_edge;
+			int blank_edge;
+
+			/* SAV (start of active data) */
+			/*
+				* F (field bit) = Bit 6 (mask 0x40).
+				* 0: first field, 1: 2nd field.
+				*
+				* V (vertical blanking bit) = Bit 5 (mask 0x20).
+				* 0: in VBI, 1: in active video.
+				*/
+			field_edge = vs->field;
+			blank_edge = vs->blank;
+
+			vs->field = (c & 0x40) ? 1 : 0;
+			vs->blank = (c & 0x20) ? 1 : 0;
+
+			field_edge = vs->field ^ field_edge;
+			blank_edge = vs->blank ^ blank_edge;
+
+			if (vs->field == 0 && field_edge) {
+				if (frames_generated < frame_count || frame_count == -1) {
+					write(1, frame, 720 * 2 * lines_per_field * 2);
+					frames_generated++;
 				}
 				
-				/*
-				 * H = Bit 4 (mask 0x10).
-				 * 0: in SAV, 1: in EAV.
-				 */
-				if (nc & (unsigned char)0x10) {
-					/* EAV (end of active data) */
-					state = HSYNC;
-				} else {
-					/* SAV (start of active data) */
-					/*
-						* F (field bit) = Bit 6 (mask 0x40).
-						* 0: first field, 1: 2nd field.
-						*/
-					field = (nc & (unsigned char)0x40) ? 1 : 0;
-					/*
-						* V (vertical blanking bit) = Bit 5 (mask 0x20).
-						* 0: in VBI, 1: in active video.
-						*/
-					if (nc & (unsigned char)0x20) {
-						/* VBI (vertical blank) */
-						state = VBLANK;
-						vblank_found++;
-						if (active_line_count > (lines_per_field - 8)) {
-							if (field == 0) {
-								if (frames_generated < frame_count || frame_count == 0) {
-									write(1, frame, 720 * 2 * lines_per_field * 2);
-									frames_generated++;
-								}
-								if (frames_generated >= frame_count && frame_count != 0) {
-									stop_sending_requests = 1;
-								}
-								
-							}
-							vblank_found = 0;
-							/* fprintf(stderr, "lines: %d\n", active_line_count); */
-						}
-						active_line_count = 0;
-					} else {
-						/* Line is active video */
-						state = VACTIVE;
-					}
-					line_remaining = 720 * 2;
+				if (frames_generated >= frame_count && frame_count != -1) {
+					stop_sending_requests = 1;
 				}
-				next++;
-				break;
-			case VBLANK:
-			case VACTIVE:
-			case REMAINDER:
-				/* fprintf(stderr,"line %d, rem=%d ,next=%08x, end=%08x ", active_line_count, line_remaining, next, end); */
-				if (state == VBLANK || vblank_found < 20) {
-					int skip = MIN(line_remaining, (end - next));
-					/* fprintf(stderr,"skipped: %d\n", skip); */
-					line_remaining -= skip;
-					next += skip ;
-					/* fprintf(stderr, "vblank_found=%d\n", vblank_found); */
-				} else {
-					int wrote = write_buffer(next, end, line_remaining, frame, active_line_count, field);
-					/* fprintf(stderr,"wrote: %d\n", wrote); */
-					line_remaining -= wrote;
-					next += wrote;
-					if (line_remaining <= 0) {
-						active_line_count++;
-					}
-				}
-				/* fprintf(stderr, "vblank_found: %d, line remaining: %d, line_count: %d\n", vblank_found, line_remaining, active_line_count); */
-				if (line_remaining <= 0) {
-					state = HSYNC;
-				} else {
-					/* fprintf(stderr, "\nOn line %d, line_remaining: %d(%04x). bp=%04x/%04x\n", active_line_count, line_remaining, line_remaining, buffer_pos, buffer_size); */
-					state = REMAINDER;
-					/* no more data in this buffer. exit loop */
-					next = end;
-				}
-				break;
-		} /* end switch */
-	} while (next < end);
+			}
+
+			if (vs->blank == 0 && blank_edge) {
+				vs->line = 0;
+				vs->col = 0;
+			}
+		}
+	}
 }
 
 void gotdata(struct libusb_transfer *tfr)
@@ -377,13 +296,15 @@ void gotdata(struct libusb_transfer *tfr)
 	int ret;
 	int num = tfr->num_iso_packets;
 	int i;
-	
+
 	pending_requests--;
-	
+
 	for (i = 0; i < num; i++) {
 		unsigned char *data = libusb_get_iso_packet_buffer_simple(tfr, i);
 		int length = tfr->iso_packet_desc[i].actual_length;
 		int pos = 0;
+		int k;
+
 		while (pos < length) {
 			/*
 			 * Within each packet of the transfer, the data is divided into blocks of 0x400 bytes
@@ -392,14 +313,16 @@ void gotdata(struct libusb_transfer *tfr)
 			 */
 			if (data[pos] == 0xaa && data[pos + 1] == 0xaa && data[pos + 2] == 0x00 && data[pos + 3] == 0x00) {
 				/* process the received data, excluding the 4 marker bytes */
-				process_data(data + 4 + pos, 0x400 - 4);
+				for (k = 0; k < 0x400 - 4; k++) {
+					process(&vs, data[k+4+pos]);
+				}
 			} else {
 				fprintf(stderr, "Unexpected block, expected [aa aa 00 00] found [%02x %02x %02x %02x]\n", data[pos], data[pos + 1], data[pos + 2], data[pos + 3]);
 			}
 			pos += 0x400;
 		}
 	}
-	
+
 	if (!stop_sending_requests) {
 		ret = libusb_submit_transfer(tfr);
 		if (ret != 0) {
