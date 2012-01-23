@@ -333,7 +333,7 @@ int main(int argc, char **argv)
 	}
 
 	/* Verify that the new device ID is found */
-	usleep(500 * 1000);
+	usleep(1000 * 1000);
 	usb_find_devices();
 	#ifdef DEBUG
 	list_devices();
