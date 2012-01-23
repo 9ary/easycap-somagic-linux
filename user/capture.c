@@ -86,7 +86,7 @@ uint8_t hue = 0;
 uint8_t saturation = 64;
 
 /* Luminance contrast: -128 to 127 (1.984375 to -2.000000), increments of 0.015625 */
-uint8_t contrast = 64;
+uint8_t contrast = 71;
 
 /* Luminance brightness: 0 to 255 */
 uint8_t brightness = 128;
@@ -478,11 +478,11 @@ void usage()
 	fprintf(stderr, "                               128  ITU level (default)\n");
 	fprintf(stderr, "                                 0  Dark\n");
 	fprintf(stderr, "  -C, --contrast=VALUE       Luminance contrast control,\n");
-	fprintf(stderr, "                             -128 to 127 (default: 64)\n");
+	fprintf(stderr, "                             -128 to 127 (default: 71)\n");
 	fprintf(stderr, "                             Value  Contrast\n");
 	fprintf(stderr, "                               127   1.984375\n");
-	fprintf(stderr, "                                71   1.109375 (ITU level)\n");
-	fprintf(stderr, "                                64   1.000000 (default)\n");
+	fprintf(stderr, "                                71   1.109375 (ITU level, default)\n");
+	fprintf(stderr, "                                64   1.000000\n");
 	fprintf(stderr, "                                 1   0.015625\n");
 	fprintf(stderr, "                                 0   0.000000 (luminance off)\n");
 	fprintf(stderr, "                               -64  -1.000000 (inverse)\n");
