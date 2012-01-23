@@ -649,7 +649,7 @@ int main(int argc, char **argv)
 		case 'f':
 			frame_count = atoi(optarg);
 			break;
-		case 'h':
+		case 'H':
 			i = atoi(optarg);
 			if (i < -128 || i > 127) {
 				fprintf(stderr, "Invalid hue phase '%i', must be from -128 to 127\n", i);
