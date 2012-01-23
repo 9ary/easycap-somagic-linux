@@ -543,7 +543,7 @@ void usage()
 	fprintf(stderr, "                           -128  -2.000000 (inverse)\n");
 	fprintf(stderr, "  -f, --frames=COUNT      Number of frames to generate,\n");
 	fprintf(stderr, "                          0 for unlimited (default: 0)\n");
-	fprintf(stderr, "  -H, --hue=PHASE         Hue phase in degrees, -128 to 127 (default: 0),\n");
+	fprintf(stderr, "  -H, --hue=VALUE         Hue phase in degrees, -128 to 127 (default: 0),\n");
 	fprintf(stderr, "                          Value  Phase\n");
 	fprintf(stderr, "                           -128  -180.00000\n");
 	fprintf(stderr, "                              0     0.00000\n");
