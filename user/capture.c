@@ -91,6 +91,9 @@ uint8_t contrast = 64;
 /* Luminance brightness: 0 to 255 */
 uint8_t brightness = 128;
 
+/* Luminance aperture factor: 0 = 0, 1 = 0.25, 2 = 0.5, 3 = 1.0 */
+int luminance_aperture = 1;
+
 void release_usb_device(int ret)
 {
 	fprintf(stderr, "Emergency exit\n");
@@ -467,54 +470,60 @@ void version()
 void usage()
 {
 	fprintf(stderr, "Usage: capture [options]\n");
-	fprintf(stderr, "  -c, --cvbs              Use CVBS (composite) input (default)\n");
-	fprintf(stderr, "  -B, --brightness=VALUE  Luminance brightness control,\n");
-	fprintf(stderr, "                          0 to 255 (default: 128)\n");
-	fprintf(stderr, "                          Value  Brightness\n");
-	fprintf(stderr, "                            255  Bright\n");
-	fprintf(stderr, "                            128  ITU level (default)\n");
-	fprintf(stderr, "                              0  Dark\n");
-	fprintf(stderr, "  -C, --contrast=VALUE    Luminance contrast control,\n");
-	fprintf(stderr, "                          -128 to 127 (default: 64)\n");
-	fprintf(stderr, "                          Value  Contrast\n");
-	fprintf(stderr, "                            127   1.984375\n");
-	fprintf(stderr, "                             71   1.109375 (ITU level)\n");
-	fprintf(stderr, "                             64   1.000000 (default)\n");
-	fprintf(stderr, "                              1   0.015625\n");
-	fprintf(stderr, "                              0   0.000000 (luminance off)\n");
-	fprintf(stderr, "                            -64  -1.000000 (inverse)\n");
-	fprintf(stderr, "                           -128  -2.000000 (inverse)\n");
-	fprintf(stderr, "  -f, --frames=COUNT      Number of frames to generate,\n");
-	fprintf(stderr, "                          -1 for unlimited (default: -1)\n");
-	fprintf(stderr, "  -H, --hue=VALUE         Hue phase in degrees, -128 to 127 (default: 0),\n");
-	fprintf(stderr, "                          Value  Phase\n");
-	fprintf(stderr, "                           -128  -180.00000\n");
-	fprintf(stderr, "                              0     0.00000\n");
-	fprintf(stderr, "                              1     1.40635\n");
-	fprintf(stderr, "                            127   178.59375\n");
-	fprintf(stderr, "  -l, --luminance=MODE    CVBS luminance mode (default: 0)\n");
-	fprintf(stderr, "                          Mode  Center Frequency\n");
-	fprintf(stderr, "                             0  4.1 MHz (default)\n");
-	fprintf(stderr, "                             1  3.8 MHz\n");
-	fprintf(stderr, "                             2  2.6 MHz\n");
-	fprintf(stderr, "                             3  2.9 MHz\n");
-	fprintf(stderr, "  -L, --lum-prefilter     Activate luminance prefilter (default: bypassed)\n");
-	fprintf(stderr, "  -n, --ntsc              Television standard is 60Hz NTSC\n");
-	fprintf(stderr, "  -p, --pal               Television standard is 50Hz PAL (default)\n");
-	fprintf(stderr, "  -S, --saturation=VALUE  Chrominance saturation control,\n");
-	fprintf(stderr, "                          -128 to 127 (default: 64)\n");
-	fprintf(stderr, "                          Value  Saturation\n");
-	fprintf(stderr, "                            127   1.984375\n");
-	fprintf(stderr, "                             64   1.000000 (ITU level, default)\n");
-	fprintf(stderr, "                              1   0.015625\n");
-	fprintf(stderr, "                              0   0.000000 (color off)\n");
-	fprintf(stderr, "                            -64  -1.000000 (inverse)\n");
-	fprintf(stderr, "                           -128  -2.000000 (inverse)\n");
-	fprintf(stderr, "  -s, --s-video           Use S-VIDEO input\n");
-	fprintf(stderr, "      --help              Display usage\n");
-	fprintf(stderr, "      --version           Display version information\n");
+	fprintf(stderr, "  -c, --cvbs                 Use CVBS (composite) input (default)\n");
+	fprintf(stderr, "  -B, --brightness=VALUE     Luminance brightness control,\n");
+	fprintf(stderr, "                             0 to 255 (default: 128)\n");
+	fprintf(stderr, "                             Value  Brightness\n");
+	fprintf(stderr, "                               255  Bright\n");
+	fprintf(stderr, "                               128  ITU level (default)\n");
+	fprintf(stderr, "                                 0  Dark\n");
+	fprintf(stderr, "  -C, --contrast=VALUE       Luminance contrast control,\n");
+	fprintf(stderr, "                             -128 to 127 (default: 64)\n");
+	fprintf(stderr, "                             Value  Contrast\n");
+	fprintf(stderr, "                               127   1.984375\n");
+	fprintf(stderr, "                                71   1.109375 (ITU level)\n");
+	fprintf(stderr, "                                64   1.000000 (default)\n");
+	fprintf(stderr, "                                 1   0.015625\n");
+	fprintf(stderr, "                                 0   0.000000 (luminance off)\n");
+	fprintf(stderr, "                               -64  -1.000000 (inverse)\n");
+	fprintf(stderr, "                              -128  -2.000000 (inverse)\n");
+	fprintf(stderr, "  -f, --frames=COUNT         Number of frames to generate,\n");
+	fprintf(stderr, "                             -1 for unlimited (default: -1)\n");
+	fprintf(stderr, "  -H, --hue=VALUE            Hue phase in degrees, -128 to 127 (default: 0),\n");
+	fprintf(stderr, "                             Value  Phase\n");
+	fprintf(stderr, "                              -128  -180.00000\n");
+	fprintf(stderr, "                                 0     0.00000\n");
+	fprintf(stderr, "                                 1     1.40635\n");
+	fprintf(stderr, "                               127   178.59375\n");
+	fprintf(stderr, "      --luminance=MODE       CVBS luminance mode (default: 0)\n");
+	fprintf(stderr, "                             Mode  Center Frequency\n");
+	fprintf(stderr, "                                0  4.1 MHz (default)\n");
+	fprintf(stderr, "                                1  3.8 MHz\n");
+	fprintf(stderr, "                                2  2.6 MHz\n");
+	fprintf(stderr, "                                3  2.9 MHz\n");
+	fprintf(stderr, "      --lum-aperture=MODE    Luminance aperture factor (default: 1)\n");
+	fprintf(stderr, "                             Mode  Aperture Factor\n");
+	fprintf(stderr, "                                0  0.00\n");
+	fprintf(stderr, "                                1  0.25 (default)\n");
+	fprintf(stderr, "                                2  0.50\n");
+	fprintf(stderr, "                                3  1.00\n");
+	fprintf(stderr, "      --lum-prefilter        Activate luminance prefilter (default: bypassed)\n");
+	fprintf(stderr, "  -n, --ntsc                 Television standard is 60Hz NTSC\n");
+	fprintf(stderr, "  -p, --pal                  Television standard is 50Hz PAL (default)\n");
+	fprintf(stderr, "  -S, --saturation=VALUE     Chrominance saturation control,\n");
+	fprintf(stderr, "                             -128 to 127 (default: 64)\n");
+	fprintf(stderr, "                             Value  Saturation\n");
+	fprintf(stderr, "                               127   1.984375\n");
+	fprintf(stderr, "                                64   1.000000 (ITU level, default)\n");
+	fprintf(stderr, "                                 1   0.015625\n");
+	fprintf(stderr, "                                 0   0.000000 (color off)\n");
+	fprintf(stderr, "                               -64  -1.000000 (inverse)\n");
+	fprintf(stderr, "                              -128  -2.000000 (inverse)\n");
+	fprintf(stderr, "  -s, --s-video              Use S-VIDEO input\n");
+	fprintf(stderr, "      --help                 Display usage\n");
+	fprintf(stderr, "      --version              Display version information\n");
 	fprintf(stderr, "\n");
-	fprintf(stderr, "Examples:\n");
+	fprintf(stderr, "Examples (run as root):\n");
 	fprintf(stderr, "# Initialize device (if not using kernel module)\n");
 	fprintf(stderr, "init\n");
 	fprintf(stderr, "\n");
@@ -544,15 +553,16 @@ int main(int argc, char **argv)
 	int c;
 	int option_index = 0;
 	static struct option long_options[] = {
-		{"help", 0, 0, 0}, /* index 0 */
-		{"version", 0, 0, 0}, /* index 1 */
+		{"help", 0, 0, 0},          /* index 0 */
+		{"version", 0, 0, 0},       /* index 1 */
+		{"luminance", 1, 0, 0},     /* index 2 */
+		{"lum-aperture", 1, 0, 0},  /* index 3 */
+		{"lum-prefilter", 0, 0, 0}, /* index 4 */
 		{"brightness", 1, 0, 'B'},
 		{"cvbs", 0, 0, 'c'},
 		{"contrast", 1, 0, 'C'},
 		{"frame-count", 1, 0, 'f'},
 		{"hue", 1, 0, 'H'},
-		{"luminance", 1, 0, 'l'},
-		{"lum-prefilter", 0, 0, 'L'},
 		{"ntsc", 0, 0, 'n'},
 		{"pal", 0, 0, 'p'},
 		{"s-video", 0, 0, 's'},
@@ -562,7 +572,7 @@ int main(int argc, char **argv)
 
 	/* parse command line arguments */
 	while (1) {
-		c = getopt_long(argc, argv, "B:cC:f:H:l:LnpsS:", long_options, &option_index);
+		c = getopt_long(argc, argv, "B:cC:f:H:npsS:", long_options, &option_index);
 		if (c == -1) {
 			break;
 		}
@@ -575,6 +585,23 @@ int main(int argc, char **argv)
 			case 1: /* --version */
 				version();
 				return 0;
+			case 2: /* --luminance */
+				luminance_mode = atoi(optarg);
+				if (luminance_mode < 0 || luminance_mode > 3) {
+					fprintf(stderr, "Invalid luminance mode '%i', must be from 0 to 3\n", luminance_mode);
+					return 1;
+				}
+				break;
+			case 3: /* --lum-aperture*/
+				luminance_aperture = atoi(optarg);
+				if (luminance_aperture < 0 || luminance_aperture > 3) {
+					fprintf(stderr, "Invalid luminance aperture '%i', must be from 0 to 3\n", luminance_mode);
+					return 1;
+				}
+				break;
+			case 4: /* --lum-prefilter*/
+				luminance_prefilter = 1;
+				break;
 			default:
 				usage();
 				return 1;
@@ -609,16 +636,6 @@ int main(int argc, char **argv)
 				return 1;
 			}
 			hue = (int8_t)i;
-			break;
-		case 'l':
-			luminance_mode = atoi(optarg);
-			if (luminance_mode < 0 || luminance_mode > 3) {
-				fprintf(stderr, "Invalid luminance mode '%i', must be from 0 to 3\n", luminance_mode);
-				return 1;
-			}
-			break;
-		case 'L':
-			luminance_prefilter = 1;
 			break;
 		case 'n':
 			tv_standard = NTSC;
@@ -794,11 +811,10 @@ int main(int argc, char **argv)
 	somagic_write_i2c(0x4a, 0x08, 0x98);
 
 	/* Subaddress 0x09, Luminance control */ 
-	/* Aperture factor (APER) = 0.25 */
 	/* Update time interval for analog AGC value (UPTCV) = Horizontal update (once per line) */
 	/* Vertical blanking luminance bypass (VBLB) = Active luminance processing */
 	/* Chrominance trap bypass (BYPS) = Chrominance trap active; default for CVBS mode */
-	work = ((luminance_prefilter & 0x01) << 6) | ((luminance_mode & 0x03) << 4) | 0x01;
+	work = ((luminance_prefilter & 0x01) << 6) | ((luminance_mode & 0x03) << 4) | (luminance_aperture & 0x03);
 	if (input_type == SVIDEO) {
 		/* Chrominance trap bypass (BYPS) = Chrominance trap bypassed; default for S-video mode */
 		work |= 0x80;
