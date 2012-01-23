@@ -786,11 +786,14 @@ int main(int argc, char **argv)
 	somagic_write_i2c(0x4a, 0x0f, 0x2a);
 
 	/* Subaddress 0x10, Format/delay control */
+	somagic_write_i2c(0x4a, 0x10, 0x40);
+	/*
 	if (input_type == CVBS) {
 		somagic_write_i2c(0x4a, 0x10, 0x40);
 	} else {
 		somagic_write_i2c(0x4a, 0x10, 0x00);
 	}
+	*/
 
 	/* Subaddress 0x11, Output control 1 */
 	somagic_write_i2c(0x4a, 0x11, 0x0c);
