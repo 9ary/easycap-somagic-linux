@@ -192,7 +192,7 @@ struct video_state_t {
 
 static struct video_state_t vs = { .line = 0, .col = 0, .state = 0, .field = 0, .blank = 0};
 
-unsigned char frame[720 * 2 * 627 * 2] = { 0, };
+unsigned char frame[720 * 2 * 627 * 2] = { 0 };
 
 static void put_data(struct video_state_t *vs, uint8_t c)
 {
@@ -201,9 +201,9 @@ static void put_data(struct video_state_t *vs, uint8_t c)
 	line_pos = (2 * vs->line + vs->field) * (720 * 2) + vs->col;
 	vs->col ++;
 
-	// sanity check
+	/* sanity check */
 	if (vs->col > 720 * 2)
-		vs->col = 720*2;
+		vs->col = 720 * 2;
 
 	frame[line_pos] = c;
 }
@@ -214,13 +214,13 @@ static void process(struct video_state_t *vs, uint8_t c)
 
 	if (vs->state == HSYNC) {
 		if (c == 0xff) {
-			vs->state ++;
+			vs->state++;
 		} else {
 			put_data(vs, c);
 		}
 	} else if (vs->state == SYNCZ1) {
 		if (c == 0x00) {
-			vs->state ++;
+			vs->state++;
 		} else {
 			vs->state = HSYNC;
 
@@ -229,7 +229,7 @@ static void process(struct video_state_t *vs, uint8_t c)
 		}
 	} else if (vs->state == SYNCZ2) {
 		if (c == 0x00) {
-			vs->state ++;
+			vs->state++;
 		} else {
 			vs->state = HSYNC;
 
@@ -240,16 +240,16 @@ static void process(struct video_state_t *vs, uint8_t c)
 	} else if (vs->state == SYNCAV) {
 		vs->state = HSYNC;
 		if (c == 0x00) {
-			// slice id
+			/* slice id */
 			return;
 		}
 
 		if (c & 0x10) {
 			/* EAV (end of active data) */
 			if (!vs->blank) {
-				vs->line ++;
+				vs->line++;
 				vs->col = 0;
-				if (vs->line > 625) vs->line = 625; // sanity check
+				if (vs->line > 625) vs->line = 625; /* sanity check */
 			}
 		} else {
 			int field_edge;
@@ -314,7 +314,7 @@ void gotdata(struct libusb_transfer *tfr)
 			if (data[pos] == 0xaa && data[pos + 1] == 0xaa && data[pos + 2] == 0x00 && data[pos + 3] == 0x00) {
 				/* process the received data, excluding the 4 marker bytes */
 				for (k = 0; k < 0x400 - 4; k++) {
-					process(&vs, data[k+4+pos]);
+					process(&vs, data[k + 4 + pos]);
 				}
 			} else {
 				fprintf(stderr, "Unexpected block, expected [aa aa 00 00] found [%02x %02x %02x %02x]\n", data[pos], data[pos + 1], data[pos + 2], data[pos + 3]);
@@ -465,7 +465,7 @@ void usage()
 	fprintf(stderr, "                            -64  -1.000000 (inverse)\n");
 	fprintf(stderr, "                           -128  -2.000000 (inverse)\n");
 	fprintf(stderr, "  -f, --frames=COUNT      Number of frames to generate,\n");
-	fprintf(stderr, "                          0 for unlimited (default: 0)\n");
+	fprintf(stderr, "                          -1 for unlimited (default: -1)\n");
 	fprintf(stderr, "  -H, --hue=VALUE         Hue phase in degrees, -128 to 127 (default: 0),\n");
 	fprintf(stderr, "                          Value  Phase\n");
 	fprintf(stderr, "                           -128  -180.00000\n");
