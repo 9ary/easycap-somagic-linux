@@ -27,25 +27,6 @@
  *
  */
 
-/*
- * Usage examples (run as root):
- * 
- * # Initialize device (if not using kernel module)
- * init
- *
- * # PAL, CVBS/composite:
- * capture 2> /dev/null | mplayer - -vf yadif,screenshot -demuxer rawvideo -rawvideo "w=720:h=576:format=uyvy:fps=25"
- *
- * # PAL, S-VIDEO:
- * capture -s 2> /dev/null | mplayer - -vf yadif,screenshot -demuxer rawvideo -rawvideo "w=720:h=576:format=uyvy:fps=25"
- * 
- * # NTSC, CVBS/composite:
- * capture -n 2> /dev/null | mplayer - -vf yadif,screenshot -demuxer rawvideo -rawvideo "ntsc:format=uyvy:fps=30000/1001"
- *
- * # NTSC, S-VIDEO:
- * capture -n -s 2> /dev/null | mplayer - -vf yadif,screenshot -demuxer rawvideo -rawvideo "ntsc:format=uyvy:fps=30000/1001"
- */
-
 /* This file was originally generated with usbsnoop2libusb.pl from a usbsnoop log file. */
 /* Latest version of the script should be in http://iki.fi/lindi/usb/usbsnoop2libusb.pl */
 #include <stdio.h>
@@ -532,6 +513,16 @@ void usage()
 	fprintf(stderr, "  -s, --s-video           Use S-VIDEO input\n");
 	fprintf(stderr, "      --help              Display usage\n");
 	fprintf(stderr, "      --version           Display version information\n");
+	fprintf(stderr, "\n");
+	fprintf(stderr, "Examples:\n");
+	fprintf(stderr, "# Initialize device (if not using kernel module)\n");
+	fprintf(stderr, "init\n");
+	fprintf(stderr, "\n");
+	fprintf(stderr, "# PAL, CVBS/composite:\n");
+	fprintf(stderr, "capture 2> /dev/null | mplayer - -vf yadif,screenshot -demuxer rawvideo -rawvideo \"w=720:h=576:format=uyvy:fps=25\"\n");
+	fprintf(stderr, "\n");
+	fprintf(stderr, "# NTSC, S-VIDEO\n");
+	fprintf(stderr, "capture -n -s 2> /dev/null | mplayer - -vf yadif,screenshot -demuxer rawvideo -rawvideo \"ntsc:format=uyvy:fps=30000/1001\"\n");
 }
 
 int main(int argc, char **argv)
