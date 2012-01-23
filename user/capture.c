@@ -7,7 +7,7 @@
  * Initializes the Somagic EasyCAP DC60 registers and performs image capture.  *
  * *****************************************************************************
  *
- * Copyright 2011, 2012 Tony Brown, Jeffry Johnston, Michal Demin	
+ * Copyright 2011, 2012 Tony Brown, Michal Demin, Jeffry Johnston, Jon Arne Jørgensen
  *
  * This file is part of somagic_dc60
  * http://code.google.com/p/easycap-somagic-linux/
@@ -476,7 +476,8 @@ static int somagic_write_i2c(uint8_t dev_addr, uint8_t reg, uint8_t val)
 void version()
 {
 	fprintf(stderr, "capture "VERSION"\n");
-	fprintf(stderr, "Copyright 2011, 2012 Tony Brown, Jeffry Johnston, Michal Demin\n");
+	fprintf(stderr, "Copyright 2011, 2012 Tony Brown, Michal Demin, Jeffry Johnston,\n");
+	fprintf(stderr, "                     Jon Arne Jørgensen\n");
 	fprintf(stderr, "License GPLv3+: GNU GPL version 3 or later <http://gnu.org/licenses/gpl.html>.\n");
 	fprintf(stderr, "This is free software: you are free to change and redistribute it.\n");
 	fprintf(stderr, "There is NO WARRANTY, to the extent permitted by law.\n");
