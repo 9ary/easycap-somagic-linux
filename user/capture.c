@@ -86,6 +86,18 @@ int luminance_mode = 0;
 /* Luminance prefilter: 0 = bypassed, 1 = active */
 int luminance_prefilter = 0;
 
+/* Hue phase in degrees: -128 to 127 (-180 to 178.59375), increments of 1.40625 degrees */
+uint8_t hue = 0;
+
+/* Chrominance saturation: -128 to 127 (1.984375 to -2.000000), increments of 0.015625 */
+uint8_t saturation = 64;
+
+/* Luminance contrast: -128 to 127 (1.984375 to -2.000000), increments of 0.015625 */
+uint8_t contrast = 64;
+
+/* Luminance brightness: 0 to 255 */
+uint8_t brightness = 128;
+
 void release_usb_device(int ret)
 {
 	fprintf(stderr, "Emergency exit\n");
@@ -512,21 +524,52 @@ void version()
 void usage()
 {
 	fprintf(stderr, "Usage: capture [options]\n");
-	fprintf(stderr, "  -c, --cvbs             Use CVBS (composite) input (default)\n");
-	fprintf(stderr, "  -f, --frames=COUNT     Number of frames to generate,\n");
-	fprintf(stderr, "                         0 for unlimited (default: 0)\n");
-	fprintf(stderr, "  -h, --help             Display usage\n");
-	fprintf(stderr, "  -l, --luminance=MODE   CVBS luminance mode (default: 0)\n");
-	fprintf(stderr, "                         Mode  Center Frequency\n");
-	fprintf(stderr, "                         0     4.1 MHz\n");
-	fprintf(stderr, "                         1     3.8 MHz\n");
-	fprintf(stderr, "                         2     2.6 MHz\n");
-	fprintf(stderr, "                         3     2.9 MHz\n");
-	fprintf(stderr, "  -L, --lum-prefilter    Activate luminance prefilter (default: bypassed)\n");
-	fprintf(stderr, "  -n, --ntsc             Television standard is 60Hz NTSC\n");
-	fprintf(stderr, "  -p, --pal              Television standard is 50Hz PAL (default)\n");
-	fprintf(stderr, "  -s, --s-video          Use S-VIDEO input\n");
-	fprintf(stderr, "  -V, --version          Display version information\n");
+	fprintf(stderr, "  -c, --cvbs              Use CVBS (composite) input (default)\n");
+	fprintf(stderr, "  -B, --brightness=VALUE  Luminance brightness control,\n");
+	fprintf(stderr, "                          0 to 255 (default: 128)\n");
+	fprintf(stderr, "                          Value  Brightness\n");
+	fprintf(stderr, "                            255  Bright\n");
+	fprintf(stderr, "                            128  ITU level (default)\n");
+	fprintf(stderr, "                              0  Dark\n");
+	fprintf(stderr, "  -C, --contrast=VALUE    Luminance contrast control,\n");
+	fprintf(stderr, "                          -128 to 127 (default: 64)\n");
+	fprintf(stderr, "                          Value  Contrast\n");
+	fprintf(stderr, "                            127   1.984375\n");
+	fprintf(stderr, "                             71   1.109375 (ITU level)\n");
+	fprintf(stderr, "                             64   1.000000 (default)\n");
+	fprintf(stderr, "                              1   0.015625\n");
+	fprintf(stderr, "                              0   0.000000 (luminance off)\n");
+	fprintf(stderr, "                            -64  -1.000000 (inverse)\n");
+	fprintf(stderr, "                           -128  -2.000000 (inverse)\n");
+	fprintf(stderr, "  -f, --frames=COUNT      Number of frames to generate,\n");
+	fprintf(stderr, "                          0 for unlimited (default: 0)\n");
+	fprintf(stderr, "  -H, --hue=PHASE         Hue phase in degrees, -128 to 127 (default: 0),\n");
+	fprintf(stderr, "                          Value  Phase\n");
+	fprintf(stderr, "                           -128  -180.00000\n");
+	fprintf(stderr, "                              0     0.00000\n");
+	fprintf(stderr, "                              1     1.40635\n");
+	fprintf(stderr, "                            127   178.59375\n");
+	fprintf(stderr, "  -l, --luminance=MODE    CVBS luminance mode (default: 0)\n");
+	fprintf(stderr, "                          Mode  Center Frequency\n");
+	fprintf(stderr, "                             0  4.1 MHz (default)\n");
+	fprintf(stderr, "                             1  3.8 MHz\n");
+	fprintf(stderr, "                             2  2.6 MHz\n");
+	fprintf(stderr, "                             3  2.9 MHz\n");
+	fprintf(stderr, "  -L, --lum-prefilter     Activate luminance prefilter (default: bypassed)\n");
+	fprintf(stderr, "  -n, --ntsc              Television standard is 60Hz NTSC\n");
+	fprintf(stderr, "  -p, --pal               Television standard is 50Hz PAL (default)\n");
+	fprintf(stderr, "  -S, --saturation=VALUE  Chrominance saturation control,\n");
+	fprintf(stderr, "                          -128 to 127 (default: 64)\n");
+	fprintf(stderr, "                          Value  Saturation\n");
+	fprintf(stderr, "                            127   1.984375\n");
+	fprintf(stderr, "                             64   1.000000 (ITU level, default)\n");
+	fprintf(stderr, "                              1   0.015625\n");
+	fprintf(stderr, "                              0   0.000000 (color off)\n");
+	fprintf(stderr, "                            -64  -1.000000 (inverse)\n");
+	fprintf(stderr, "                           -128  -2.000000 (inverse)\n");
+	fprintf(stderr, "  -s, --s-video           Use S-VIDEO input\n");
+	fprintf(stderr, "      --help              Display usage\n");
+	fprintf(stderr, "      --version           Display version information\n");
 }
 
 int main(int argc, char **argv)
@@ -548,38 +591,76 @@ int main(int argc, char **argv)
 	int c;
 	int option_index = 0;
 	static struct option long_options[] = {
+		{"help", 0, 0, 0}, /* index 0 */
+		{"version", 0, 0, 0}, /* index 1 */
+		{"brightness", 1, 0, 'B'},
 		{"cvbs", 0, 0, 'c'},
+		{"contrast", 1, 0, 'C'},
 		{"frame-count", 1, 0, 'f'},
-		{"help", 0, 0, 'h'},
+		{"hue", 1, 0, 'H'},
 		{"luminance", 1, 0, 'l'},
 		{"lum-prefilter", 0, 0, 'L'},
 		{"ntsc", 0, 0, 'n'},
 		{"pal", 0, 0, 'p'},
 		{"s-video", 0, 0, 's'},
-		{"version", 0, 0, 'V'},
+		{"saturation", 1, 0, 'S'},
 		{0, 0, 0, 0}
 	};
 
 	/* parse command line arguments */
 	while (1) {
-		c = getopt_long(argc, argv, "cf:hl:LnpsV", long_options, &option_index);
+		c = getopt_long(argc, argv, "B:cC:f:H:l:LnpsS:", long_options, &option_index);
 		if (c == -1) {
 			break;
 		}
 		switch (c) {
+		case 0:
+			switch (option_index) {	
+			case 0: /* --help */
+				usage();
+				return 0;
+			case 1: /* --version */
+				version();
+				return 0;
+			default:
+				usage();
+				return 1;
+			}
+			break;
+		case 'B':
+			i = atoi(optarg);
+			if (i < 0 || i > 255) {
+				fprintf(stderr, "Invalid brightness value '%i', must be from 0 to 255\n", i);
+				return 1;
+			}
+			brightness = i;
+			break;
 		case 'c':
 			input_type = CVBS;
+			break;
+		case 'C':
+			i = atoi(optarg);
+			if (i < -128 || i > 127) {
+				fprintf(stderr, "Invalid contrast value '%i', must be from -128 to 127\n", i);
+				return 1;
+			}
+			contrast = (int8_t)i;
 			break;
 		case 'f':
 			frame_count = atoi(optarg);
 			break;
 		case 'h':
-			usage();
-			return 0;
+			i = atoi(optarg);
+			if (i < -128 || i > 127) {
+				fprintf(stderr, "Invalid hue phase '%i', must be from -128 to 127\n", i);
+				return 1;
+			}
+			hue = (int8_t)i;
+			break;
 		case 'l':
 			luminance_mode = atoi(optarg);
 			if (luminance_mode < 0 || luminance_mode > 3) {
-				fprintf(stderr, "Invalid luminance mode '%i', must be 0-3\n", luminance_mode);
+				fprintf(stderr, "Invalid luminance mode '%i', must be from 0 to 3\n", luminance_mode);
 				return 1;
 			}
 			break;
@@ -595,9 +676,14 @@ int main(int argc, char **argv)
 		case 's':
 			input_type = SVIDEO;
 			break;
-		case 'V':
-			version();
-			return 0;
+		case 'S':
+			i = atoi(optarg);
+			if (i < -128 || i > 127) {
+				fprintf(stderr, "Invalid saturation value '%i', must be from -128 to 127\n", i);
+				return 1;
+			}
+			saturation = (int8_t)i;
+			break;
 		default:
 			usage();
 			return 1;
@@ -768,24 +854,37 @@ int main(int argc, char **argv)
 	somagic_write_i2c(0x4a, 0x09, work);
 
 	/* Subaddress 0x0a, Luminance brightness control */
-	somagic_write_i2c(0x4a, 0x0a, 0x80);
+	/* Offset = 128 (ITU level) */
+	somagic_write_i2c(0x4a, 0x0a, brightness);
 
 	/* Subaddress 0x0b, Luminance contrast control */
-	somagic_write_i2c(0x4a, 0x0b, 0x40);
+	/* Gain = 1.0 */
+	somagic_write_i2c(0x4a, 0x0b, contrast);
 
 	/* Subaddress 0x0c, Chrominance saturation control */
-	somagic_write_i2c(0x4a, 0x0c, 0x40);
+	somagic_write_i2c(0x4a, 0x0c, saturation); 
 
 	/* Subaddress 0x0d, Chrominance hue control */
-	somagic_write_i2c(0x4a, 0x0d, 0x00);
+	somagic_write_i2c(0x4a, 0x0d, hue);
 
 	/* Subaddress 0x0e, Chrominance control */
+	/* Chrominance bandwidth (CHBW0 and CHBW1) = Nominal bandwidth (800 kHz) */
+	/* Fast color time constant (FCTC) = Nominal time constant */
+	/* Disable chrominance comb filter (DCCF) = Chrominance comb filter on (during lines determined by VREF = 1) */
+	/* Color standard selection (CSTD0 to CSTD2) = If 50Hz: PAL BGHIN. If 60Hz: NTSC M. */
+	/* Clear DTO (CDTO) = Disabled */
 	somagic_write_i2c(0x4a, 0x0e, 0x01);
 
 	/* Subaddress 0x0f, Chrominance gain control */
+	/* Chrominance gain value = ??? (Note: only meaningful if ACGF is off) */
+	/* Automatic chrominance gain control ACGC = On */
 	somagic_write_i2c(0x4a, 0x0f, 0x2a);
 
 	/* Subaddress 0x10, Format/delay control */
+	/* Output format selection (OFTS0 and OFTS1), V-flag generation in SAV/EAV-codes = V-flag in SAV/EAV is generated by VREF */
+	/* Fine position of HS (HDEL0 and HDEL1) (steps in 2/LLC) = 0 */
+	/* VREF pulse position and length (VRLN) = see Table 46 in SAA7113H documentation */
+	/* Luminance delay compensation (steps in 2/LLC) = 0 */
 	somagic_write_i2c(0x4a, 0x10, 0x40);
 	/*
 	if (input_type == CVBS) {
@@ -796,25 +895,49 @@ int main(int argc, char **argv)
 	*/
 
 	/* Subaddress 0x11, Output control 1 */
+	/* General purpose switch [available on pin RTS1, if control bits RTSE13 to RTSE10 (subaddress 0x12) is set to 0010] = LOW */
+	/* CM99 compatibility to SAA7199 (CM99) = Default value */
+	/* General purpose switch [available on pin RTS0, if control bits RTSE03 to RTSE00 (subaddress 0x12) is set to 0010] = LOW */
+	/* Selection of horizontal lock indicator for RTS0 and RTS1 outputs = Standard horizontal lock indicator (low-passed) */
+	/* Output enable YUV data (OEYC) = Output VPO-bus active or controlled by RTS1 */
+	/* Output enable real-time (OERT) = RTS0, RTCO active, RTS1 active, if RTSE13 to RTSE10 = 0000 */
+	/* YUV decoder bypassed (VIPB) = Processed data to VPO output */
+	/* Color on (COLO) = Automatic color killer */
 	somagic_write_i2c(0x4a, 0x11, 0x0c);
 
 	/* Subaddress 0x12, RTS0 output control/Output control 2 */
+	/* RTS1 output control = 3-state, pin RTS1 is used as DOT input */
+	/* RTS0 output control = VIPB (subaddress 0x11, bit 1) = 0: reserved */ 
 	somagic_write_i2c(0x4a, 0x12, 0x01);
 
 	/* Subaddress 0x13, Output control 3 */
 	if (input_type == CVBS) {
+		/* Analog-to-digital converter output bits on VPO7 to VPO0 in bypass mode (VIPB = 1, used for test purposes) (ADLSB) = AD7 to AD0 (LSBs) on VPO7 to VPO0 */
+		/* Selection bit for status byte functionality (OLDSB) = Default status information */
+		/* Field ID polarity if selected on RTS1 or RTS0 outputs if RTSE1 and RTSE0 (subaddress 0x12) are set to 1111 = Default */
+		/* Analog test select (AOSL) = AOUT connected to internal test point 1 */
 		somagic_write_i2c(0x4a, 0x13, 0x80);
 	} else {
+		/* Analog-to-digital converter output bits on VPO7 to VPO0 in bypass mode (VIPB = 1, used for test purposes) (ADLSB) = AD8 to AD1 (MSBs) on VPO7 to VPO0 */
+		/* Selection bit for status byte functionality (OLDSB) = Default status information */
+		/* Field ID polarity if selected on RTS1 or RTS0 outputs if RTSE1 and RTSE0 (subaddress 0x12) are set to 1111 = Default */
+		/* Analog test select (AOSL) = AOUT connected to internal test point 1 */
 		somagic_write_i2c(0x4a, 0x13, 0x00);
 	}
 
 	/* Subaddress 0x15, Start of VGATE pulse (01-transition) and polarity change of FID pulse/V_GATE1_START */
+	/* Note: Dependency on subaddress 0x17 value */
+	/* Frame line counting = If 50Hz: 1st = 2, 2nd = 315. If 60Hz: 1st = 5, 2nd = 268. */
 	somagic_write_i2c(0x4a, 0x15, 0x00);
 
 	/* Subaddress 0x16, Stop of VGATE pulse (10-transition)/V_GATE1_STOP */
+	/* Note: Dependency on subaddress 0x17 value */
+	/* Frame line counting = If 50Hz: 1st = 2, 2nd = 315. If 60Hz: 1st = 5, 2nd = 268. */
 	somagic_write_i2c(0x4a, 0x16, 0x00);
 
 	/* Subaddress 0x17, VGATE MSBs/V_GATE1_MSB */
+	/* VSTA8, MSB VGATE start = 0 */
+	/* VSTO8, MSB VGATE stop = 0 */
 	somagic_write_i2c(0x4a, 0x17, 0x00);
 
 	/* Subaddress 0x40, AC1 */
@@ -835,6 +958,7 @@ int main(int argc, char **argv)
 	}
 
 	if (input_type == CVBS) {
+		/* LCR register 2 to 24 = Intercast, oversampled CVBS data */
 		somagic_write_i2c(0x4a, 0x41, 0x77);
 		somagic_write_i2c(0x4a, 0x42, 0x77);
 		somagic_write_i2c(0x4a, 0x43, 0x77);
@@ -855,26 +979,33 @@ int main(int argc, char **argv)
 		somagic_write_i2c(0x4a, 0x52, 0x77);
 		somagic_write_i2c(0x4a, 0x53, 0x77);
 		somagic_write_i2c(0x4a, 0x54, 0x77);
+		/* LCR register 2 to 24 = Active video, video component signal, active video region (default) */
 		somagic_write_i2c(0x4a, 0x55, 0xff);
 	}
 
 	/* Subaddress 0x58, Framing code for programmable data types/FC */
+	/* Slicer set, Programmable framing code = ??? */
 	somagic_write_i2c(0x4a, 0x58, 0x00);
 
 	/* Subaddress 0x59, Horizontal offset/HOFF */
+	/* Slicer set, Horizontal offset = Recommended value */
 	somagic_write_i2c(0x4a, 0x59, 0x54);
 
 	/* Subaddress 0x5a: Vertical offset/VOFF */
 	if (tv_standard == PAL) {
+		/* Slicer set, Vertical offset = Value for 50 Hz 625 lines input */
 		somagic_write_i2c(0x4a, 0x5a, 0x07);
 	} else {
+		/* Slicer set, Vertical offset = Value for 60 Hz 525 lines input */
 		somagic_write_i2c(0x4a, 0x5a, 0x0a);
 	}
 
 	/* Subaddress 0x5b, Field offset, MSBs for vertical and horizontal offsets/HVOFF */
+	/* Slicer set, Field offset = Invert field indicator (even/odd; default) */
 	somagic_write_i2c(0x4a, 0x5b, 0x83);
 
 	/* Subaddress 0x5e, SDID codes */
+	/* Slicer set, SDID codes = SDID5 to SDID0 = 0x00 (default) */
 	somagic_write_i2c(0x4a, 0x5e, 0x00);
 
 	status = somagic_read_i2c(0x4a, 0x10);
