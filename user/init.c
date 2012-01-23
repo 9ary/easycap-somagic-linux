@@ -120,8 +120,8 @@ void usage()
 	fprintf(stderr, "Usage: init [options]\n");
 	fprintf(stderr, "  -f, --firmware=FILE   Use firmware file FILE\n");
 	fprintf(stderr, "                        (default: "SOMAGIC_FIRMWARE_PATH")\n");
-	fprintf(stderr, "  -h, --help            Display usage\n");
-	fprintf(stderr, "  -V, --version         Display version information\n");
+	fprintf(stderr, "      --help            Display usage\n");
+	fprintf(stderr, "      --version         Display version information\n");
 }
 
 int main(int argc, char **argv)
@@ -141,28 +141,35 @@ int main(int argc, char **argv)
 	int c;
 	int option_index = 0;
 	static struct option long_options[] = {
+		{"help", 0, 0, 0}, /* index 0 */
+		{"version", 0, 0, 0}, /* index 1 */
 		{"firmware", 1, 0, 'f'},
-		{"help", 0, 0, 'h'},
-		{"version", 0, 0, 'V'},
 		{0, 0, 0, 0}
 	};
 
 	/* parse command line arguments */
 	while (1) {
-		c = getopt_long(argc, argv, "f:hV", long_options, &option_index);
+		c = getopt_long(argc, argv, "f:", long_options, &option_index);
 		if (c == -1) {
 			break;
 		}
 		switch (c) {
+		case 0:
+			switch (option_index) {	
+			case 0: /* --help */
+				usage();
+				return 0;
+			case 1: /* --version */
+				version();
+				return 0;
+			default:
+				usage();
+				return 1;
+			}
+			break;
 		case 'f':
 			firmware_path = optarg;
 			break;
-		case 'h':
-			usage();
-			return 0;
-		case 'V':
-			version();
-			return 0;
 		default:
 			usage();
 			return 1;
