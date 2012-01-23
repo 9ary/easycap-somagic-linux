@@ -30,8 +30,8 @@
 /*
  * Usage (run as root):
  * init
- * capture pal 2> /dev/null | mplayer - -vf screenshot -demuxer rawvideo -rawvideo "w=720:h=576:format=uyvy:fps=25"
- * capture ntsc 2> /dev/null | mplayer - -vf screenshot -demuxer rawvideo -rawvideo "ntsc:format=uyvy:fps=30000/1001"
+ * capture -p 2> /dev/null | mplayer - -vf screenshot -demuxer rawvideo -rawvideo "w=720:h=576:format=uyvy:fps=25"
+ * capture -n 2> /dev/null | mplayer - -vf screenshot -demuxer rawvideo -rawvideo "ntsc:format=uyvy:fps=30000/1001"
  */
 
 /* This file was originally generated with usbsnoop2libusb.pl from a usbsnoop log file. */
@@ -54,9 +54,6 @@
 /* Control the number of concurrent ISO transfers we have running */
 static const int NUM_ISO_TRANSFERS = 4;
 
-/* Control the number of frames to generate, 0 = unlimited (default) */
-int frame_count = 0;
-
 int frames_generated = 0;
 int stop_sending_requests = 0;
 int pending_requests = 0;
@@ -67,12 +64,26 @@ enum tv_standards {
 	PAL,
 	NTSC
 };
-int tv_standard = PAL;
+
 enum input_types {
 	CVBS,
 	SVIDEO
 };
-int input_type = CVBS;
+
+/* Options */
+/* Control the number of frames to generate: 0 = unlimited (default) */
+int frame_count = 0;
+
+/* Television standard: PAL (default) or NTSC */
+int tv_standard = PAL;
+
+/* Input select: CVBS/composite (default) or SVIDEO */
+
+/* Luminance mode (CVBS only): 0 = 4.1 MHz, 1 = 3.8 MHz, 2 = 2.6 MHz, 3 = 2.9 MHz */
+int luminance_mode = 0;
+
+/* Luminance prefilter: 0 = bypassed, 1 = active */
+int luminance_prefilter = 0;
 
 void release_usb_device(int ret)
 {
@@ -370,7 +381,7 @@ void gotdata(struct libusb_transfer *tfr)
 				/* process the received data, excluding the 4 marker bytes */
 				process_data(data + 4 + pos, 0x400 - 4);
 			} else {
-				fprintf(stderr, "Unexpected block, expected [aa aa 00 00] found [%02x %02x %02x %02x] \n", data[pos], data[pos+1], data[pos+2], data[pos+3]);
+				fprintf(stderr, "Unexpected block, expected [aa aa 00 00] found [%02x %02x %02x %02x]\n", data[pos], data[pos + 1], data[pos + 2], data[pos + 3]);
 			}
 			pos += 0x400;
 		}
@@ -390,7 +401,7 @@ uint8_t somagic_read_reg(uint16_t reg)
 {
 	int ret;
 	uint8_t buf[13];
-	memcpy(buf, "\x0b\x00\x20\x82\x01\x30\x80\xFF", 0x0000008);
+	memcpy(buf, "\x0b\x00\x20\x82\x01\x30\x80\xFF", 8);
 
 	buf[5] = reg >> 8;
 	buf[6] = reg & 0xff;
@@ -403,7 +414,7 @@ uint8_t somagic_read_reg(uint16_t reg)
 	}
 
 	ret = libusb_control_transfer(devh, LIBUSB_REQUEST_TYPE_VENDOR + LIBUSB_RECIPIENT_DEVICE + LIBUSB_ENDPOINT_IN, 0x0000001, 0x000000b, 0x0000000, buf, 13, 1000);
-	if (ret != 0x0d) {
+	if (ret != 13) {
 		fprintf(stderr, "read_reg control msg returned %d, bytes: ", ret);
 		print_bytes(buf, ret);
 		fprintf(stderr, "\n");
@@ -417,7 +428,7 @@ static int somagic_write_reg(uint16_t reg, uint8_t val)
 	int ret;
 	uint8_t buf[8];
 
-	memcpy(buf, "\x0b\x00\x00\x82\x01\x00\x3a\x00", 0x0000008);
+	memcpy(buf, "\x0b\x00\x00\x82\x01\x00\x3a\x00", 8);
 	buf[5] = reg >> 8;
 	buf[6] = reg & 0xff;
 	buf[7] = val;
@@ -437,7 +448,7 @@ static uint8_t somagic_read_i2c(uint8_t dev_addr, uint8_t reg)
 	int ret;
 	uint8_t buf[13];
 
-	memcpy(buf, "\x0b\x4a\x84\x00\x01\x10\x00\x00\x00\x00\x00\x00\x00", 0x000000d);
+	memcpy(buf, "\x0b\x4a\x84\x00\x01\x10\x00\x00\x00\x00\x00\x00\x00", 13);
 
 	buf[1] = dev_addr;
 	buf[5] = reg;
@@ -448,7 +459,7 @@ static uint8_t somagic_read_i2c(uint8_t dev_addr, uint8_t reg)
 	fprintf(stderr, "\n");
 	usleep(18 * 1000);
 
-	memcpy(buf, "\x0b\x4a\xa0\x00\x01\x00\xff\xff\xff\xff\xff\xff\xff", 0x000000d);
+	memcpy(buf, "\x0b\x4a\xa0\x00\x01\x00\xff\xff\xff\xff\xff\xff\xff", 13);
 
 	buf[1] = dev_addr;
 
@@ -472,7 +483,7 @@ static int somagic_write_i2c(uint8_t dev_addr, uint8_t reg, uint8_t val)
 	int ret;
 	uint8_t buf[8];
 
-	memcpy(buf, "\x0b\x4a\xc0\x01\x01\x01\x08\xf4", 0x0000008);
+	memcpy(buf, "\x0b\x4a\xc0\x01\x01\x01\x08\xf4", 8);
 
 	buf[1] = dev_addr;
 	buf[5] = reg;
@@ -500,13 +511,21 @@ void version()
 void usage()
 {
 	fprintf(stderr, "Usage: capture [options]\n");
-	fprintf(stderr, "  -c, --cvbs           Use CVBS (composite) input (default)\n");
-	fprintf(stderr, "  -f, --frames=COUNT   Number of frames to generate, 0 for unlimited (default)\n");
-	fprintf(stderr, "  -h, --help           Display usage\n");
-	fprintf(stderr, "  -n, --ntsc           Television standard is 60Hz NTSC\n");
-	fprintf(stderr, "  -p, --pal            Television standard is 50Hz PAL (default)\n");
-	fprintf(stderr, "  -s, --s-video        Use S-VIDEO input\n");
-	fprintf(stderr, "  -V, --version        Display version information\n");
+	fprintf(stderr, "  -c, --cvbs             Use CVBS (composite) input (default)\n");
+	fprintf(stderr, "  -f, --frames=COUNT     Number of frames to generate,\n");
+	fprintf(stderr, "                         0 for unlimited (default: 0)\n");
+	fprintf(stderr, "  -h, --help             Display usage\n");
+	fprintf(stderr, "  -l, --luminance=MODE   CVBS luminance mode (default: 0)\n");
+	fprintf(stderr, "                         Mode  Center Frequency\n");
+	fprintf(stderr, "                         0     4.1 MHz\n");
+	fprintf(stderr, "                         1     3.8 MHz\n");
+	fprintf(stderr, "                         2     2.6 MHz\n");
+	fprintf(stderr, "                         3     2.9 MHz\n");
+	fprintf(stderr, "  -L, --lum-prefilter    Activate luminance prefilter (default: bypassed)\n");
+	fprintf(stderr, "  -n, --ntsc             Television standard is 60Hz NTSC\n");
+	fprintf(stderr, "  -p, --pal              Television standard is 50Hz PAL (default)\n");
+	fprintf(stderr, "  -s, --s-video          Use S-VIDEO input\n");
+	fprintf(stderr, "  -V, --version          Display version information\n");
 }
 
 int main(int argc, char **argv)
@@ -514,6 +533,7 @@ int main(int argc, char **argv)
 	int ret;
 	int i = 0;
 	uint8_t status;
+	uint8_t work; 
 	struct libusb_device *dev;
 
 	/* buffer for control messages */
@@ -528,8 +548,10 @@ int main(int argc, char **argv)
 	int option_index = 0;
 	static struct option long_options[] = {
 		{"cvbs", 0, 0, 'c'},
-		{"frame-count", 0, 0, 'f'},
+		{"frame-count", 1, 0, 'f'},
 		{"help", 0, 0, 'h'},
+		{"luminance", 1, 0, 'l'},
+		{"lum-prefilter", 0, 0, 'L'},
 		{"ntsc", 0, 0, 'n'},
 		{"pal", 0, 0, 'p'},
 		{"s-video", 0, 0, 's'},
@@ -539,7 +561,7 @@ int main(int argc, char **argv)
 
 	/* parse command line arguments */
 	while (1) {
-		c = getopt_long(argc, argv, "cf:hnpsV", long_options, &option_index);
+		c = getopt_long(argc, argv, "cf:hl:LnpsV", long_options, &option_index);
 		if (c == -1) {
 			break;
 		}
@@ -553,6 +575,16 @@ int main(int argc, char **argv)
 		case 'h':
 			usage();
 			return 0;
+		case 'l':
+			luminance_mode = atoi(optarg);
+			if (luminance_mode < 0 || luminance_mode > 3) {
+				fprintf(stderr, "Invalid luminance mode '%i', must be 0-3\n", luminance_mode);
+				return 1;
+			}
+			break;
+		case 'L':
+			luminance_prefilter = 1;
+			break;
 		case 'n':
 			tv_standard = NTSC;
 			break;
@@ -572,6 +604,10 @@ int main(int argc, char **argv)
 	}
 	if (optind < argc) {
 		usage();
+		return 1;
+	}
+	if (input_type == SVIDEO && luminance_mode != 0) {
+		fprintf(stderr, "Luminance mode must be 0 for S-VIDEO\n");
 		return 1;
 	}
 
@@ -629,7 +665,7 @@ int main(int argc, char **argv)
 	}
 	ret = libusb_set_interface_alt_setting(devh, 0, 0);
 	fprintf(stderr, "4 set alternate setting returned %d\n", ret);
-	ret = libusb_control_transfer(devh, LIBUSB_REQUEST_TYPE_VENDOR + LIBUSB_RECIPIENT_DEVICE + LIBUSB_ENDPOINT_IN, 0x0000001, 0x0000001, 0x0000000, buf, 0x0000002, 1000);
+	ret = libusb_control_transfer(devh, LIBUSB_REQUEST_TYPE_VENDOR + LIBUSB_RECIPIENT_DEVICE + LIBUSB_ENDPOINT_IN, 0x0000001, 0x0000001, 0x0000000, buf, 2, 1000);
 	fprintf(stderr, "5 control msg returned %d, bytes: ", ret);
 	print_bytes(buf, ret);
 	fprintf(stderr, "\n");
@@ -637,14 +673,14 @@ int main(int argc, char **argv)
 	somagic_write_reg(0x3a, 0x80);
 	somagic_write_reg(0x3b, 0x00);
 
-	/* reset audio chip? */
+	/* Reset audio chip? */
 	somagic_write_reg(0x34, 0x01);
 	somagic_write_reg(0x35, 0x00);
 
 	status = somagic_read_reg(0x3080);
 	fprintf(stderr, "status is %02x\n", status);
 
-	/* reset audio chip? */
+	/* Reset audio chip? */
 	somagic_write_reg(0x34, 0x11);
 	somagic_write_reg(0x35, 0x11);
 
@@ -659,20 +695,38 @@ int main(int argc, char **argv)
 	somagic_write_i2c(0x4a, 0x01, 0x08);
 
 	/* Subaddress 0x02, Analog input control 1 */
-	/* Analog function select FUSE = Amplifier plus anti-alias filter bypassed */
-	/* Update hysteresis for 9-bit gain = Off */
-	/* Mode = 0, CVBS (automatic gain) from AI11 (pin 4) */
-	somagic_write_i2c(0x4a, 0x02, 0xc0);
+	if (input_type == CVBS) {
+		/* Analog function select FUSE = Amplifier plus anti-alias filter bypassed */
+		/* Update hysteresis for 9-bit gain = Off */
+		/* Mode = 0, CVBS (automatic gain) from AI11 (pin 4) */
+		somagic_write_i2c(0x4a, 0x02, 0xc0);
+	} else {
+		/* Analog function select FUSE = Amplifier plus anti-alias filter bypassed */
+		/* Update hysteresis for 9-bit gain = Off */
+		/* Mode = 7, Y (automatic gain) from AI12 (pin 7) + C (gain adjustable via GAI28 to GAI20) from AI22 (pin 1) */
+		somagic_write_i2c(0x4a, 0x02, 0xc7);
+	}
 
 	/* Subaddress 0x03, Analog input control 2 */ 
-	/* Static gain control channel 1 (GAI18), sign bit of gain control = 1 */
-	/* Static gain control channel 2 (GAI28), sign bit of gain control = 1 */
-	/* Gain control fix (GAFIX) = Automatic gain controlled by MODE3 to MODE0 */
-	/* Automatic gain control integration (HOLDG) = AGC active */
-	/* White peak off (WPOFF) = White peak off */ 
-	/* AGC hold during vertical blanking period (VBSL) = Long vertical blanking (AGC disabled from start of pre-equalization pulses until start of active video (line 22 for 60 Hz, line 24 for 50 Hz) */
-	/* Normal clamping if decoder is in unlocked state */
-	somagic_write_i2c(0x4a, 0x03, 0x33); 
+	if (input_type == CVBS) {
+		/* Static gain control channel 1 (GAI18), sign bit of gain control = 1 */
+		/* Static gain control channel 2 (GAI28), sign bit of gain control = 1 */
+		/* Gain control fix (GAFIX) = Automatic gain controlled by MODE3 to MODE0 */
+		/* Automatic gain control integration (HOLDG) = AGC active */
+		/* White peak off (WPOFF) = White peak off */ 
+		/* AGC hold during vertical blanking period (VBSL) = Long vertical blanking (AGC disabled from start of pre-equalization pulses until start of active video (line 22 for 60 Hz, line 24 for 50 Hz) */
+		/* Normal clamping if decoder is in unlocked state */
+		somagic_write_i2c(0x4a, 0x03, 0x33); 
+	} else {
+		/* Static gain control channel 1 (GAI18), sign bit of gain control = 1 */
+		/* Static gain control channel 2 (GAI28), sign bit of gain control = 0 */
+		/* Gain control fix (GAFIX) = Automatic gain controlled by MODE3 to MODE0 */
+		/* Automatic gain control integration (HOLDG) = AGC active */
+		/* White peak off (WPOFF) = White peak off */ 
+		/* AGC hold during vertical blanking period (VBSL) = Long vertical blanking (AGC disabled from start of pre-equalization pulses until start of active video (line 22 for 60 Hz, line 24 for 50 Hz) */
+		/* Normal clamping if decoder is in unlocked state */
+		somagic_write_i2c(0x4a, 0x03, 0x31); 
+	}
 
 	/* Subaddress 0x04, Gain control analog/Analog input control 3 (AICO3); static gain control channel 1 GAI1 */
 	/* Gain (dB) = -3 (Note: Dependent on subaddress 0x03 GAI18 value) */
@@ -700,9 +754,17 @@ int main(int argc, char **argv)
 	somagic_write_i2c(0x4a, 0x08, 0x98);
 
 	/* Subaddress 0x09, Luminance control */ 
+	/* Aperture factor (APER) = 0.25 */
+	/* Update time interval for analog AGC value (UPTCV) = Horizontal update (once per line) */
+	/* Vertical blanking luminance bypass (VBLB) = Active luminance processing */
 	/* Chrominance trap bypass (BYPS) = Chrominance trap active; default for CVBS mode */
-	/* TODO */
-	somagic_write_i2c(0x4a, 0x09, 0x01);
+	work = ((luminance_prefilter & 0x01) << 6) | ((luminance_mode & 0x03) << 4) | 0x01;
+	if (input_type == SVIDEO) {
+		/* Chrominance trap bypass (BYPS) = Chrominance trap bypassed; default for S-video mode */
+		work |= 0x80;
+	}
+	fprintf(stderr, "Subaddress 0x09 set to %02x\n", work); 
+	somagic_write_i2c(0x4a, 0x09, work);
 
 	/* Subaddress 0x0a, Luminance brightness control */
 	somagic_write_i2c(0x4a, 0x0a, 0x80);
@@ -723,7 +785,11 @@ int main(int argc, char **argv)
 	somagic_write_i2c(0x4a, 0x0f, 0x2a);
 
 	/* Subaddress 0x10, Format/delay control */
-	somagic_write_i2c(0x4a, 0x10, 0x40);
+	if (input_type == CVBS) {
+		somagic_write_i2c(0x4a, 0x10, 0x40);
+	} else {
+		somagic_write_i2c(0x4a, 0x10, 0x00);
+	}
 
 	/* Subaddress 0x11, Output control 1 */
 	somagic_write_i2c(0x4a, 0x11, 0x0c);
@@ -732,7 +798,11 @@ int main(int argc, char **argv)
 	somagic_write_i2c(0x4a, 0x12, 0x01);
 
 	/* Subaddress 0x13, Output control 3 */
-	somagic_write_i2c(0x4a, 0x13, 0x80);
+	if (input_type == CVBS) {
+		somagic_write_i2c(0x4a, 0x13, 0x80);
+	} else {
+		somagic_write_i2c(0x4a, 0x13, 0x00);
+	}
 
 	/* Subaddress 0x15, Start of VGATE pulse (01-transition) and polarity change of FID pulse/V_GATE1_START */
 	somagic_write_i2c(0x4a, 0x15, 0x00);
@@ -760,27 +830,29 @@ int main(int argc, char **argv)
 		somagic_write_i2c(0x4a, 0x40, 0x82);
 	}
 
-	somagic_write_i2c(0x4a, 0x41, 0x77);
-	somagic_write_i2c(0x4a, 0x42, 0x77);
-	somagic_write_i2c(0x4a, 0x43, 0x77);
-	somagic_write_i2c(0x4a, 0x44, 0x77);
-	somagic_write_i2c(0x4a, 0x45, 0x77);
-	somagic_write_i2c(0x4a, 0x46, 0x77);
-	somagic_write_i2c(0x4a, 0x47, 0x77);
-	somagic_write_i2c(0x4a, 0x48, 0x77);
-	somagic_write_i2c(0x4a, 0x49, 0x77);
-	somagic_write_i2c(0x4a, 0x4a, 0x77);
-	somagic_write_i2c(0x4a, 0x4b, 0x77);
-	somagic_write_i2c(0x4a, 0x4c, 0x77);
-	somagic_write_i2c(0x4a, 0x4d, 0x77);
-	somagic_write_i2c(0x4a, 0x4e, 0x77);
-	somagic_write_i2c(0x4a, 0x4f, 0x77);
-	somagic_write_i2c(0x4a, 0x50, 0x77);
-	somagic_write_i2c(0x4a, 0x51, 0x77);
-	somagic_write_i2c(0x4a, 0x52, 0x77);
-	somagic_write_i2c(0x4a, 0x53, 0x77);
-	somagic_write_i2c(0x4a, 0x54, 0x77);
-	somagic_write_i2c(0x4a, 0x55, 0xff);
+	if (input_type == CVBS) {
+		somagic_write_i2c(0x4a, 0x41, 0x77);
+		somagic_write_i2c(0x4a, 0x42, 0x77);
+		somagic_write_i2c(0x4a, 0x43, 0x77);
+		somagic_write_i2c(0x4a, 0x44, 0x77);
+		somagic_write_i2c(0x4a, 0x45, 0x77);
+		somagic_write_i2c(0x4a, 0x46, 0x77);
+		somagic_write_i2c(0x4a, 0x47, 0x77);
+		somagic_write_i2c(0x4a, 0x48, 0x77);
+		somagic_write_i2c(0x4a, 0x49, 0x77);
+		somagic_write_i2c(0x4a, 0x4a, 0x77);
+		somagic_write_i2c(0x4a, 0x4b, 0x77);
+		somagic_write_i2c(0x4a, 0x4c, 0x77);
+		somagic_write_i2c(0x4a, 0x4d, 0x77);
+		somagic_write_i2c(0x4a, 0x4e, 0x77);
+		somagic_write_i2c(0x4a, 0x4f, 0x77);
+		somagic_write_i2c(0x4a, 0x50, 0x77);
+		somagic_write_i2c(0x4a, 0x51, 0x77);
+		somagic_write_i2c(0x4a, 0x52, 0x77);
+		somagic_write_i2c(0x4a, 0x53, 0x77);
+		somagic_write_i2c(0x4a, 0x54, 0x77);
+		somagic_write_i2c(0x4a, 0x55, 0xff);
+	}
 
 	/* Subaddress 0x58, Framing code for programmable data types/FC */
 	somagic_write_i2c(0x4a, 0x58, 0x00);
@@ -819,8 +891,8 @@ int main(int argc, char **argv)
 	status = somagic_read_reg(0x3080);
 	fprintf(stderr, "status is %02x\n", status);
 
-	memcpy(buf, "\x01\x05", 0x0000002);
-	ret = libusb_control_transfer(devh, LIBUSB_REQUEST_TYPE_VENDOR + LIBUSB_RECIPIENT_DEVICE, 0x0000001, 0x0000001, 0x0000000, buf, 0x0000002, 1000);
+	memcpy(buf, "\x01\x05", 2);
+	ret = libusb_control_transfer(devh, LIBUSB_REQUEST_TYPE_VENDOR + LIBUSB_RECIPIENT_DEVICE, 0x0000001, 0x0000001, 0x0000000, buf, 2, 1000);
 	fprintf(stderr, "190 control msg returned %d, bytes: ", ret);
 	print_bytes(buf, ret);
 	fprintf(stderr, "\n");
