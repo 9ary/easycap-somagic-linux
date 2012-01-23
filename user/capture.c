@@ -78,6 +78,7 @@ int frame_count = 0;
 int tv_standard = PAL;
 
 /* Input select: CVBS/composite (default) or SVIDEO */
+int input_type = CVBS;
 
 /* Luminance mode (CVBS only): 0 = 4.1 MHz, 1 = 3.8 MHz, 2 = 2.6 MHz, 3 = 2.9 MHz */
 int luminance_mode = 0;
