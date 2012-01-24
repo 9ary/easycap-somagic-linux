@@ -50,27 +50,35 @@ static const int NUM_ISO_TRANSFERS = 4;
 int frames_generated = 0;
 int stop_sending_requests = 0;
 int pending_requests = 0;
+int lines_per_field;
 
 struct libusb_device_handle *devh;
 
 enum tv_standards {
-	PAL,
-	NTSC
+	NTSC,         /* 525/60 */
+	PAL_60,       /* 525/60 */
+	NTSC_60,      /* 525/60 */
+	PAL_M,        /* 525/60 */
+	PAL,          /* 625/50 */
+	NTSC_50,      /* 525/50 (different) */
+	PAL_COMBO_N,  /* 625/50 */
+	NTSC_N,       /* 625/50 */
+	SECAM,        /* 625/50 */
 };
 
 enum input_types {
-	CVBS,
-	SVIDEO
+	CVBS,         /* CVBS (composite) */
+	SVIDEO        /* S-VIDEO          */
 };
 
 /* Options */
 /* Control the number of frames to generate: -1 = unlimited (default) */
 int frame_count = -1;
 
-/* Television standard: PAL (default) or NTSC */
+/* Television standard (see tv_standards) */
 int tv_standard = PAL;
 
-/* Input select: CVBS/composite (default) or SVIDEO */
+/* Input select (see input_types) */
 int input_type = CVBS;
 
 /* Luminance mode (CVBS only): 0 = 4.1 MHz, 1 = 3.8 MHz, 2 = 2.6 MHz, 3 = 2.9 MHz */
@@ -206,8 +214,6 @@ static void put_data(struct video_state_t *vs, uint8_t c)
 
 static void process(struct video_state_t *vs, uint8_t c)
 {
-	int lines_per_field = (tv_standard == PAL ? 288 : 240);
-
 	/*
 	 * Timing reference code (TRC):
 	 *     [ff 00 00 SAV] [ff 00 00 EAV]
@@ -475,12 +481,14 @@ void usage()
 	fprintf(stderr, "                             0 to 255 (default: 128)\n");
 	fprintf(stderr, "                             Value  Brightness\n");
 	fprintf(stderr, "                               255  Bright\n");
+	fprintf(stderr, "                               149  NTSC-J\n");
 	fprintf(stderr, "                               128  ITU level (default)\n");
 	fprintf(stderr, "                                 0  Dark\n");
 	fprintf(stderr, "  -C, --contrast=VALUE       Luminance contrast control,\n");
 	fprintf(stderr, "                             -128 to 127 (default: 71)\n");
 	fprintf(stderr, "                             Value  Contrast\n");
 	fprintf(stderr, "                               127   1.984375\n");
+	fprintf(stderr, "                                72   1.125000 (NTSC-J)\n");
 	fprintf(stderr, "                                71   1.109375 (ITU level, default)\n");
 	fprintf(stderr, "                                64   1.000000\n");
 	fprintf(stderr, "                                 1   0.015625\n");
@@ -508,8 +516,15 @@ void usage()
 	fprintf(stderr, "                                2  0.50\n");
 	fprintf(stderr, "                                3  1.00\n");
 	fprintf(stderr, "      --lum-prefilter        Activate luminance prefilter (default: bypassed)\n");
-	fprintf(stderr, "  -n, --ntsc                 Television standard is 60Hz NTSC\n");
-	fprintf(stderr, "  -p, --pal                  Television standard is 50Hz PAL (default)\n");
+	fprintf(stderr, "  -n, --ntsc                 NTSC-M (North America) / NTSC-J (Japan)\n");
+	fprintf(stderr, "                                               [525 lines, 29.97 Hz]\n");
+	fprintf(stderr, "      --ntsc-4.43-50         NTSC-4.43 50Hz    [525 lines, 25 Hz]\n");
+	fprintf(stderr, "      --ntsc-4.43-60         NTSC-4.43 60Hz    [525 lines, 29.97 Hz]\n");
+	fprintf(stderr, "      --ntsc-n               NTSC-N            [625 lines, 25 Hz]\n");
+	fprintf(stderr, "  -p, --pal                  PAL-B/G/H/I/N     [625 lines, 25 Hz] (default)\n");
+	fprintf(stderr, "      --pal-4.43             PAL-4.43 / PAL 60 [525 lines, 29.97 Hz]\n");
+	fprintf(stderr, "      --pal-m                PAL-M (Brazil)    [525 lines, 29.97 Hz]\n");
+	fprintf(stderr, "      --pal-combination-n    PAL Combination-N [625 lines, 25 Hz]\n");
 	fprintf(stderr, "  -S, --saturation=VALUE     Chrominance saturation control,\n");
 	fprintf(stderr, "                             -128 to 127 (default: 64)\n");
 	fprintf(stderr, "                             Value  Saturation\n");
@@ -520,6 +535,7 @@ void usage()
 	fprintf(stderr, "                               -64  -1.000000 (inverse)\n");
 	fprintf(stderr, "                              -128  -2.000000 (inverse)\n");
 	fprintf(stderr, "  -s, --s-video              Use S-VIDEO input\n");
+	fprintf(stderr, "      --secam                SECAM             [625 lines, 25 Hz]\n");
 	fprintf(stderr, "      --help                 Display usage\n");
 	fprintf(stderr, "      --version              Display version information\n");
 	fprintf(stderr, "\n");
@@ -528,10 +544,13 @@ void usage()
 	fprintf(stderr, "init\n");
 	fprintf(stderr, "\n");
 	fprintf(stderr, "# PAL, CVBS/composite:\n");
-	fprintf(stderr, "capture 2> /dev/null | mplayer - -vf yadif,screenshot -demuxer rawvideo -rawvideo \"w=720:h=576:format=uyvy:fps=25\"\n");
+	fprintf(stderr, "capture 2> /dev/null | mplayer - -vf yadif,screenshot -demuxer rawvideo -rawvideo \"pal:format=uyvy:fps=25\"\n");
 	fprintf(stderr, "\n");
 	fprintf(stderr, "# NTSC, S-VIDEO\n");
 	fprintf(stderr, "capture -n -s 2> /dev/null | mplayer - -vf yadif,screenshot -demuxer rawvideo -rawvideo \"ntsc:format=uyvy:fps=30000/1001\"\n");
+	fprintf(stderr, "\n");
+	fprintf(stderr, "# NTSC, CVBS/composite, increased sharpness:\n");
+	fprintf(stderr, "capture -n --luminance=2 --lum-aperture=3 2> /dev/null | mplayer - -vf yadif,screenshot -demuxer rawvideo -rawvideo \"pal:format=uyvy:fps=25\"\n");
 }
 
 int main(int argc, char **argv)
@@ -553,11 +572,18 @@ int main(int argc, char **argv)
 	int c;
 	int option_index = 0;
 	static struct option long_options[] = {
-		{"help", 0, 0, 0},          /* index 0 */
-		{"version", 0, 0, 0},       /* index 1 */
-		{"luminance", 1, 0, 0},     /* index 2 */
-		{"lum-aperture", 1, 0, 0},  /* index 3 */
-		{"lum-prefilter", 0, 0, 0}, /* index 4 */
+		{"help", 0, 0, 0},              /* index 0 */
+		{"version", 0, 0, 0},           /* index 1 */
+		{"luminance", 1, 0, 0},         /* index 2 */
+		{"lum-aperture", 1, 0, 0},      /* index 3 */
+		{"lum-prefilter", 0, 0, 0},     /* index 4 */
+		{"ntsc-4.43-50", 0, 0, 0},      /* index 5 */
+		{"ntsc-4.43-60", 0, 0, 0},      /* index 6 */
+		{"ntsc-n", 0, 0, 0},            /* index 7 */
+		{"pal-4.43", 0, 0, 0},          /* index 8 */
+		{"pal-m", 0, 0, 0},             /* index 9 */
+		{"pal-combination-n", 0, 0, 0}, /* index 10 */
+		{"secam", 0, 0, 0},             /* index 11 */
 		{"brightness", 1, 0, 'B'},
 		{"cvbs", 0, 0, 'c'},
 		{"contrast", 1, 0, 'C'},
@@ -601,6 +627,27 @@ int main(int argc, char **argv)
 				break;
 			case 4: /* --lum-prefilter*/
 				luminance_prefilter = 1;
+				break;
+			case 5: /* --ntsc-4.43-50 */
+				tv_standard = NTSC_50;
+				break;
+			case 6: /* --ntsc-4.43-60 */
+				tv_standard = NTSC_60;
+				break;
+			case 7: /* --ntsc-n */
+				tv_standard = NTSC_N;
+				break;
+			case 8: /* --pal-4.43 */
+				tv_standard = PAL_60;
+				break;
+			case 9: /* --pal-m */
+				tv_standard = PAL_M;
+				break;
+			case 10: /* --pal-combination-n */
+				tv_standard = PAL_COMBO_N;
+				break;
+			case 11: /* --secam */
+				tv_standard = SECAM;
 				break;
 			default:
 				usage();
@@ -840,9 +887,29 @@ int main(int argc, char **argv)
 	/* Chrominance bandwidth (CHBW0 and CHBW1) = Nominal bandwidth (800 kHz) */
 	/* Fast color time constant (FCTC) = Nominal time constant */
 	/* Disable chrominance comb filter (DCCF) = Chrominance comb filter on (during lines determined by VREF = 1) */
-	/* Color standard selection (CSTD0 to CSTD2) = If 50Hz: PAL BGHIN. If 60Hz: NTSC M. */
 	/* Clear DTO (CDTO) = Disabled */
-	somagic_write_i2c(0x4a, 0x0e, 0x01);
+	switch (tv_standard) {
+        case PAL:
+	case NTSC:
+		work = 0x01;
+		break;
+	case NTSC_50:
+	case PAL_60:
+		work = 0x11;
+		break;
+	case PAL_COMBO_N:
+	case NTSC_60:
+		work = 0x21;
+		break;
+	case NTSC_N:
+	case PAL_M:
+		work = 0x31;
+		break;
+	case SECAM:
+		work = 0x50;
+		break;
+	}
+	somagic_write_i2c(0x4a, 0x0e, work);
 
 	/* Subaddress 0x0f, Chrominance gain control */
 	/* Chrominance gain value = ??? (Note: only meaningful if ACGF is off) */
@@ -910,20 +977,20 @@ int main(int argc, char **argv)
 	somagic_write_i2c(0x4a, 0x17, 0x00);
 
 	/* Subaddress 0x40, AC1 */
-	if (tv_standard == PAL) {
-		/* Data slicer clock selection, Amplitude searching = 13.5 MHz (default) */
-		/* Amplitude searching = Amplitude searching active (default) */
-		/* Framing code error = One framing code error allowed */
-		/* Hamming check = Hamming check for 2 bytes after framing code, dependent on data type (default) */
-		/* Field size select = 50 Hz field rate */
-		somagic_write_i2c(0x4a, 0x40, 0x02);
-	} else {
+	if (tv_standard == NTSC || tv_standard == PAL_60 || tv_standard == NTSC_60 || tv_standard == PAL_M) {
 		/* Data slicer clock selection, Amplitude searching = 13.5 MHz (default) */
 		/* Amplitude searching = Amplitude searching active (default) */
 		/* Framing code error = One framing code error allowed */
 		/* Hamming check = Hamming check for 2 bytes after framing code, dependent on data type (default) */
 		/* Field size select = 60 Hz field rate */
 		somagic_write_i2c(0x4a, 0x40, 0x82);
+	} else {
+		/* Data slicer clock selection, Amplitude searching = 13.5 MHz (default) */
+		/* Amplitude searching = Amplitude searching active (default) */
+		/* Framing code error = One framing code error allowed */
+		/* Hamming check = Hamming check for 2 bytes after framing code, dependent on data type (default) */
+		/* Field size select = 50 Hz field rate */
+		somagic_write_i2c(0x4a, 0x40, 0x02);
 	}
 
 	if (input_type == CVBS) {
@@ -961,12 +1028,14 @@ int main(int argc, char **argv)
 	somagic_write_i2c(0x4a, 0x59, 0x54);
 
 	/* Subaddress 0x5a: Vertical offset/VOFF */
-	if (tv_standard == PAL) {
-		/* Slicer set, Vertical offset = Value for 50 Hz 625 lines input */
+	if (tv_standard == PAL || tv_standard == PAL_COMBO_N || tv_standard == NTSC_N || tv_standard == SECAM) {
+		/* Slicer set, Vertical offset = Value for 625 lines input */
 		somagic_write_i2c(0x4a, 0x5a, 0x07);
+		lines_per_field = 288;
 	} else {
-		/* Slicer set, Vertical offset = Value for 60 Hz 525 lines input */
+		/* Slicer set, Vertical offset = Value for 525 lines input */
 		somagic_write_i2c(0x4a, 0x5a, 0x0a);
+		lines_per_field = 240;
 	}
 
 	/* Subaddress 0x5b, Field offset, MSBs for vertical and horizontal offsets/HVOFF */
