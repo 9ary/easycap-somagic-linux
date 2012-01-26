@@ -94,7 +94,7 @@ static int __devinit somagic_usb_probe(struct usb_interface *intf,
 
   if (dev->descriptor.idProduct == SOMAGIC_USB_BOOTLOADER_PRODUCT_ID) {
 		somagic_upload_firmware(dev);
-		return -ENODEV;
+		return (0); //-ENODEV;
 	} else if (dev->descriptor.idProduct != SOMAGIC_USB_PRODUCT_ID) {
 		return -ENODEV;
 	}
