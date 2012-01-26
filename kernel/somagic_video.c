@@ -59,6 +59,108 @@ static struct video_device *somagic_vdev_init(
 /*****************************************************************************/
 static struct video_device somagic_video_template;
 
+/*****************************************************************************/
+/*                                                                           */
+/*            Memory management                                              */
+/*                                                                           */
+/*****************************************************************************/
+static void *somagic_rvmalloc(unsigned long size)
+{
+	void *mem;
+	unsigned long adr;
+
+	size = PAGE_ALIGN(size);
+	mem = vmalloc_32(size);
+	if (!mem) {
+		return NULL;
+	}
+
+	memset(mem, 0, size);
+	adr = (unsigned long)mem;
+	while ((long) size > 0) {
+		SetPageReserved(vmalloc_to_page((void*)adr));
+		adr += PAGE_SIZE;
+		size -= PAGE_SIZE;
+	}
+
+	return mem;
+}
+
+static void somagic_rvfree(void *mem, unsigned long size)
+{
+	unsigned long adr;
+
+	if (!mem) {
+		return;
+	}
+
+	size = PAGE_ALIGN(size);
+	adr = (unsigned long) mem;
+
+	while((long) size > 0) {
+		ClearPageReserved(vmalloc_to_page((void *)adr));
+		adr += PAGE_SIZE;
+		size -= PAGE_SIZE;
+	}
+
+	vfree(mem);
+}
+
+static int somagic_video_frames_alloc(struct usb_somagic *somagic, int number_of_frames)
+{
+	int i;
+
+	somagic->video.max_frame_size = PAGE_ALIGN(720 * 576 * 2);
+	somagic->video.num_frames = number_of_frames;
+
+	while (somagic->video.num_frames > 0) {
+		somagic->video.fbuf_size = somagic->video.num_frames *
+				somagic->video.max_frame_size;
+
+		somagic->video.fbuf = somagic_rvmalloc(somagic->video.fbuf_size);
+		if (somagic->video.fbuf) {
+			break;
+		}
+		somagic->video.num_frames--;
+	}
+
+	spin_lock_init(&somagic->video.queue_lock);
+	init_waitqueue_head(&somagic->video.wait_frame);
+	init_waitqueue_head(&somagic->video.wait_stream);
+
+	// Allocate all buffers
+	for (i = 0; i < somagic->video.num_frames; i++) {
+		somagic->video.frame[i].index = i;	
+		somagic->video.frame[i].grabstate = FRAME_STATE_UNUSED;
+		somagic->video.frame[i].data = somagic->video.fbuf + 
+			(i * somagic->video.max_frame_size);
+		somagic->video.frame[i].bytes_read = 0;
+	}
+
+	return somagic->video.num_frames;
+}
+
+static void somagic_video_frames_free(struct usb_somagic *somagic)
+{
+	if (somagic->video.fbuf != NULL) {
+		somagic_rvfree(somagic->video.fbuf, somagic->video.fbuf_size);
+		somagic->video.fbuf = NULL;
+
+		somagic->video.num_frames = 0;
+	}
+}
+
+static void somagic_video_empty_framequeues(struct usb_somagic *somagic)
+{
+	int i;
+	INIT_LIST_HEAD(&(somagic->video.inqueue));
+	INIT_LIST_HEAD(&(somagic->video.outqueue));
+
+	for (i = 0; i < SOMAGIC_NUM_FRAMES; i++) {
+		somagic->video.frame[i].grabstate = FRAME_STATE_UNUSED;
+		somagic->video.frame[i].bytes_read = 0;	
+	}
+}
 
 /*****************************************************************************/
 /*                                                                           */
@@ -77,6 +179,16 @@ static ssize_t show_version(struct device *cd,
 
 static DEVICE_ATTR(version, S_IRUGO, show_version, NULL);
 
+static ssize_t show_isoc_count(struct device *cd,
+							struct device_attribute *attr, char *buf)
+{
+	struct video_device *vdev = container_of(cd, struct video_device, dev);
+	struct usb_somagic *somagic = video_get_drvdata(vdev);
+	return sprintf(buf, "%d\n", somagic->video.received_urbs); 
+}
+
+static DEVICE_ATTR(received_isocs, S_IRUGO, show_isoc_count, NULL);
+
 static void somagic_video_create_sysfs(struct video_device *vdev)
 {
 	int res;
@@ -89,6 +201,7 @@ static void somagic_video_create_sysfs(struct video_device *vdev)
 		if (res < 0) {
 			break;
 		}
+		res = device_create_file(&vdev->dev, &dev_attr_received_isocs);
 		if (res >= 0) {
 			return;
 		}
@@ -101,6 +214,7 @@ static void somagic_video_remove_sysfs(struct video_device *vdev)
 {
 	if (vdev) {
 		device_remove_file(&vdev->dev, &dev_attr_version);
+		device_remove_file(&vdev->dev, &dev_attr_received_isocs);
 	}
 }
 
@@ -115,7 +229,6 @@ int __devinit somagic_connect_video(struct usb_somagic *somagic)
   if (v4l2_device_register(&somagic->dev->dev, &somagic->video.v4l2_dev)) {
     goto err_exit;
   }
-
 	mutex_init(&somagic->video.v4l2_lock);
 
   somagic->video.vdev = somagic_vdev_init(somagic, &somagic_video_template, SOMAGIC_DRIVER_NAME);
@@ -123,6 +236,9 @@ int __devinit somagic_connect_video(struct usb_somagic *somagic)
 		goto err_exit;
 	}
 
+	somagic_dev_init_video(somagic, V4L2_STD_PAL);
+
+	// All setup done, we can register the v4l2 device.
 	if (video_register_device(somagic->video.vdev, VFL_TYPE_GRABBER, video_nr) < 0) {
 		goto err_exit;
 	}
@@ -182,9 +298,20 @@ void __devexit somagic_disconnect_video(struct usb_somagic *somagic)
 static int somagic_v4l2_open(struct file *file)
 {
 	struct usb_somagic *somagic = video_drvdata(file);
-	int err_code = 0;
+	//int err_code = 0;
 
+	somagic->video.open_instances++;
 	printk(KERN_INFO "somagic::%s: CALLED\n", __func__);
+
+	// Allocate buffer for ISOC
+	somagic_dev_alloc_video_scratch(somagic);
+
+//	somagic_dev_start_video_stream(somagic, 1);
+	somagic_dev_init_video_isoc(somagic);
+
+	// Setup? // usbvision_setup
+	// Begin streaming? // usbvision_begin_streaming
+	// init_isoc	// usbvision_init_isoc
 
 	return 0;
 //	return -EBUSY;
@@ -192,11 +319,11 @@ static int somagic_v4l2_open(struct file *file)
 
 static int somagic_v4l2_close(struct file *file)
 {
-	//struct usb_somagic *somagic = video_drvdata(file);
+	struct usb_somagic *somagic = video_drvdata(file);
+	somagic_dev_stop_video_isoc(somagic);
 	return 0;
 }
 
-/* Setup ioctl functions */
 static int vidioc_querycap(struct file *file, void *priv,
 							struct v4l2_capability *vc)
 {
@@ -208,7 +335,7 @@ static int vidioc_querycap(struct file *file, void *priv,
 	strlcpy(vc->driver, SOMAGIC_DRIVER_NAME, sizeof(vc->driver));
 	strlcpy(vc->card, "EasyCAP DC60", sizeof(vc->card));
 	usb_make_path(somagic->dev, vc->bus_info, sizeof(vc->bus_info));
-	vc->capabilities = 0;
+	vc->capabilities = V4L2_CAP_VIDEO_CAPTURE | V4L2_CAP_STREAMING;
 	printk(KERN_INFO "somagic::%s: CALLED\n", __func__);
 	return 0;
 }
@@ -216,17 +343,41 @@ static int vidioc_querycap(struct file *file, void *priv,
 static int vidioc_enum_input(struct file *file, void *priv,
 							struct v4l2_input *vi)
 {
-	return -EINVAL;
+	switch(vi->index) {
+		case INPUT_CVBS : {
+			strcpy(vi->name, "CVBS");
+			break;
+		}
+		case INPUT_SVIDEO : {
+			strcpy(vi->name, "S-VIDEO");
+			break;
+		}
+		default :
+			return -EINVAL;
+	}
+
+	vi->type = V4L2_INPUT_TYPE_CAMERA;
+	vi->audioset = 0;
+	vi->tuner = 0;
+	vi->std = V4L2_STD_PAL;
+	vi->status = 0x00;
+	vi->capabilities = V4L2_CAP_VIDEO_CAPTURE | V4L2_CAP_STREAMING;
+	return 0;	
 }
 
 static int vidioc_g_input(struct file *file, void *priv, unsigned int *input)
 {
-	return -EINVAL;
+	*input = (unsigned int)INPUT_CVBS;
+	return 0;
 }
 
 static int vidioc_s_input(struct file *file, void *priv, unsigned int input)
 {
-	return -EINVAL;
+	if (input >= INPUT_MANY) {
+		return -EINVAL;
+	}
+
+	return 0;
 }
 
 static int vidioc_s_std(struct file *file, void *priv, v4l2_std_id *id)
@@ -234,24 +385,7 @@ static int vidioc_s_std(struct file *file, void *priv, v4l2_std_id *id)
 	return -EINVAL;
 }
 
-static int vidioc_g_tuner(struct file *file, void *priv, struct v4l2_tuner *vt)
-{
-	return -EINVAL;
-}
-
-static int vidioc_s_tuner(struct file *file, void *priv, struct v4l2_tuner *vt)
-{
-	return -EINVAL;
-}
-
-static int vidioc_g_frequency(struct file *file, void *priv,
-							struct v4l2_frequency *freq)
-{
-	return -EINVAL;
-}
-
-static int vidioc_s_frequency(struct file *file, void *priv,
-							struct v4l2_frequency *freq)
+static int vidioc_querystd(struct file *file, void *priv, v4l2_std_id *a)
 {
 	return -EINVAL;
 }
@@ -284,73 +418,313 @@ static int vidioc_s_ctrl(struct file *file, void *priv,
 	return -EINVAL;
 }
 
+// Initialize buffers
 static int vidioc_reqbufs(struct file *file, void *priv,
 							struct v4l2_requestbuffers *vr)
 {
-	return -EINVAL;
+	struct usb_somagic *somagic = video_drvdata(file);
+
+	if (vr->memory != V4L2_MEMORY_MMAP) {
+		return -EINVAL;
+	}
+
+	if (vr->count < 2) {
+		vr->count = 2;
+	} else if (vr->count > SOMAGIC_NUM_FRAMES) {
+		vr->count = SOMAGIC_NUM_FRAMES;
+	}
+
+	somagic_video_frames_free(somagic);
+	somagic_video_empty_framequeues(somagic);
+	vr->count = somagic_video_frames_alloc(somagic, vr->count);
+
+	somagic->video.cur_frame = NULL;
+	return 0;
 }
 
+// Request for buffer info
 static int vidioc_querybuf(struct file *file, void *priv,
 							struct v4l2_buffer *vb)
 {
-	return -EINVAL;
+	struct usb_somagic *somagic = video_drvdata(file);
+	struct somagic_frame *frame;
+
+	if (vb->index >= somagic->video.num_frames) {
+		return -EINVAL;
+	}
+
+	vb->flags = 0;
+	frame = &somagic->video.frame[vb->index];
+
+	switch (frame->grabstate) {
+		case FRAME_STATE_READY : {
+			vb->flags |= V4L2_BUF_FLAG_QUEUED;
+			break;
+		}
+		case FRAME_STATE_DONE : {
+			vb->flags |= V4L2_BUF_FLAG_DONE;
+			break;
+		}
+		case FRAME_STATE_UNUSED : {
+			vb->flags |= V4L2_BUF_FLAG_MAPPED;
+			break;
+		}
+	}
+	vb->memory = V4L2_MEMORY_MMAP;
+	vb->m.offset = vb->index * PAGE_ALIGN(somagic->video.max_frame_size);
+	vb->field = V4L2_FIELD_SEQ_TB;
+	vb->length = 720 * 576 * 2;
+	vb->timestamp = frame->timestamp;
+	vb->sequence = frame->sequence;
+
+	return 0;
 }
 
+// Receive a buffer from userspace
 static int vidioc_qbuf(struct file *file, void *priv,
 							struct v4l2_buffer *vb)
 {
-	return -EINVAL;
+	struct usb_somagic *somagic = video_drvdata(file);
+	struct somagic_frame *frame;
+	unsigned long lock_flags;
+	
+	if (vb->index >= somagic->video.num_frames) {
+		return -EINVAL;
+	}
+
+	frame = &somagic->video.frame[vb->index];
+
+	if (frame->grabstate != FRAME_STATE_UNUSED) {
+		return -EAGAIN;
+	}
+
+	frame->grabstate = FRAME_STATE_READY;
+	frame->scanstate = SCAN_STATE_SCANNING;
+	frame->scanlength = 0;
+
+	vb->flags &= ~V4L2_BUF_FLAG_DONE;
+
+	spin_lock_irqsave(&somagic->video.queue_lock, lock_flags);
+	list_add_tail(&frame->frame, &somagic->video.inqueue);	
+	spin_unlock_irqrestore(&somagic->video.queue_lock, lock_flags);
+
+	return 0;
 }
 
+// Send a buffer to userspace
 static int vidioc_dqbuf(struct file *file, void *priv,
 							struct v4l2_buffer *vb)
 {
-	return -EINVAL;
+	struct usb_somagic *somagic = video_drvdata(file);
+	struct somagic_frame *f;
+	unsigned long lock_flags;
+	//int rc;
+
+	///FIXME: Add wait_event_interruptible, so we can wait for frame
+	if (list_empty(&(somagic->video.outqueue))) {
+		return -EAGAIN; // -EINVAL
+	}
+
+	spin_lock_irqsave(&somagic->video.queue_lock, lock_flags);
+	f = list_entry(somagic->video.outqueue.next,
+										 struct somagic_frame, frame);
+	list_del(somagic->video.outqueue.next);
+	spin_unlock_irqrestore(&somagic->video.queue_lock, lock_flags);
+
+	f->grabstate = FRAME_STATE_UNUSED;
+
+	vb->memory = V4L2_MEMORY_MMAP;
+	vb->flags = V4L2_BUF_FLAG_MAPPED | V4L2_BUF_FLAG_QUEUED | V4L2_BUF_FLAG_DONE;
+	vb->index = f->index;
+	vb->sequence = f->sequence;
+	vb->timestamp = f->timestamp;
+	vb->field = V4L2_FIELD_SEQ_TB;
+	vb->bytesused = f->scanlength;
+
+	return 0;
 }
 
 static int vidioc_streamon(struct file *file, void *priv, enum v4l2_buf_type i)
 {
-	return -EINVAL;
+	struct usb_somagic *somagic = video_drvdata(file);
+	somagic_dev_start_video_stream(somagic, 1);
+	return 0;
 }
 
 static int vidioc_streamoff(struct file *file, void *priv, enum v4l2_buf_type type)
 {
-	return -EINVAL;
+	struct usb_somagic *somagic = video_drvdata(file);
+	somagic_dev_start_video_stream(somagic, 0);
+	return 0;
 }
 
+// Describe PIX Format
 static int vidioc_enum_fmt_vid_cap(struct file *file, void *priv,
-							struct v4l2_fmtdesc *vfd)
+							struct v4l2_fmtdesc *f)
 {
-	return -EINVAL;
+	if (f->index != 0) {
+		return -EINVAL;
+	}
+
+	f->flags = 0;
+	f->pixelformat = V4L2_PIX_FMT_UYVY;
+	strcpy(f->description, "Packed UYVY");
+	return 0;
 }
 
+// Get Current Format
 static int vidioc_g_fmt_vid_cap(struct file *file, void *priv,
 							struct v4l2_format *vf)
 {
-	return -EINVAL;
+	struct v4l2_pix_format *pix = &vf->fmt.pix;
+	pix->width = 720; 
+	pix->height = 576;
+	pix->pixelformat = V4L2_PIX_FMT_UYVY;
+	pix->field = V4L2_FIELD_SEQ_TB;
+	pix->bytesperline = 1440; 
+	pix->sizeimage = 1440*576;
+	pix->colorspace = V4L2_COLORSPACE_SMPTE170M;
+	return 0;
 }
 
+// Try to set Video Format
 static int vidioc_try_fmt_vid_cap(struct file *file, void *priv,
 							struct v4l2_format *vf)
 {
-	return -EINVAL;
+	return -EBUSY;
 }
 
+// Set Video Format
 static int vidioc_s_fmt_vid_cap(struct file *file, void *priv,
 							struct v4l2_format *vf)
 {
-	return -EINVAL;
+	return -EBUSY;
 }
 
 static ssize_t somagic_v4l2_read(struct file *file, char __user *buf,
 							size_t count, loff_t *ppos)
 {
-	return -EFAULT;
+	struct usb_somagic *somagic = video_drvdata(file);
+	int noblock = file->f_flags & O_NONBLOCK;
+	unsigned long lock_flags;
+	int rc, i;
+	struct somagic_frame *frame;
+
+	printk(KERN_INFO "somagic::%s: %ld bytes, noblock=%d", __func__,
+										(unsigned long)count, noblock);
+
+	if (buf == NULL) {
+		return -EFAULT;
+	}
+
+	if (!somagic->video.num_frames) {
+		somagic_video_frames_free(somagic);
+		somagic_video_empty_framequeues(somagic);
+		somagic_video_frames_alloc(somagic, SOMAGIC_NUM_FRAMES);
+	}
+
+	// Start streaming
+	//somagic_dev_start_video_stream(somagic, 1);
+
+	// Enqueue Videoframes
+	for (i = 0; i < somagic->video.num_frames; i++) {
+		frame = &somagic->video.frame[i];
+
+		if (frame->grabstate == FRAME_STATE_UNUSED) {
+			// Mark frame as ready and enqueue the frame!
+			frame->grabstate = FRAME_STATE_READY;
+			frame->scanstate = SCAN_STATE_SCANNING;
+			frame->scanlength = 0;
+
+			spin_lock_irqsave(&somagic->video.queue_lock, lock_flags);
+			list_add_tail(&frame->frame, &somagic->video.inqueue);
+			spin_unlock_irqrestore(&somagic->video.queue_lock, lock_flags);
+		}
+	}
+
+	// Then try to steal a frame, like a VIDIOC_DQBU would do
+	if (list_empty(&(somagic->video.outqueue))) {
+		if (noblock) {
+			return -EAGAIN;
+		}
+
+		rc = wait_event_interruptible(somagic->video.wait_frame,
+												!list_empty(&(somagic->video.outqueue)));
+
+		if (rc) {
+			return rc;
+		}
+	}
+
+	spin_lock_irqsave(&somagic->video.queue_lock, lock_flags);
+	frame = list_entry(somagic->video.outqueue.next,
+												struct somagic_frame, frame);
+	list_del(somagic->video.outqueue.next);
+	spin_unlock_irqrestore(&somagic->video.queue_lock, lock_flags);
+
+	if (frame->grabstate == FRAME_STATE_ERROR) {
+		frame->bytes_read = 0;
+		return 0;
+	}
+
+	if ((count + frame->bytes_read) > (unsigned long)frame->scanlength) {
+		count = frame->scanlength - frame->bytes_read;
+	}
+
+	if (copy_to_user(buf, frame->data + frame->bytes_read, count)) {
+		return -EFAULT;
+	}
+
+	frame->bytes_read = 0;
+	frame->grabstate = FRAME_STATE_UNUSED;
+
+	return count;
+
 } 
 
 static int somagic_v4l2_mmap(struct file *file, struct vm_area_struct *vma)
 {
-	return -EFAULT;
+	unsigned long size = vma->vm_end - vma->vm_start;
+	unsigned long start = vma->vm_start;
+	void *pos;
+	int i;
+	struct usb_somagic *somagic = video_drvdata(file);
+
+	if (!(vma->vm_flags & VM_WRITE) ||
+			size != PAGE_ALIGN(somagic->video.max_frame_size)) {
+		return -EFAULT;
+	}
+
+	for (i = 0; i < somagic->video.num_frames; i++) {
+		if (((PAGE_ALIGN(somagic->video.max_frame_size)*i) >> PAGE_SHIFT) ==
+				vma->vm_pgoff) {
+			break;
+		}
+
+		if (i == somagic->video.num_frames) {
+			printk(KERN_ERR "somagic::%s: mmap:" \
+											"user supplied mapping address is out of range!\n",
+						__func__ );
+			return -EINVAL;
+		}
+
+		vma->vm_flags |= VM_IO;	
+		vma->vm_flags |= VM_RESERVED;	// Avoid to swap out this VMA
+
+		pos = somagic->video.frame[i].data;
+		while(size > 0) {
+			if (vm_insert_page(vma, start, vmalloc_to_page(pos))) {
+				printk(KERN_WARNING "somagic::%s: mmap: vm_insert_page failed!\n",
+							__func__);
+				return -EAGAIN;
+			}
+			start += PAGE_SIZE;
+			pos += PAGE_SIZE;
+			size -= PAGE_SIZE;
+		}
+	}
+
+	return 0;
 
 }
 
@@ -360,50 +734,49 @@ static int somagic_v4l2_mmap(struct file *file, struct vm_area_struct *vma)
 /*                                                                           */
 /*****************************************************************************/
 
+static const struct v4l2_ioctl_ops somagic_ioctl_ops = {
+	.vidioc_querycap      = vidioc_querycap,
+	.vidioc_enum_fmt_vid_cap  = vidioc_enum_fmt_vid_cap,	// LWN v4l2 article part5/5b
+	.vidioc_g_fmt_vid_cap     = vidioc_g_fmt_vid_cap,			// Get Video Format (YUYV) / http://v4l2spec.bytesex.org/spec/x6386.htm
+	.vidioc_try_fmt_vid_cap   = vidioc_try_fmt_vid_cap,
+	.vidioc_s_fmt_vid_cap     = vidioc_s_fmt_vid_cap,			// Set Video Format -- N/A
+	.vidioc_reqbufs       = vidioc_reqbufs,								// Setup Video buffer // LWN v4l2 article part6b
+	.vidioc_querybuf      = vidioc_querybuf,							//
+	.vidioc_qbuf          = vidioc_qbuf,									// Put a Video Buffer into incomming queue // LWN v4l2 arictle part6b
+	.vidioc_dqbuf         = vidioc_dqbuf,									// Get a Video Buffer from the outgoing queue // LWN v4l2 arictle part6b
+	.vidioc_s_std         = vidioc_s_std,									// Set TV Standard
+	.vidioc_querystd      = vidioc_querystd,							// What standard the device believe it's receiving
+	.vidioc_enum_input    = vidioc_enum_input,						// List of videoinputs on card // LWN v4l2 article part4
+	.vidioc_g_input       = vidioc_g_input,								// Get Current Video Input
+	.vidioc_s_input       = vidioc_s_input,								// Set Video input
+	.vidioc_queryctrl     = vidioc_queryctrl,							// Send a list of available hardware controls // LWN v4l2 article part7
+	.vidioc_g_audio       = vidioc_g_audio,
+	.vidioc_s_audio       = vidioc_s_audio,
+	.vidioc_g_ctrl        = vidioc_g_ctrl,								// Get hardware ctrl // LWN v4l2 article part7
+	.vidioc_s_ctrl        = vidioc_s_ctrl,								// Set hardware ctrl // LWN v4l2 article part7
+	.vidioc_streamon      = vidioc_streamon,							// Start streaming
+	.vidioc_streamoff     = vidioc_streamoff,							// Stop Streaming, transfer all remaing buffers to userspace
+};
+
 static const struct v4l2_file_operations somagic_fops = {
 	.owner = THIS_MODULE,
-	.open = somagic_v4l2_open,
+	.open = somagic_v4l2_open,					// Called when we open the v4l2 device
 	.release = somagic_v4l2_close,
 	.read = somagic_v4l2_read,
 	.mmap = somagic_v4l2_mmap,
-	.unlocked_ioctl = video_ioctl2,
+	.unlocked_ioctl = video_ioctl2,			// Use the struct v4l2_ioctl_ops for ioctl handling
 /* .poll = video_poll, */
 };
 
-static const struct v4l2_ioctl_ops somagic_ioctl_ops = {
-	.vidioc_querycap      = vidioc_querycap,
-	.vidioc_enum_fmt_vid_cap  = vidioc_enum_fmt_vid_cap,
-	.vidioc_g_fmt_vid_cap     = vidioc_g_fmt_vid_cap,
-	.vidioc_try_fmt_vid_cap   = vidioc_try_fmt_vid_cap,
-	.vidioc_s_fmt_vid_cap     = vidioc_s_fmt_vid_cap,
-	.vidioc_reqbufs       = vidioc_reqbufs,
-	.vidioc_querybuf      = vidioc_querybuf,
-	.vidioc_qbuf          = vidioc_qbuf,
-	.vidioc_dqbuf         = vidioc_dqbuf,
-	.vidioc_s_std         = vidioc_s_std,
-	.vidioc_enum_input    = vidioc_enum_input,
-	.vidioc_g_input       = vidioc_g_input,
-	.vidioc_s_input       = vidioc_s_input,
-	.vidioc_queryctrl     = vidioc_queryctrl,
-	.vidioc_g_audio       = vidioc_g_audio,
-	.vidioc_s_audio       = vidioc_s_audio,
-	.vidioc_g_ctrl        = vidioc_g_ctrl,
-	.vidioc_s_ctrl        = vidioc_s_ctrl,
-	.vidioc_streamon      = vidioc_streamon,
-	.vidioc_streamoff     = vidioc_streamoff,
-	.vidioc_g_tuner       = vidioc_g_tuner,
-	.vidioc_s_tuner       = vidioc_s_tuner,
-	.vidioc_g_frequency   = vidioc_g_frequency,
-	.vidioc_s_frequency   = vidioc_s_frequency,
-};
 
 static struct video_device somagic_video_template = {
 	.fops = &somagic_fops,
 	.ioctl_ops = &somagic_ioctl_ops,
-	.name = "somagic-video",
+	.name = SOMAGIC_DRIVER_NAME,														// V4L2 Driver Name
 	.release = video_device_release,
-	.tvnorms = SOMAGIC_NORMS,
-	.current_norm = V4L2_STD_PAL
+	.tvnorms = V4L2_STD_PAL,				 //SOMAGIC_NORMS,   // Supported TV Standards
+	.current_norm = V4L2_STD_PAL,												// Current TV Standard on startup
+	.vfl_type = VFL_TYPE_GRABBER
 };
 
 static struct video_device *somagic_vdev_init(
