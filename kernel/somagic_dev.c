@@ -81,6 +81,12 @@ static int scratch_get(struct usb_somagic *somagic,
 	return len;
 }
 
+static void scratch_rm_old(struct usb_somagic *somagic, int len)
+{
+	somagic->video.scratch_read_ptr += len;
+	somagic->video.scratch_read_ptr %= scratch_buf_size;
+}
+
 static void scratch_reset(struct usb_somagic *somagic)
 {
 	somagic->video.scratch_read_ptr = 0;
@@ -284,14 +290,241 @@ int somagic_dev_start_video_stream(struct usb_somagic *somagic, int start)
 	return 0;
 }
 
+static inline void write_frame(struct somagic_frame *frame, u8 c)
+{
+	frame->data[frame->scanlength++] = c;
+}
+
+static enum parse_state find_SAV(struct usb_somagic *somagic)
+{
+	unsigned char c;
+	struct somagic_frame *frame = somagic->video.cur_frame;
+	enum parse_state rc = PARSE_STATE_CONTINUE;
+
+	scratch_get(somagic, &c, 1);
+	
+	/*
+ 	 * Timing reference code (TRC)	:
+ 	 * 		[ff 00 00 SAV] [ff 00 00 EAV]
+ 	 * A Line of video will look like 1448 bytes total:
+ 	 * [ff 00 00 SAV] [1440 bytes of active video (UYVY)] [ff 00 00 EAV]
+ 	 */
+
+	switch(frame->line_sync) {
+		case HSYNC : {
+			if (c == 0xff) {
+				frame->line_sync++;
+			}
+			break;			
+		}
+		case SYNCZ1 : // Same handler
+		case SYNCZ2 : {
+			if (c == 0x00) {
+				frame->line_sync++;
+			}
+			break;
+		}	
+		case SYNCAV : {
+			// Found 0xff 0x00 0x00, now expecting SAV or EAV.
+			// Might also be SDID (Sliced data id), 0x00.
+			if (c == 0x00) { // SDID
+				frame->line_sync = HSYNC;
+				break;
+			}
+
+			// If Bit4 = 1 We are in EAV, else it's SAV
+			if (c & 0x10) {
+				break;
+			} else { // In SAV
+				frame->sav = c;
+				if (c & 0x20) { // V-BLANK = Bit 5, 0: in VBI 1: active video 
+					frame->scanstate = SCAN_STATE_LINES;
+				} else {
+					frame->scanstate = SCAN_STATE_VBI;
+					if (frame->scanlength > 525) {
+						rc = PARSE_STATE_NEXT_FRAME;
+					}
+				}
+			}
+		}
+	}
+	return rc;
+}
+
+static enum parse_state parse_lines(struct usb_somagic *somagic)
+{
+	struct somagic_frame *frame;
+	u32 trash;
+	int len = 1440;
+	
+	frame = somagic->video.cur_frame;
+
+	if (scratch_len(somagic) < len + 4 ) { // Include EAV (4 Bytes)
+		printk(KERN_INFO "somagic::%s: Scratchbuffer underrun\n", __func__);
+		return PARSE_STATE_OUT;
+	}
+
+	scratch_get(somagic, &frame->data[frame->scanlength], len);
+	frame->scanlength += len;
+
+	// Throw away EAV (End of Active data marker)
+	scratch_get(somagic, (unsigned char *)&trash, 4);
+
+	frame->scanstate = SCAN_STATE_SCANNING;
+
+	return PARSE_STATE_CONTINUE;
+}
+
+static void parse_data(struct usb_somagic *somagic)
+{
+	struct somagic_frame *frame;
+	enum parse_state newstate;
+	unsigned long lock_flags;
+
+	frame = somagic->video.cur_frame;
+
+	while(1) {
+		newstate = PARSE_STATE_OUT;
+		if (scratch_len(somagic)) {
+			if (frame->scanstate == SCAN_STATE_SCANNING) {
+				newstate = find_SAV(somagic);
+			} else if (frame->scanstate == SCAN_STATE_LINES) {
+				newstate = parse_lines(somagic);
+			} else if (frame->scanstate == SCAN_STATE_VBI) {
+				// Skip VBI lines;
+				// Move the scratch_read_ptr 1444 bytes forward.
+				// TODO: this should probably be turned into a function!i
+				{
+					if (scratch_len(somagic) >= 1444) { // 1444 = VBI-Line_data + EAV
+						if (somagic->video.scratch_read_ptr + 1444 < scratch_buf_size) {
+							somagic->video.scratch_read_ptr += 1444;
+						} else {
+							int r = somagic->video.scratch_read_ptr + 1444 - scratch_buf_size;
+							somagic->video.scratch_read_ptr = r;
+						}
+					} else {
+						somagic->video.scratch_read_ptr = somagic->video.scratch_write_ptr - 1; 
+					}
+				}
+				frame->scanstate = SCAN_STATE_SCANNING;
+				newstate = PARSE_STATE_CONTINUE;
+			}
+		}
+
+		if (newstate == PARSE_STATE_CONTINUE) {
+			continue;
+		}
+		if (newstate == PARSE_STATE_NEXT_FRAME || newstate == PARSE_STATE_OUT) {
+			break;
+		}
+
+		// PARSE_STATE_END_OF_PARSE
+		return;
+	}
+
+	if (newstate == PARSE_STATE_NEXT_FRAME) {
+		frame->grabstate = FRAME_STATE_DONE;
+		do_gettimeofday(&(frame->timestamp));
+		frame->sequence = somagic->video.frame_num;
+
+		spin_lock_irqsave(&somagic->video.queue_lock, lock_flags);
+		list_move_tail(&(frame->frame), &somagic->video.outqueue);
+		somagic->video.cur_frame = NULL;
+		spin_unlock_irqrestore(&somagic->video.queue_lock, lock_flags);
+
+		somagic->video.frame_num++;
+
+		// Hang here, wait for new frame!
+		if (waitqueue_active(&somagic->video.wait_frame)) {
+			wake_up_interruptible(&somagic->video.wait_frame);
+		}
+	} else { // PARSE_STATE_OUT
+		// No more data to parse, but still no completed frame
+		frame->grabstate = FRAME_STATE_GRABBING;
+	}
+}
+
 static void somagic_dev_isoc_video_irq(struct urb *urb)
 {
-	int i,rc;
+	int i,rc,debugged = 0;
 	struct usb_somagic *somagic = urb->context;
+	struct somagic_frame **f;
+
 	if (urb->status == -ENOENT) {
 		return;
 	}
+
 	somagic->video.received_urbs++;
+
+
+	for (i = 0; i < urb->number_of_packets; i++) {
+		unsigned char *data = urb->transfer_buffer + urb->iso_frame_desc[i].offset;
+		int packet_len = urb->iso_frame_desc[i].actual_length;
+		int pos = 0;
+
+		if ((packet_len % 0x400) != 0) {
+				printk(KERN_INFO "somagic::%s: pack_len = %d\n",
+								__func__, packet_len);
+		}
+/*
+ 		if (somagic->video.received_urbs < 4 && i == 0) {
+			int f;
+			printk(KERN_INFO "somagic::PACKAGE_DUMP\n");
+			for(f = 0; f<0x400; f+=0x10) {
+				printk(KERN_INFO "\t%02x %02x %02x %02x %02x %02x %02x %02x "\
+												 "%02x %02x %02x %02x %02x %02x %02x %02x\n",
+							 data[f], data[f+1], data[f+2], data[f+3],
+							 data[f+4], data[f+5], data[f+6], data[f+7],
+							 data[f+8], data[f+9], data[f+10], data[f+11],
+							 data[f+12], data[f+13], data[f+14], data[f+15]);
+			}
+		}
+*/
+		while(pos < packet_len) {
+			/*
+			 * Within each packet of transfer, the data is divided into blocks of 0x400 (1024) bytes
+			 * beginning with [0xaa 0xaa 0x00 0x00],
+		 	 * Check for this signature, and pass each block to scratch buffer for further processing
+		 	 */
+
+			if (data[pos] == 0xaa && data[pos+1] == 0xaa &&
+					data[pos+2] == 0x00 && data[pos+3] == 0x00) {
+				// We have data, put it on scratch-buffer
+				scratch_put(somagic, &data[pos+4], 0x400 - 4);
+//			} else if (somagic->video.received_urbs < 4 && pos == 0 && i == 0) {
+			} else {
+				printk(KERN_INFO "somagic::%s: Unexpected block, "\
+							 "expected [0xaa 0xaa 0x00 0x00], found [%02x %02x %02x %02x]\n",
+							 __func__, data[pos], data[pos+1], data[pos+2], data[pos+3]);
+				if (debugged == 0) {
+					int f;
+					debugged = 1;
+					printk(KERN_INFO "somagic::PACKAGE_DUMP\n");
+					for(f = 0; f<0x400; f+=0x10) {
+							printk(KERN_INFO "\t%02x %02x %02x %02x %02x %02x %02x %02x "\
+															 "%02x %02x %02x %02x %02x %02x %02x %02x\n",
+										 data[pos+f], data[pos+f+1], data[pos+f+2], data[pos+f+3],
+										 data[pos+f+4], data[pos+f+5], data[pos+f+6], data[pos+f+7],
+										 data[pos+f+8], data[pos+f+9], data[pos+f+10], data[pos+f+11],
+										 data[pos+f+12], data[pos+f+13], data[pos+f+14], data[pos+f+15]);
+					}
+				}
+			}
+			pos += 0x400;
+		}
+	}
+
+
+	// We check if we have a v4l2_framebuffer to fill!
+	f = &somagic->video.cur_frame;
+	if (scratch_len(somagic) > 0x400 && !list_empty(&(somagic->video.inqueue))) {
+		if (!(*f)) { // cur_frame == NULL
+			(*f) = list_entry(somagic->video.inqueue.next,
+												struct somagic_frame, frame);
+		}
+		parse_data(somagic);
+	}
+
 
 	for (i = 0; i < 32; i++) { // 32 = NUM_URB_FRAMES	
 		urb->iso_frame_desc[i].status = 0;
@@ -319,8 +552,6 @@ int somagic_dev_init_video_isoc(struct usb_somagic *somagic)
 
 	somagic->video.cur_frame = NULL;
 	scratch_reset(somagic);
-
-	somagic_dev_start_video_stream(somagic, 1);
 
 	rc = usb_set_interface(somagic->dev, 0, 2);
 	if (rc < 0) {

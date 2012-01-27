@@ -306,7 +306,7 @@ static int somagic_v4l2_open(struct file *file)
 	// Allocate buffer for ISOC
 	somagic_dev_alloc_video_scratch(somagic);
 
-//	somagic_dev_start_video_stream(somagic, 1);
+	somagic_dev_start_video_stream(somagic, 1);
 	somagic_dev_init_video_isoc(somagic);
 
 	// Setup? // usbvision_setup
@@ -610,8 +610,10 @@ static ssize_t somagic_v4l2_read(struct file *file, char __user *buf,
 	int rc, i;
 	struct somagic_frame *frame;
 
+/*
 	printk(KERN_INFO "somagic::%s: %ld bytes, noblock=%d", __func__,
 										(unsigned long)count, noblock);
+ */
 
 	if (buf == NULL) {
 		return -EFAULT;

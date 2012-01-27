@@ -93,14 +93,31 @@ enum {
 };
 
 enum {
+	FRAME_STATE_GRABBING,			// ???
 	FRAME_STATE_UNUSED,				// Frame is mapped to userspace
 	FRAME_STATE_READY,				// Frame in Ingoing Queue
 	FRAME_STATE_DONE, 				// Frame in Outgoing Queue
 	FRAME_STATE_ERROR					// An error occured
 };
 
-enum {
-	SCAN_STATE_SCANNING
+enum scan_state {
+	SCAN_STATE_SCANNING,
+	SCAN_STATE_LINES,
+	SCAN_STATE_VBI
+};
+
+enum parse_state {
+	PARSE_STATE_OUT,
+	PARSE_STATE_CONTINUE,
+	PARSE_STATE_NEXT_FRAME,
+	PARSE_STATE_END_OF_PARSE
+};
+
+enum line_sync_state {
+	HSYNC,
+	SYNCZ1,
+	SYNCZ2,
+	SYNCAV
 };
 
 struct somagic_sbuf {
@@ -109,7 +126,7 @@ struct somagic_sbuf {
 };
 
 struct somagic_frame {
-	char *data;								// Frame buffer
+	char *data;								// Pointer to somagic_video->fbuf[offset_of_this_frame]
 	volatile int grabstate;		// State of grabbing
 
 	int index;								// Frame index
@@ -117,6 +134,10 @@ struct somagic_frame {
 	int scanstate;						
 	int scanlength;						// Mapped to v4l2_buffer.bytesused
 	int bytes_read;
+
+	enum line_sync_state line_sync;
+	int line;									// Current line
+	u8 sav;										// Last read SAV 
 
 	int sequence;							// Frame number since start of capture
 	struct timeval timestamp;	// Time, when frame was captured
@@ -136,16 +157,16 @@ struct somagic_video {
 	struct mutex v4l2_lock;						
 	unsigned int nr;
 
-	struct urb *ctrl_urb;
-	unsigned char ctrl_urb_buffer[8];
-	struct usb_ctrlrequest ctrl_urb_setup;
+	//struct urb *ctrl_urb;
+	//unsigned char ctrl_urb_buffer[8];
+	//struct usb_ctrlrequest ctrl_urb_setup;
 
 	unsigned int open_instances;
 
 	int max_frame_size;
 	int num_frames;	
 	int fbuf_size;
-	char *fbuf;													// V4L2 Videodev buffer area for mmap
+	char *fbuf;													// V4L2 Videodev buffer area for frame data!
 	spinlock_t queue_lock; 							// Spinlock for protecting mods on inqueue and outqueue
 	wait_queue_head_t wait_frame;				// Processes waiting
 	wait_queue_head_t wait_stream;			// Processes waiting
@@ -161,6 +182,8 @@ struct somagic_video {
 	int scratch_write_ptr;
 
 	struct somagic_sbuf sbuf[2];				// SOMAGIC_NUM_S_BUF
+
+	int frame_num;											// For sequencing of frames sent to userspace
 
 	// Debug
 	int received_urbs;
