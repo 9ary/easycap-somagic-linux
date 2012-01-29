@@ -1076,6 +1076,7 @@ int main(int argc, char **argv)
 	ret = libusb_set_interface_alt_setting(devh, 0, 2);
 	fprintf(stderr, "192 set alternate setting returned %d\n", ret);
 
+	/* Disable sound?  - If we remove this line, we start to receicve data with the header [0xaa 0xaa 0x00 0x01] */
 	somagic_write_reg(0x1740, 0x00);
 	usleep(30 * 1000);
 	
