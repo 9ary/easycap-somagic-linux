@@ -45,9 +45,14 @@
 #define MIN(a, b) (((a) < (b)) ? (a) : (b))
 
 /* Control the number of concurrent ISO transfers we have running */
-static const int NUM_ISO_TRANSFERS = 16;
-static const int NUM_ISO_SND_TRANSFERS = 64;
+#define NUM_ISO_TRANSFERS 20
+#define NUM_ISO_SND_TRANSFERS 16
 
+struct libusb_transfer *vid_free[NUM_ISO_TRANSFERS];
+struct libusb_transfer *snd_free[NUM_ISO_SND_TRANSFERS];
+
+int vid_free_item = 0;
+int snd_free_item = 0;
 #define SND_TFR_SIZE 24
 #define SND_TFR_COUNT 128
 
@@ -348,10 +353,14 @@ void gotaudio(struct libusb_transfer *tfr)
 	int i;
 //fprintf(stderr,"gotaudio. \n");
 	for (i = 0; i < num; i++) {
-		write(2, libusb_get_iso_packet_buffer_simple(tfr, i), tfr->iso_packet_desc[i].actual_length);
+//		write(2, libusb_get_iso_packet_buffer_simple(tfr, i), tfr->iso_packet_desc[i].actual_length);
 	}
-	if( pending_snd != NULL ) exit(2);
-	pending_snd = tfr;
+// 	if( pending_snd != NULL ) exit(2);
+// 	pending_snd = tfr;
+    if( snd_free_item < NUM_ISO_SND_TRANSFERS){
+		snd_free[snd_free_item] = tfr;
+		snd_free_item++;
+	}
 }
 
 
@@ -363,14 +372,14 @@ void int_set_1_rx( struct libusb_transfer *tfr)
 	libusb_free_transfer(tfr);
 	iso_mode = 1;
 
-	fprintf(stderr,"/");
+	//fprintf(stderr,"/");
 }
 
 void int_set_2_rx( struct libusb_transfer *tfr)
 {
 	libusb_free_transfer(tfr);
 	iso_mode = 0;
-	fprintf(stderr,"\\");
+	//fprintf(stderr,"\\");
 	
 }// 			libusb_submit_transfer( pending_snd );
 // 			pending_snd = NULL;
@@ -409,7 +418,7 @@ void set_snd_mode( libusb_device_handle *dev_handle)
 	struct libusb_transfer *async_set_intf = libusb_alloc_transfer(0);
 
 	
-	memcpy(libusb_control_transfer_get_data( async_ctl ),"\x01\x02",2); 
+	memcpy(libusb_control_transfer_get_data( async_ctl ),"\x00\x02",2); 
 	libusb_fill_control_setup(async_set_intf_buf,  1, 0x0b, 1, 0, 0);
 	
 	libusb_submit_transfer( async_ctl );
@@ -446,14 +455,24 @@ void gotdata(struct libusb_transfer *tfr)
 				for (k = 4; k < 0x400; k++) {
 					process(&vs, data[k + pos]);
 				}
+			} else if (data[pos] == 0xaa && data[pos + 1] == 0xaa && data[pos + 2] == 0x00 &&  data[pos + 3] == 0x01 ) {
+				/* process the received data, excluding the 4 marker bytes */
+				write( 2, data +4 , 0x400 - 4);
+				
+				//for (k = 4; k < 0x400; k++) {
+				//	process(&vs, data[k + pos]);
+				//}
 			} else {
-// 				fprintf(stderr, "Unexpected block, expected [aa aa 00 00] found [%02x %02x %02x %02x]\n", data[pos], data[pos + 1], data[pos + 2], data[pos + 3]);
+ 				fprintf(stderr, "Unexpected block, expected [aa aa 00 00] found [%02x %02x %02x %02x]\n", data[pos], data[pos + 1], data[pos + 2], data[pos + 3]);
 			}
 			pos += 0x400;
 		}
 	}
-	if(pending_vid != NULL ) exit(2);
-	pending_vid = tfr;
+
+	if( vid_free_item < NUM_ISO_TRANSFERS ){
+		vid_free[vid_free_item] = tfr;
+		vid_free_item++;
+	}
 // 	if (!stop_sending_requests) {
 // 		reqcount++;
 // 		if( iso_mode == 1 ) set_vid_mode( tfr->dev_handle );
@@ -1185,8 +1204,8 @@ int main(int argc, char **argv)
 //	print_bytes(buf, ret);
 //	fprintf(stderr, "\n");
 
-//	somagic_write_reg(0x1740, 0x00);
-//	usleep(30 * 1000);
+	somagic_write_reg(0x1740, 0x01);
+	usleep(30 * 1000);
 	ret = libusb_set_interface_alt_setting(devh, 0, 2);
 	fprintf(stderr, "192 set alternate setting returned %d\n", ret);
 
@@ -1234,6 +1253,39 @@ int main(int argc, char **argv)
 
 	while (/*pending_requests > 0*/ 1) {
 		libusb_handle_events(NULL);
+		//fprintf(stderr,"vf=%d sf=%d\n",vid_free_item, snd_free_item );
+
+		if( vid_free_item >= NUM_ISO_TRANSFERS - 4 )
+		{ 
+			//fprintf(stderr,"v\n");
+			if( iso_mode == 0 )
+			{
+				for( i = 0 ; i < vid_free_item; i++ ) libusb_submit_transfer( vid_free[i] );
+				vid_free_item = 0;
+				set_snd_mode( devh );
+				
+			}
+			else if(iso_mode < 2 )
+			{
+				set_vid_mode( devh );
+				iso_mode = 2;
+			}
+		}
+		else if( 0 && snd_free_item >= 16 )
+		{ 
+			if( iso_mode == 1 )
+			{
+				for( i = 0 ; i < snd_free_item; i++ ) libusb_submit_transfer( snd_free[i] );
+				snd_free_item = 0;
+			}
+			//fprintf(stderr,"s\n");
+			else if( iso_mode < 2 )
+			{
+				set_snd_mode( devh );
+				iso_mode = 3;
+			}
+		}
+/*		
 		if( iso_mode == 2){
 // 			fprintf(stderr,"2");
 		}
@@ -1262,7 +1314,7 @@ int main(int argc, char **argv)
 				libusb_submit_transfer( pending_vid );
 				pending_vid = NULL;
 			}
-		}
+		}*/
 		
 	}
 	
