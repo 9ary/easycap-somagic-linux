@@ -15,6 +15,11 @@ static int scratch_len(struct usb_somagic *somagic)
 	return len;
 }
 
+/*
+ * scratch_free()
+ *
+ * Returns the free space left in buffer
+ */
 static int scratch_free(struct usb_somagic *somagic)
 {
 	int free = somagic->video.scratch_read_ptr - somagic->video.scratch_write_ptr;
@@ -93,7 +98,12 @@ static void scratch_reset(struct usb_somagic *somagic)
 	somagic->video.scratch_write_ptr = 0;
 }
 
-int somagic_dev_alloc_video_scratch(struct usb_somagic *somagic)
+/*
+ * somagic_dev_video_alloc_scratch()
+ *
+ * Allocate memory for the scratch - ring buffer
+ */
+int somagic_dev_video_alloc_scratch(struct usb_somagic *somagic)
 {
 	somagic->video.scratch = vmalloc_32(scratch_buf_size);
 	scratch_reset(somagic);
@@ -106,6 +116,17 @@ int somagic_dev_alloc_video_scratch(struct usb_somagic *somagic)
 	}
 
 	return 0;
+}
+
+/*
+ * somagic_dev_video_free_scratch()
+ *
+ * Free the scratch - ring buffer
+ */
+void somagic_dev_video_free_scratch(struct usb_somagic *somagic)
+{
+	vfree(somagic->video.scratch);
+	somagic->video.scratch = NULL;
 }
 
 /*****************************************************************************/
@@ -177,7 +198,7 @@ static const struct saa_setup {
 	{0xff, 0xff} // END MARKER
 };
 
-static int somagic_dev_saa_write(struct usb_somagic *somagic, int reg, int val)
+static int saa_write(struct usb_somagic *somagic, int reg, int val)
 {
 	int rc;
 	struct saa_i2c_data_struct {
@@ -220,11 +241,67 @@ static int somagic_dev_saa_write(struct usb_somagic *somagic, int reg, int val)
 	return rc;
 }
 
+static int reg_write(struct usb_somagic *somagic, u16 reg, u8 val)
+{
+	int rc;
+	struct reg_data_struct {
+		u8 magic;
+		u8 reserved;
+		u8 bmDevCtrl;				// Bit 5 - 0: Write, 1: Read
+		u8 bmDataPointer;		// Bit 0..3 : Data Offset!
+		u8 loopCounter;
+		u8 regHi;						// Big Endian Register
+		u8 regLo;
+		u8 val;
+		u8 reserved1;
+	} reg_write_data = {
+		.magic = 0x0b,
+		.reserved = 0x00,
+		.bmDevCtrl = 0x00,
+		.bmDataPointer = 0x82,
+		.loopCounter = 0x01,
+		.reserved1 = 0x00
+	};
+
+	reg_write_data.regHi = reg >> 8;
+	reg_write_data.regLo = reg & 0xff;
+	reg_write_data.val = val;
+
+	rc = usb_control_msg(somagic->dev,
+											 usb_sndctrlpipe(somagic->dev, 0x00),
+											 SOMAGIC_USB_STD_REQUEST,
+											 USB_DIR_OUT | USB_TYPE_VENDOR | USB_RECIP_DEVICE,
+											 0x0b, // URB_VALUE
+											 0x00, // URB_INDEX
+											 (void *)&reg_write_data,
+											 sizeof(reg_write_data),
+										 	 1000);
+
+	if (rc < 0) {
+		printk(KERN_ERR "somagic:%s:: error while trying to set " \
+                    "register %04x to %02x; usb subsytem returned %d\n",
+										__func__, reg, val, rc);
+		return -1;
+	}
+
+	return rc;
+}
+
+/*
+ * somagic_dev_init_video()
+ *
+ * Send the SAA7113 Setup commands to the device!
+ */
 int somagic_dev_init_video(struct usb_somagic *somagic, v4l2_std_id std)
 {
 	int i,rc;
 	u8 buf[2];
 
+	// No need to send this more than once?	
+	if (somagic->video.setup_sent) {
+		return 0;
+	}
+	
 	rc = usb_control_msg(somagic->dev,
 									usb_rcvctrlpipe(somagic->dev, 0x80),
 									SOMAGIC_USB_STD_REQUEST,
@@ -247,48 +324,19 @@ int somagic_dev_init_video(struct usb_somagic *somagic, v4l2_std_id std)
 
 
 	for(i=0; saa_setupPAL[i].reg != 0xff; i++) {
-		rc = somagic_dev_saa_write(somagic,
-															 saa_setupPAL[i].reg, saa_setupPAL[i].val);
+		rc = saa_write(somagic, saa_setupPAL[i].reg, saa_setupPAL[i].val);
 		if (rc < 0) {
 			return -1;
 		}
 	}
 
+	printk(KERN_INFO "somagic:%s:: SAA7113 Setup sent!\n",
+										__func__);
+	somagic->video.setup_sent = 1;
 	return 0;
 }
 
-int somagic_dev_start_video_stream(struct usb_somagic *somagic, int start)
-{
-	int rc;
-	u8 data[2];
 
-	data[0] = 0x01;
-
-	if (start) {
-		data[1] = 0x05;
-	} else {
-		data[1] = 0x03;
-	}
-
-	rc = usb_control_msg(somagic->dev,
-											 usb_sndctrlpipe(somagic->dev, 0x00),
-											 SOMAGIC_USB_STD_REQUEST,
-											 USB_DIR_OUT | USB_TYPE_VENDOR | USB_RECIP_DEVICE,
-											 0x01, // VALUE
-											 0x00, // INDEX
-											 (void *)&data,
-											 sizeof(data),
-											 1000);
-	if (rc < 0) {
-		printk(KERN_ERR "somagic:%s:: error while trying to initialize device for " \
-                    "videostreaming, recieved usb error: %d\n",
-										__func__, rc);
-		return -1;
-	}
-
-
-	return 0;
-}
 
 static inline void write_frame(struct somagic_frame *frame, u8 c)
 {
@@ -446,11 +494,12 @@ static void parse_data(struct usb_somagic *somagic)
 
 static void somagic_dev_isoc_video_irq(struct urb *urb)
 {
-	int i,rc,debugged = 0;
+	int i,j,rc,debugged = 0;
 	struct usb_somagic *somagic = urb->context;
 	struct somagic_frame **f;
 
 	if (urb->status == -ENOENT) {
+		printk(KERN_INFO "somagic::%s: Recieved empty ISOC urb!\n", __func__);
 		return;
 	}
 
@@ -468,15 +517,14 @@ static void somagic_dev_isoc_video_irq(struct urb *urb)
 		}
 /*
  		if (somagic->video.received_urbs < 4 && i == 0) {
-			int f;
 			printk(KERN_INFO "somagic::PACKAGE_DUMP\n");
-			for(f = 0; f<0x400; f+=0x10) {
+			for(j = 0; j<0x400; j+=0x10) {
 				printk(KERN_INFO "\t%02x %02x %02x %02x %02x %02x %02x %02x "\
 												 "%02x %02x %02x %02x %02x %02x %02x %02x\n",
-							 data[f], data[f+1], data[f+2], data[f+3],
-							 data[f+4], data[f+5], data[f+6], data[f+7],
-							 data[f+8], data[f+9], data[f+10], data[f+11],
-							 data[f+12], data[f+13], data[f+14], data[f+15]);
+							 data[j], data[j+1], data[j+2], data[j+3],
+							 data[j+4], data[j+5], data[j+6], data[j+7],
+							 data[j+8], data[j+9], data[j+10], data[j+11],
+							 data[j+12], data[j+13], data[j+14], data[j+15]);
 			}
 		}
 */
@@ -496,19 +544,20 @@ static void somagic_dev_isoc_video_irq(struct urb *urb)
 				printk(KERN_INFO "somagic::%s: Unexpected block, "\
 							 "expected [0xaa 0xaa 0x00 0x00], found [%02x %02x %02x %02x]\n",
 							 __func__, data[pos], data[pos+1], data[pos+2], data[pos+3]);
+/*
 				if (debugged == 0) {
-					int f;
 					debugged = 1;
 					printk(KERN_INFO "somagic::PACKAGE_DUMP\n");
-					for(f = 0; f<0x400; f+=0x10) {
+					for(j = 0; j<0x400; j+=0x10) {
 							printk(KERN_INFO "\t%02x %02x %02x %02x %02x %02x %02x %02x "\
 															 "%02x %02x %02x %02x %02x %02x %02x %02x\n",
-										 data[pos+f], data[pos+f+1], data[pos+f+2], data[pos+f+3],
-										 data[pos+f+4], data[pos+f+5], data[pos+f+6], data[pos+f+7],
-										 data[pos+f+8], data[pos+f+9], data[pos+f+10], data[pos+f+11],
-										 data[pos+f+12], data[pos+f+13], data[pos+f+14], data[pos+f+15]);
+										 data[pos+j], data[pos+j+1], data[pos+j+2], data[pos+j+3],
+										 data[pos+j+4], data[pos+j+5], data[pos+j+6], data[pos+j+7],
+										 data[pos+j+8], data[pos+j+9], data[pos+j+10], data[pos+j+11],
+										 data[pos+j+12], data[pos+j+13], data[pos+j+14], data[pos+j+15]);
 					}
 				}
+*/
 			}
 			pos += 0x400;
 		}
@@ -543,15 +592,38 @@ static void somagic_dev_isoc_video_irq(struct urb *urb)
 	return;
 }
 
-int somagic_dev_init_video_isoc(struct usb_somagic *somagic)
+int somagic_dev_video_start_stream(struct usb_somagic *somagic)
 {
 
 	struct usb_device *dev = somagic->dev;
-	int buf_idx, rc;
-	int sb_size;
+	int buf_idx,rc;
+	u8 data[2];
+	data[0] = 0x01;
+	data[1] = 0x05;
+
+	if (somagic->video.streaming) {
+		return 0;
+	}
 
 	somagic->video.cur_frame = NULL;
 	scratch_reset(somagic);
+
+	rc = usb_control_msg(somagic->dev,
+											 usb_sndctrlpipe(somagic->dev, 0x00),
+											 SOMAGIC_USB_STD_REQUEST,
+											 USB_DIR_OUT | USB_TYPE_VENDOR | USB_RECIP_DEVICE,
+											 0x01, // VALUE
+											 0x00, // INDEX
+											 (void *)&data,
+											 sizeof(data),
+											 1000);
+	if (rc < 0) {
+		printk(KERN_ERR "somagic:%s:: error while trying to initialize device for " \
+                    "videostreaming, recieved usb error: %d\n",
+										__func__, rc);
+		return -1;
+	}
+
 
 	rc = usb_set_interface(somagic->dev, 0, 2);
 	if (rc < 0) {
@@ -559,11 +631,43 @@ int somagic_dev_init_video_isoc(struct usb_somagic *somagic)
 										__func__);
 		return -1;
 	}
-
-	printk(KERN_ERR "somagic:%s:: Changed to alternate setting 2 on interface 0\n",
+	printk(KERN_INFO "somagic:%s:: Changed to alternate setting 2 on interface 0\n",
 										__func__);
 
-	sb_size = 32 * 3072; // 32 = NUM_URB_FRAMES * 3072 = VIDEO_ISOC_PACKET_SIZE
+	rc = reg_write(somagic, 0x1740, 0x00);
+	if (rc < 0) {
+		printk(KERN_ERR "somagic:%s:: Failed to set 0x1740 to 0x00\n",
+										__func__);
+		return -1;
+		
+	}
+	printk(KERN_INFO "somagic:%s:: Set reg 0x1740 to 0x00\n", __func__);
+
+	// Submit urbs
+	for (buf_idx = 0; buf_idx < 2; buf_idx++) { // 2 = NUM_SBUF
+		rc = usb_submit_urb(somagic->video.sbuf[buf_idx].urb, GFP_KERNEL);
+		if (rc) {
+			dev_err(&somagic->dev->dev,
+							"%s: usb_submit_urb(%d) failed: error %d\n",
+							__func__, buf_idx, rc);
+		}
+	}
+
+	somagic->video.streaming = 1;
+	printk(KERN_INFO "somagic:%s:: Sent urbs!\n", __func__);
+
+	return 0;
+}
+
+void somagic_dev_video_stop_stream(struct usb_somagic *somagic)
+{
+	somagic->video.streaming = 0;
+}
+
+int somagic_dev_video_alloc_isoc(struct usb_somagic *somagic)
+{
+	int buf_idx, rc;
+	int sb_size = 32 * 3072; // 32 = NUM_URB_FRAMES * 3072 = VIDEO_ISOC_PACKET_SIZE
 
 	for (buf_idx = 0; buf_idx < 2; buf_idx++) { // 2 = NUM_SBUF
 		int j,k;
@@ -583,9 +687,9 @@ int somagic_dev_init_video_isoc(struct usb_somagic *somagic)
 													GFP_KERNEL,
 													&urb->transfer_dma);
 
-		urb->dev = dev;
+		urb->dev = somagic->dev;
 		urb->context = somagic;
-		urb->pipe = usb_rcvisocpipe(dev, 0x82);
+		urb->pipe = usb_rcvisocpipe(somagic->dev, 0x82);
 		urb->transfer_flags = URB_ISO_ASAP | URB_NO_TRANSFER_DMA_MAP;
 		urb->interval = 1;
 		urb->transfer_buffer = somagic->video.sbuf[buf_idx].data;
@@ -598,20 +702,12 @@ int somagic_dev_init_video_isoc(struct usb_somagic *somagic)
 		}
 	}
 
-	// Submit urbs
-	for (buf_idx = 0; buf_idx < 2; buf_idx++) { // 2 = NUM_SBUF
-		rc = usb_submit_urb(somagic->video.sbuf[buf_idx].urb, GFP_KERNEL);
-		if (rc) {
-			dev_err(&somagic->dev->dev,
-							"%s: usb_submit_urb(%d) failed: error %d\n",
-							__func__, buf_idx, rc);
-		}
-	}
+	printk(KERN_INFO "somagic::%s: Allocated ISOC urbs!\n", __func__);
 
 	return 0;
 }
 
-void somagic_dev_stop_video_isoc(struct usb_somagic *somagic)
+void somagic_dev_video_free_isoc(struct usb_somagic *somagic)
 {
 	int buf_idx, rc;
 	int sb_size = 32 * 3072;
@@ -629,5 +725,7 @@ void somagic_dev_stop_video_isoc(struct usb_somagic *somagic)
 		usb_free_urb(somagic->video.sbuf[buf_idx].urb);
 		somagic->video.sbuf[buf_idx].urb = NULL;
 	}
+
+	printk(KERN_INFO "somagic::%s: Freed ISOC urbs!\n", __func__);
 }
 

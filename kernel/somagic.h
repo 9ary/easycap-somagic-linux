@@ -162,6 +162,8 @@ struct somagic_video {
 	//struct usb_ctrlrequest ctrl_urb_setup;
 
 	unsigned int open_instances;
+	u8 setup_sent;
+	u8 streaming;
 
 	int max_frame_size;
 	int num_frames;	
@@ -205,16 +207,18 @@ void somagic_disconnect_video(struct usb_somagic *somagic);
 //
 // Function-declarations for somagic_dev.c
 //
-int somagic_dev_alloc_video_scratch(struct usb_somagic *somagic);
+int somagic_dev_video_alloc_scratch(struct usb_somagic *somagic);
+void somagic_dev_video_free_scratch(struct usb_somagic *somagic);
+
+int somagic_dev_video_alloc_isoc(struct usb_somagic *somagic);
+void somagic_dev_video_free_isoc(struct usb_somagic *somagic);
+
 // Send saa7113 Setup code to device
 int somagic_dev_init_video(struct usb_somagic *somagic, v4l2_std_id std);
 
-// Send the 2 bytes to make the device ready for isoc video transfer
-int somagic_dev_start_video_stream(struct usb_somagic *somagic, int start);
+int somagic_dev_video_start_stream(struct usb_somagic *somagic);
+void somagic_dev_video_stop_stream(struct usb_somagic *somagic);
 
-// Initiate/stop usb isoc transfers
-int somagic_dev_init_video_isoc(struct usb_somagic *somagic);
-void somagic_dev_stop_video_isoc(struct usb_somagic *somagic);
 
 #endif /* SOMAGIC_H */
 

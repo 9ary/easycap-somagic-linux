@@ -221,6 +221,7 @@ static void somagic_video_remove_sysfs(struct video_device *vdev)
 /*****************************************************************************/
 /*                                                                           */
 /*            Video 4 Linux API  -  Init / Exit                              */
+/*            Called when we plug/unplug the device                          */
 /*                                                                           */
 /*****************************************************************************/
 
@@ -236,7 +237,11 @@ int __devinit somagic_connect_video(struct usb_somagic *somagic)
 		goto err_exit;
 	}
 
+	// Send SAA7113 - Setup
 	somagic_dev_init_video(somagic, V4L2_STD_PAL);
+
+	// Allocate scratch - ring buffer
+	somagic_dev_video_alloc_scratch(somagic);
 
 	// All setup done, we can register the v4l2 device.
 	if (video_register_device(somagic->video.vdev, VFL_TYPE_GRABBER, video_nr) < 0) {
@@ -272,6 +277,7 @@ void __devexit somagic_disconnect_video(struct usb_somagic *somagic)
 	mutex_unlock(&somagic->video.v4l2_lock);
 
 	somagic_video_remove_sysfs(somagic->video.vdev);
+	somagic_dev_video_free_scratch(somagic);
 
 	if (somagic->video.vdev) {
 		if (video_is_registered(somagic->video.vdev)) {
@@ -286,44 +292,15 @@ void __devexit somagic_disconnect_video(struct usb_somagic *somagic)
 
 /*****************************************************************************/
 /*                                                                           */
-/*            V4L2 Functions                                                 */
+/*            V4L2 Ioctl handling functions                                  */
 /*                                                                           */
 /*****************************************************************************/
 
 /*
- * somagic_v4l2_open()
+ * vidioc_querycap()
  *
- * This is part of the Video 4 Linux API.
+ * Query device capabilities.
  */
-static int somagic_v4l2_open(struct file *file)
-{
-	struct usb_somagic *somagic = video_drvdata(file);
-	//int err_code = 0;
-
-	somagic->video.open_instances++;
-	printk(KERN_INFO "somagic::%s: CALLED\n", __func__);
-
-	// Allocate buffer for ISOC
-	somagic_dev_alloc_video_scratch(somagic);
-
-	somagic_dev_start_video_stream(somagic, 1);
-	somagic_dev_init_video_isoc(somagic);
-
-	// Setup? // usbvision_setup
-	// Begin streaming? // usbvision_begin_streaming
-	// init_isoc	// usbvision_init_isoc
-
-	return 0;
-//	return -EBUSY;
-}
-
-static int somagic_v4l2_close(struct file *file)
-{
-	struct usb_somagic *somagic = video_drvdata(file);
-	somagic_dev_stop_video_isoc(somagic);
-	return 0;
-}
-
 static int vidioc_querycap(struct file *file, void *priv,
 							struct v4l2_capability *vc)
 {
@@ -340,6 +317,13 @@ static int vidioc_querycap(struct file *file, void *priv,
 	return 0;
 }
 
+/*
+ * vidioc_enum_input()
+ *
+ * The userspace application will call this function several times
+ * and increase the index-value of the v4l2_input struct to get
+ * the list of video input interfaces we support.
+ */
 static int vidioc_enum_input(struct file *file, void *priv,
 							struct v4l2_input *vi)
 {
@@ -365,12 +349,22 @@ static int vidioc_enum_input(struct file *file, void *priv,
 	return 0;	
 }
 
+/*
+ * vidioc_g_input()
+ *
+ * Return current selected input interface
+ */
 static int vidioc_g_input(struct file *file, void *priv, unsigned int *input)
 {
 	*input = (unsigned int)INPUT_CVBS;
 	return 0;
 }
 
+/*
+ * vidioc_s_input
+ *
+ * Set video input interface
+ */
 static int vidioc_s_input(struct file *file, void *priv, unsigned int input)
 {
 	if (input >= INPUT_MANY) {
@@ -400,6 +394,10 @@ static int vidioc_s_audio(struct file *file, void *priv, struct v4l2_audio *a)
 	return -EINVAL;
 }
 
+/*
+ * vidioc_queryctrl()
+ *
+ */
 static int vidioc_queryctrl(struct file *file, void *priv,
 							struct v4l2_queryctrl *ctrl)
 {
@@ -547,14 +545,14 @@ static int vidioc_dqbuf(struct file *file, void *priv,
 static int vidioc_streamon(struct file *file, void *priv, enum v4l2_buf_type i)
 {
 	struct usb_somagic *somagic = video_drvdata(file);
-	somagic_dev_start_video_stream(somagic, 1);
+	somagic_dev_video_start_stream(somagic);
 	return 0;
 }
 
 static int vidioc_streamoff(struct file *file, void *priv, enum v4l2_buf_type type)
 {
 	struct usb_somagic *somagic = video_drvdata(file);
-	somagic_dev_start_video_stream(somagic, 0);
+	somagic_dev_video_stop_stream(somagic);
 	return 0;
 }
 
@@ -601,6 +599,69 @@ static int vidioc_s_fmt_vid_cap(struct file *file, void *priv,
 	return -EBUSY;
 }
 
+/*****************************************************************************/
+/*                                                                           */
+/*            V4L2 General file-handling functions                           */
+/*                                                                           */
+/*****************************************************************************/
+
+/*
+ * somagic_v4l2_open()
+ *
+ * The can be several open instances of the device,
+ * but only one instance should be able to stream data from the device.
+ *
+ * This enables us to send control messages to the device without 
+ * stopping the streaming interface.
+ */
+static int somagic_v4l2_open(struct file *file)
+{
+	struct usb_somagic *somagic = video_drvdata(file);
+
+	somagic->video.open_instances++;
+	printk(KERN_INFO "somagic::%s: %d open instances\n",
+         __func__, somagic->video.open_instances);
+
+	if (somagic->video.open_instances == 1) {
+		somagic_dev_video_alloc_isoc(somagic);
+	}
+
+	return 0;
+//	return -EBUSY;
+}
+
+/*
+ * somagic_v4l2_close()
+ *
+ * We need to count the open instances, 
+ * and make sure we clean up after the last instance is closed!
+ * 
+ */
+static int somagic_v4l2_close(struct file *file)
+{
+	struct usb_somagic *somagic = video_drvdata(file);
+	somagic->video.open_instances--;
+
+
+	if (!somagic->video.open_instances) {
+		somagic_dev_video_free_isoc(somagic);
+
+		somagic_video_frames_free(somagic);
+		somagic->video.cur_frame = NULL;
+	}
+
+	printk(KERN_INFO "somagic::%s: %d open instances\n",
+         __func__, somagic->video.open_instances);
+
+	return 0;
+}
+
+/*
+ * somagic_v4l2_read()
+ *
+ * This makes us able to cat data from the device, right into a file
+ *
+ */
 static ssize_t somagic_v4l2_read(struct file *file, char __user *buf,
 							size_t count, loff_t *ppos)
 {
@@ -623,10 +684,10 @@ static ssize_t somagic_v4l2_read(struct file *file, char __user *buf,
 		somagic_video_frames_free(somagic);
 		somagic_video_empty_framequeues(somagic);
 		somagic_video_frames_alloc(somagic, SOMAGIC_NUM_FRAMES);
+		printk(KERN_INFO "somagic::%s: Allocated frames!\n", __func__);
 	}
 
-	// Start streaming
-	//somagic_dev_start_video_stream(somagic, 1);
+	somagic_dev_video_start_stream(somagic);
 
 	// Enqueue Videoframes
 	for (i = 0; i < somagic->video.num_frames; i++) {
@@ -684,6 +745,11 @@ static ssize_t somagic_v4l2_read(struct file *file, char __user *buf,
 
 } 
 
+/*
+ * somagic_v4l2_mmap
+ *
+ * Memmory mapping?
+ */
 static int somagic_v4l2_mmap(struct file *file, struct vm_area_struct *vma)
 {
 	unsigned long size = vma->vm_end - vma->vm_start;
