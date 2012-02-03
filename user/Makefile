@@ -32,7 +32,7 @@ INSTALL=install -D
 all: $(PROGRAMS)
 
 .c:
-	$(CC) $(CFLAGS) $< -o $@ $(LFLAGS)
+	-$(CC) $(CFLAGS) $< -o $@ $(LFLAGS)
 
 install:
 	$(INSTALL) $(PROGRAMS) $(BINDIR)/
