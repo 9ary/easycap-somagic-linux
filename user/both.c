@@ -35,7 +35,9 @@
 #include <signal.h>
 #include <ctype.h>
 #include <libusb-1.0/libusb.h>
+#ifdef DEBUG
 #include <execinfo.h>
+#endif
 #include <unistd.h>
 #include <getopt.h>
 
@@ -169,6 +171,7 @@ void print_bytes_only(char *bytes, int len)
 	}
 }
 
+#ifdef DEBUG
 void trace()
 {
 	void *array[10];
@@ -181,6 +184,7 @@ void trace()
 	backtrace_symbols_fd(array, size, 1);
 	exit(1);
 }
+#endif
 
 enum sync_state {
 	HSYNC,
