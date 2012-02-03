@@ -231,9 +231,13 @@ int main(int argc, char **argv)
 
 	dev = find_device(VENDOR, ORIGINAL_PRODUCT);
 	if (!dev) {
-		fprintf(stderr, "USB device %04x:%04x was not found.\n"
-			"Either the device is not attached or a previous initialization was successful.\n", VENDOR, ORIGINAL_PRODUCT);
-		return 1;
+		dev = find_device(VENDOR, NEW_PRODUCT);
+		if (dev) {
+	                fprintf(stderr, "USB device already initialized.\n");
+		} else {
+	                fprintf(stderr, "USB device %04x:%04x was not found. Is the device attached?\n", VENDOR, ORIGINAL_PRODUCT);
+		}
+                return 1;
 	}
 
 	ret = libusb_open(dev, &devh);
@@ -329,24 +333,6 @@ int main(int argc, char **argv)
 	
 	libusb_close(devh);
 	libusb_exit(NULL);
-
-	/* Verify that the new device ID is found */
-	libusb_init(NULL);
-	#ifdef DEBUG
-	libusb_set_debug(NULL, 255); 
-	#else
-	libusb_set_debug(NULL, 0); 
-	#endif
-	usleep(1000 * 1000);
-	#ifdef DEBUG
-	list_devices(); 
-	#endif
-
-	dev = find_device(VENDOR, NEW_PRODUCT);
-	if (!dev) {
-		fprintf(stderr, "USB device %04x:%04x was not found. Initialization failed.\n", VENDOR, NEW_PRODUCT);
-		return 1;
-	}
 
 	return 0;
 }

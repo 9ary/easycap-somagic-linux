@@ -71,7 +71,7 @@ void print_bytes(char *bytes, int len)
                 }
                 printf("\"");
                 for (i = 0; i < len; i++) {
-                        printf("%c", isprint(bytes[i]) ? bytes[i] : '.');
+                        printf("%c", isprint((int)bytes[i]) ? bytes[i] : '.');
                 }
                 printf("\"");
         }
@@ -225,8 +225,12 @@ int main(int argc, char **argv)
 	#endif
         dev = find_device(VENDOR, ORIGINAL_PRODUCT);
         if (!dev) {
-                fprintf(stderr, "USB device %04x:%04x was not found.\n"
-                        "Either the device is not attached or a previous initialization was successful.\n", VENDOR, ORIGINAL_PRODUCT);
+		dev = find_device(VENDOR, NEW_PRODUCT);
+		if (dev) {
+	                fprintf(stderr, "USB device already initialized.\n");
+		} else {
+	                fprintf(stderr, "USB device %04x:%04x was not found. Is the device attached?\n", VENDOR, ORIGINAL_PRODUCT);
+		}
                 return 1;
         }
 
@@ -237,20 +241,6 @@ int main(int argc, char **argv)
         }
        
         signal(SIGTERM, release_usb_device);
-
-	#if 0
-        ret = usb_get_driver_np(devh, 0, buf, sizeof(buf));
-        #ifdef DEBUG
-        printf("usb_get_driver_np returned %d\n", ret);
-        #endif
-        if (ret == 0) {
-                printf("Interface 0 already claimed by driver \"%s\", attempting to detach it.\n", buf);
-                ret = usb_detach_kernel_driver_np(devh, 0);
-                #ifdef DEBUG
-                printf("usb_detach_kernel_driver_np returned %d\n", ret);
-                #endif
-        }
-	#endif
 
         ret = usb_claim_interface(devh, 0);
         if (ret != 0) {
@@ -341,27 +331,5 @@ int main(int argc, char **argv)
                 return 1;
         }
 
-        /* Verify that the new device ID is found */
-        usb_init();
-        #ifdef DEBUG
-        usb_set_debug(255);
-        #else
-        usb_set_debug(0);
-        #endif
-        usleep(1000 * 1000);
-
-        usb_find_busses();
-        usb_find_devices();
-        #ifdef DEBUG
-        list_devices();
-        #endif
-        dev = find_device(VENDOR, NEW_PRODUCT);
-        if (!dev) {
-                fprintf(stderr, "USB device %04x:%04x was not found. Initialization failed.\n", VENDOR, NEW_PRODUCT);
-                return 1;
-        }
-
         return 0;
 }
-
-
