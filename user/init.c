@@ -304,9 +304,9 @@ int main(int argc, char **argv)
 	#endif
 
 	#ifdef DEBUG
-	for (i = 0, j = 6; i < SOMAGIC_FIRMWARE_LENGTH; i += 0x000003e, ++j) {
+	for (i = 0, j = 6; i < SOMAGIC_FIRMWARE_LENGTH; i += 62, ++j) {
 	#else
-	for (i = 0; i < SOMAGIC_FIRMWARE_LENGTH; i += 0x000003e) {
+	for (i = 0; i < SOMAGIC_FIRMWARE_LENGTH; i += 62) {
 	#endif
 		memcpy(buf, "\x05\xff", 2);
 		memcpy(buf + 2, firmware + i, 62);

@@ -4,7 +4,7 @@
 # Makefile for userspace capture program for Somagic EasyCAP DC60              #
 # ##############################################################################
 #
-# Copyright 2011 Jeffry Johnston 
+# Copyright 2011, 2012 Jeffry Johnston 
 # 
 # This file is part of somagic_dc60
 # http://code.google.com/p/easycap-somagic-linux/
