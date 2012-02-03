@@ -35,7 +35,9 @@
 #include <signal.h>
 #include <ctype.h>
 #include <libusb-1.0/libusb.h>
-/*#include <execinfo.h>*/
+#ifdef DEBUG
+#include <execinfo.h>
+#endif
 #include <unistd.h>
 #include <getopt.h>
 
@@ -165,7 +167,7 @@ void print_bytes_only(char *bytes, int len)
 	}
 }
 
-# if 0
+#ifdef DEBUG
 void trace()
 {
 	void *array[10];
