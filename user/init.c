@@ -38,7 +38,6 @@
 #include <libusb-1.0/libusb.h>
 #include <getopt.h>
 #include <errno.h>
-#include <error.h>
 #include <unistd.h>
 
 #define VERSION "1.0"
@@ -194,27 +193,32 @@ int main(int argc, char **argv)
 	/* Read firmware file */
 	infile = fopen(firmware_path, "r");
 	if (infile == NULL) {
-		error(1, errno, "Error opening firmware file '%s'", firmware_path);
+		fprintf(stderr, "%s: Error opening firmware file '%s': %s\n", argv[0], firmware_path, strerror(errno));
+		return 1;
 	}
 	if ((fseek(infile, 0, SEEK_END) == -1) || (ftell(infile) == -1)) {
-		error(1, errno, "Error determining firmware file '%s' size", firmware_path);
+		fprintf(stderr, "%s: Error determining firmware file '%s' size: %s\n", argv[0], firmware_path, strerror(errno));
+		return 1;
 	}
 	if (ftell(infile) != SOMAGIC_FIRMWARE_LENGTH) {
 		fprintf(stderr, "Firmware file '%s' was not the expected size of %i bytes\n", firmware_path, SOMAGIC_FIRMWARE_LENGTH);
 		return 1;
 	}
 	if ((fseek(infile, 0, SEEK_SET) == -1)) {
-		error(1, errno, "Error determining firmware file '%s' size", firmware_path);
+		fprintf(stderr, "%s: Error determining firmware file '%s' size: %s\n", argv[0], firmware_path, strerror(errno));
+		return 1;
 	}
 	if (fread(&firmware, 1, SOMAGIC_FIRMWARE_LENGTH, infile) < SOMAGIC_FIRMWARE_LENGTH) {
 		if (ferror(infile)) {
-			error(1, errno, "Error reading firmware file '%s'", firmware_path);
+			fprintf(stderr, "%s: Error reading firmware file '%s': %s\n", argv[0], firmware_path, strerror(errno));
+			return 1;
 		}
 		fprintf(stderr, "Firmware file '%s' was not the expected size of %i bytes\n", firmware_path, SOMAGIC_FIRMWARE_LENGTH);
 		return 1;
 	}
 	if (fclose(infile) != 0) {
-		error(1, errno, "Error closing firmware file '%s'", firmware_path);
+		fprintf(stderr, "%s: Error closing firmware file '%s': %s\n", argv[0], firmware_path, strerror(errno));
+		return 1;
 	}
 
 	libusb_init(NULL);
