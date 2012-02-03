@@ -119,11 +119,12 @@ struct libusb_device *find_device(int vendor, int product)
 	struct libusb_device **list;
 	struct libusb_device *dev = NULL;
 	struct libusb_device_descriptor descriptor;
+	struct libusb_device *item;
 	int i;
 	ssize_t count;
 	count = libusb_get_device_list(NULL, &list);
 	for (i = 0; i < count; i++) {
-		struct libusb_device *item = list[i];
+		item = list[i];
 		libusb_get_device_descriptor(item, &descriptor);
 		if (descriptor.idVendor == vendor && descriptor.idProduct == product) {
 			dev = item;
@@ -737,13 +738,13 @@ int main(int argc, char **argv)
 	ret = libusb_claim_interface(devh, 0);
 	if (ret != 0) {
 		fprintf(stderr, "claim failed with error %d\n", ret);
-		exit(1);
+		return 1;
 	}
 	
 	ret = libusb_set_interface_alt_setting(devh, 0, 0);
 	if (ret != 0) {
-		fprintf(stderr, "set_interface_alt_setting failed with error %d\n", ret);
-		exit(1);
+		perror("Failed to set active alternate setting for interface");
+		return 1;
 	}
 
 	ret = libusb_get_descriptor(devh, 0x0000001, 0x0000000, buf, 0x0000012);

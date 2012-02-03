@@ -561,7 +561,7 @@ void version()
 	fprintf(stderr, "capture "VERSION"\n");
 	fprintf(stderr, "Copyright 2011, 2012 Tony Brown, Michal Demin, Jeffry Johnston,\n");
 	fprintf(stderr, "                     Jon Arne Jørgensen\n");
-	fprintf(stderr, "License GPLv3+: GNU GPL version 3 or later <http://gnu.org/licenses/gpl.html>.\n");
+	fprintf(stderr, "License GPLv2+: GNU GPL version 2 or later <http://gnu.org/licenses/gpl.html>.\n");
 	fprintf(stderr, "This is free software: you are free to change and redistribute it.\n");
 	fprintf(stderr, "There is NO WARRANTY, to the extent permitted by law.\n");
 }

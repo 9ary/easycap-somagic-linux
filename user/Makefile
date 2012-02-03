@@ -24,7 +24,7 @@
 
 BINDIR=/usr/local/bin
 PROGRAMS=init capture audio-capture both
-LFLAGS=-lusb -lusb-1.0
+LFLAGS=-lusb-1.0
 CC=gcc
 CFLAGS=-W -Wall
 INSTALL=install -D
