@@ -764,16 +764,24 @@ int main(int argc, char **argv)
 
 	ret = libusb_release_interface(devh, 0);
 	if (ret != 0) {
-		fprintf(stderr, "failed to release interface before set_configuration: %d\n", ret);
+		perror("Failed to release interface (before set_configuration)");
+		return 1;
 	}
 	ret = libusb_set_configuration(devh, 0x0000001);
-	fprintf(stderr, "4 set configuration returned %d\n", ret);
+	if (ret != 0) {
+		perror("Failed to set active device configuration");
+		return 1;
+	}
 	ret = libusb_claim_interface(devh, 0);
 	if (ret != 0) {
-		fprintf(stderr, "claim after set_configuration failed with error %d\n", ret);
+		perror("Failed to claim device interface (after set_configuration)");
+		return 1;
 	}
 	ret = libusb_set_interface_alt_setting(devh, 0, 0);
-	fprintf(stderr, "4 set alternate setting returned %d\n", ret);
+	if (ret != 0) {
+		perror("Failed to set active alternate setting for interface (after set_configuration)");
+		return 1;
+	}
 	ret = libusb_control_transfer(devh, LIBUSB_REQUEST_TYPE_VENDOR + LIBUSB_RECIPIENT_DEVICE + LIBUSB_ENDPOINT_IN, 0x0000001, 0x0000001, 0x0000000, buf, 2, 1000);
 	fprintf(stderr, "5 control msg returned %d, bytes: ", ret);
 	print_bytes(buf, ret);
