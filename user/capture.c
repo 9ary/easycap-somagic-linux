@@ -40,6 +40,7 @@
 #endif
 #include <unistd.h>
 #include <getopt.h>
+#include <errno.h>
 
 #define VERSION "1.0"
 #define VENDOR 0x1c88
@@ -1096,7 +1097,7 @@ int main(int argc, char **argv)
 	for (i = 0; i < NUM_ISO_TRANSFERS; i++)	{
 		tfr[i] = libusb_alloc_transfer(64);
 		if (tfr[i] == NULL) {
-			fprintf(stderr, "Failed to allocate USB transfer #%d\n", i);
+			fprintf(stderr, "%s: Error allocating USB transfer #%d: %s\n", argv[0], i, strerror(errno));
 			return 1;
 		}
 		libusb_fill_iso_transfer(tfr[i], devh, 0x00000082, isobuf[i], 64 * 3072, 64, gotdata, NULL, 2000);
@@ -1107,8 +1108,8 @@ int main(int argc, char **argv)
 	for (i = 0; i < NUM_ISO_TRANSFERS; i++) {
 		ret = libusb_submit_transfer(tfr[i]);
 		if (ret != 0) {
-			fprintf(stderr, "libusb_submit_transfer failed with error %d for transfer %d\n", ret, i);
-		exit(1);
+			fprintf(stderr, "%s: Error submitting request #%d for transfer: %s\n", argv[0], i, strerror(errno));
+			return 1;
 		}
 	}
 		
