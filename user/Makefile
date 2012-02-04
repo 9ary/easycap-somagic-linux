@@ -23,7 +23,7 @@
 # along with this program; if not, see <http://www.gnu.org/licenses/>.
 
 BINDIR=/usr/local/bin
-PROGRAMS=init capture audio-capture both
+PROGRAMS=somagic-init somagic-capture audio-capture both
 LFLAGS=-lusb-1.0
 CC=gcc
 CFLAGS=-W -Wall

@@ -40,6 +40,7 @@
 #include <errno.h>
 #include <unistd.h>
 
+#define PROGRAM_NAME "somagic-init"
 #define VERSION "1.0"
 #define SOMAGIC_FIRMWARE_PATH "/lib/firmware/somagic_firmware.bin"
 #define SOMAGIC_FIRMWARE_LENGTH 7502
@@ -107,7 +108,7 @@ struct usb_device *find_device(int vendor, int product)
 
 void version()
 {
-	fprintf(stderr, "init "VERSION"\n");
+	fprintf(stderr, PROGRAM_NAME" "VERSION"\n");
 	fprintf(stderr, "Copyright 2011, 2012 Tony Brown, Jeffry Johnston\n");
 	fprintf(stderr, "License GPLv2+: GNU GPL version 2 or later <http://gnu.org/licenses/gpl.html>.\n");
 	fprintf(stderr, "This is free software: you are free to change and redistribute it.\n");
@@ -116,11 +117,15 @@ void version()
 
 void usage()
 {
-	fprintf(stderr, "Usage: init [options]\n");
+	fprintf(stderr, "Usage: "PROGRAM_NAME" [options]\n");
 	fprintf(stderr, "  -f, --firmware=FILE   Use firmware file FILE\n");
-	fprintf(stderr, "			(default: "SOMAGIC_FIRMWARE_PATH")\n");
-	fprintf(stderr, "      --help	    Display usage\n");
-	fprintf(stderr, "      --version	 Display version information\n");
+	fprintf(stderr, "                        (default: "SOMAGIC_FIRMWARE_PATH")\n");
+	fprintf(stderr, "      --help            Display usage\n");
+	fprintf(stderr, "      --version         Display version information\n");
+	fprintf(stderr, "\n");
+	fprintf(stderr, "Example (run as root):\n");
+	fprintf(stderr, "# Initialize device (if not using kernel module)\n");
+	fprintf(stderr, PROGRAM_NAME"\n");
 }
 
 int main(int argc, char **argv)

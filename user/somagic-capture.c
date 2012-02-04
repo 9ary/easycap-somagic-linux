@@ -42,6 +42,7 @@
 #include <getopt.h>
 #include <errno.h>
 
+#define PROGRAM_NAME "somagic-capture"
 #define VERSION "1.0"
 #define VENDOR 0x1c88
 #define PRODUCT 0x003c
@@ -471,7 +472,7 @@ static int somagic_write_i2c(uint8_t dev_addr, uint8_t reg, uint8_t val)
 
 void version()
 {
-	fprintf(stderr, "capture "VERSION"\n");
+	fprintf(stderr, PROGRAM_NAME" "VERSION"\n");
 	fprintf(stderr, "Copyright 2011, 2012 Tony Brown, Michal Demin, Jeffry Johnston,\n");
 	fprintf(stderr, "                     Jon Arne Jørgensen\n");
 	fprintf(stderr, "License GPLv2+: GNU GPL version 2 or later <http://gnu.org/licenses/gpl.html>.\n");
@@ -481,7 +482,7 @@ void version()
 
 void usage()
 {
-	fprintf(stderr, "Usage: capture [options]\n");
+	fprintf(stderr, "Usage: "PROGRAM_NAME" [options]\n");
 	fprintf(stderr, "  -c, --cvbs                 Use CVBS (composite) input (default)\n");
 	fprintf(stderr, "  -B, --brightness=VALUE     Luminance brightness control,\n");
 	fprintf(stderr, "                             0 to 255 (default: 128)\n");
@@ -546,17 +547,14 @@ void usage()
 	fprintf(stderr, "      --version              Display version information\n");
 	fprintf(stderr, "\n");
 	fprintf(stderr, "Examples (run as root):\n");
-	fprintf(stderr, "# Initialize device (if not using kernel module)\n");
-	fprintf(stderr, "init\n");
-	fprintf(stderr, "\n");
 	fprintf(stderr, "# PAL, CVBS/composite:\n");
-	fprintf(stderr, "capture 2> /dev/null | mplayer - -vf yadif,screenshot -demuxer rawvideo -rawvideo \"pal:format=uyvy:fps=25\"\n");
+	fprintf(stderr, PROGRAM_NAME" 2> /dev/null | mplayer - -vf yadif,screenshot -demuxer rawvideo -rawvideo \"pal:format=uyvy:fps=25\"\n");
 	fprintf(stderr, "\n");
 	fprintf(stderr, "# NTSC, S-VIDEO\n");
-	fprintf(stderr, "capture -n -s 2> /dev/null | mplayer - -vf yadif,screenshot -demuxer rawvideo -rawvideo \"ntsc:format=uyvy:fps=30000/1001\"\n");
+	fprintf(stderr, PROGRAM_NAME" -n -s 2> /dev/null | mplayer - -vf yadif,screenshot -demuxer rawvideo -rawvideo \"ntsc:format=uyvy:fps=30000/1001\"\n");
 	fprintf(stderr, "\n");
 	fprintf(stderr, "# NTSC, CVBS/composite, increased sharpness:\n");
-	fprintf(stderr, "capture -n --luminance=2 --lum-aperture=3 2> /dev/null | mplayer - -vf yadif,screenshot -demuxer rawvideo -rawvideo \"pal:format=uyvy:fps=25\"\n");
+	fprintf(stderr, PROGRAM_NAME" -n --luminance=2 --lum-aperture=3 2> /dev/null | mplayer - -vf yadif,screenshot -demuxer rawvideo -rawvideo \"pal:format=uyvy:fps=25\"\n");
 }
 
 int main(int argc, char **argv)
