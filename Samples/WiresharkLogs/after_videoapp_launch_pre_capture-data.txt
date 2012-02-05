@@ -8,9 +8,6 @@ Reply 0x01 0x07
 End by sending Value 0x0007, with data 0x0007 (len 2Bytes)
 
 // ------------------- Transfer for init2 ------------------------------------//
-Request (Dev2Host, endpoint 0x80, Value 0x0001)
-Reply 0x01 0x03
-
 Send the following data with URB_Value = 0x000b
 
  c5 c6  c7 c8 c9 ca cb cc cd ce cf d0 d1  // (Low Byte of somagic_sram where data is stored)
@@ -27,7 +24,7 @@ Send the following data with URB_Value = 0x000b
 // ------------------- Setup after start of video capture application --------//
 Send to request 0x01, value 0x000b
 
-(0b 00) 20 82 01 30 80 89 24 ad 54 80 00 --- Read value of port 0x3080 into 0x019e
+(0b 00) 20 82 01 30 80 89 24 ad 54 80 00 --- Read value of port 0x3080 into hardcoded address : 0x019e
 (From dev after next request to endpoint 0x80, value 0x000b)
 (0b 00) 20 82 01 30 80 80 24 ad 54 80 00
 
@@ -47,7 +44,7 @@ Send to request 0x01, value 0x000b
 (0b 00) 00 82 01 00 35 00 ec 4b 2f b9 7e
 
 
-(0b 00) 20 82 01 30 80 89 24 ad 54 80 00
+(0b 00) 20 82 01 30 80 89 24 ad 54 80 00 --- Read value of port 0x3080 into hardcoded address : 0x019e
 (From dev after next request to endpoint 0x80, value 0x000b)
 (0b 00) 20 82 01 30 80 80 24 ad 54 80 00
 
@@ -159,12 +156,14 @@ OBS new header (still sending to 0x000b):
 
  c5 c6  c7 c8 c9 ca cb cc cd ce cf d0 d1  // (Low Byte of somagic_sram where data is stored)
 -----------------------------------------
-(0b 4a) 84 00 01 40 00 00 22 44 6e 80 08
+(0b 4a) 84 00 01 40 00 00 22 44 6e 80 08 // 0x1785 = 0x40
+
 (0b 4a) a0 00 01 89 2f b9 60 e3 66 89 20
 (From dev after next request to endpoint 0x80, value 0x000b)
 (0b 4a) a0 00 01 00 2f b9 60 e3 66 89 20
 
 (0b 4a) 84 00 01 5b 00 00 22 44 6e 80 08
+
 (0b 4a) a0 00 01 b8 00 00 22 44 6e 80 08
 (From dev after next request to endpoint 0x80, value 0x000b)
 (0b 4a) a0 00 01 00 00 00 22 44 6e 80 08
@@ -225,11 +224,11 @@ OBS new header (still sending to 0x000b):
 
 /// -------------- WHAT NOW? ---------//
 Send two bytes to 0x0001 (Request 0x01, value 0x01)
-01 05
+01 05 // Set 0x02E7 = 0x05										// Setup ISOCHRONOUS interface?
 
 Get Descriptor
 Set Interface on IF 0x01
-	bAlternateSetting : 2;
+	bAlternateSetting : 2; 											// I Guess this enables the ISOCHRONOUS interface
 
 Send 13 bytes to Request 0x01, value 0x000b, Type = Vendor!
 (0b 00) 00 82 01 17 40 1d 00 0d db ba 58
