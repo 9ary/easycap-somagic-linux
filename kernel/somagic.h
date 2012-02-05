@@ -133,9 +133,9 @@ struct somagic_sbuf {
 	struct urb *urb;	
 };
 
-#define FRAME_STATUS_IN_FIRST_LINE 0x01
-#define FRAME_STATUS_HAS_FIRST_LINE 0x02
-#define FRAME_STATUS_IN_AV 0x04
+//#define FRAME_STATUS_IN_FIRST_LINE 0x01
+//#define FRAME_STATUS_HAS_FIRST_LINE 0x02
+//#define FRAME_STATUS_IN_AV 0x04
 
 struct somagic_frame {
 	char *data;								// Pointer to somagic_video->fbuf[offset_of_this_frame]
@@ -148,15 +148,18 @@ struct somagic_frame {
 	int bytes_read;						// Count the bytes read out of this buffer from userspace
 
 	// Testing stuff!
-	int bytes;						
-	u8 bfFrameStatus;			  	// Status BitField
-	int odd_read;
-	int even_read;
-	int col;									// Byte conter pr. line!
+//	int bytes;						
+//	u8 bfFrameStatus;			  	// Status BitField
+//	int odd_read;
+//	int even_read;
 
+	// Used by parser!
 	enum line_sync_state line_sync;
-	int line;									// Current line
-	u8 sav;										// Last read SAV
+	u16 line;
+	u16 col;
+	u8 field;
+	u8 blank;
+//	u8 sav;										// Last read SAV
 
 
 	int sequence;							// Frame number since start of capture

@@ -114,7 +114,7 @@ static int somagic_video_frames_alloc(struct usb_somagic *somagic, int number_of
 {
 	int i;
 
-	somagic->video.max_frame_size = PAGE_ALIGN(720 * 625 * 2);
+	somagic->video.max_frame_size = PAGE_ALIGN(720 * 2 * 627 * 2);
 	somagic->video.num_frames = number_of_frames;
 
 	while (somagic->video.num_frames > 0) {
@@ -139,8 +139,6 @@ static int somagic_video_frames_alloc(struct usb_somagic *somagic, int number_of
 		somagic->video.frame[i].data = somagic->video.fbuf + 
 			(i * somagic->video.max_frame_size);
 		somagic->video.frame[i].bytes_read = 0;
-		somagic->video.frame[i].bfFrameStatus = 0;
-		somagic->video.frame[i].bytes = 0;
 	}
 
 	return somagic->video.num_frames;
@@ -319,7 +317,6 @@ static int vidioc_querycap(struct file *file, void *priv,
 	strlcpy(vc->card, "EasyCAP DC60", sizeof(vc->card));
 	usb_make_path(somagic->dev, vc->bus_info, sizeof(vc->bus_info));
 	vc->capabilities = V4L2_CAP_VIDEO_CAPTURE | V4L2_CAP_STREAMING;
-	printk(KERN_INFO "somagic::%s: CALLED\n", __func__);
 	return 0;
 }
 
@@ -333,6 +330,7 @@ static int vidioc_querycap(struct file *file, void *priv,
 static int vidioc_enum_input(struct file *file, void *priv,
 							struct v4l2_input *vi)
 {
+	printk(KERN_ERR "somagic:: %s Called\n", __func__);
 	switch(vi->index) {
 		case INPUT_CVBS : {
 			strcpy(vi->name, "CVBS");
@@ -362,6 +360,7 @@ static int vidioc_enum_input(struct file *file, void *priv,
  */
 static int vidioc_g_input(struct file *file, void *priv, unsigned int *input)
 {
+	printk(KERN_ERR "somagic:: %s Called\n", __func__);
 	*input = (unsigned int)INPUT_CVBS;
 	return 0;
 }
@@ -373,6 +372,7 @@ static int vidioc_g_input(struct file *file, void *priv, unsigned int *input)
  */
 static int vidioc_s_input(struct file *file, void *priv, unsigned int input)
 {
+	printk(KERN_ERR "somagic:: %s Called\n", __func__);
 	if (input >= INPUT_MANY) {
 		return -EINVAL;
 	}
@@ -382,21 +382,26 @@ static int vidioc_s_input(struct file *file, void *priv, unsigned int input)
 
 static int vidioc_s_std(struct file *file, void *priv, v4l2_std_id *id)
 {
-	return -EINVAL;
+	printk(KERN_ERR "somagic:: %s Called\n", __func__);
+	return 0;
 }
 
 static int vidioc_querystd(struct file *file, void *priv, v4l2_std_id *a)
 {
-	return -EINVAL;
+	printk(KERN_ERR "somagic:: %s Called\n", __func__);
+	*a = V4L2_STD_PAL;
+	return 0;
 }
 
 static int vidioc_g_audio(struct file *file, void *priv, struct v4l2_audio *a)
 {
+	printk(KERN_ERR "somagic:: %s Called\n", __func__);
 	return -EINVAL;
 }
 
 static int vidioc_s_audio(struct file *file, void *priv, struct v4l2_audio *a)
 {
+	printk(KERN_ERR "somagic:: %s Called\n", __func__);
 	return -EINVAL;
 }
 
@@ -407,18 +412,21 @@ static int vidioc_s_audio(struct file *file, void *priv, struct v4l2_audio *a)
 static int vidioc_queryctrl(struct file *file, void *priv,
 							struct v4l2_queryctrl *ctrl)
 {
+	printk(KERN_ERR "somagic:: %s Called\n", __func__);
 	return -EINVAL;
 }
 
 static int vidioc_g_ctrl(struct file *file, void *priv,
 							struct v4l2_control *ctrl)
 {
+	printk(KERN_ERR "somagic:: %s Called\n", __func__);
 	return -EINVAL;
 }
 
 static int vidioc_s_ctrl(struct file *file, void *priv,
 							struct v4l2_control *ctrl)
 {
+	printk(KERN_ERR "somagic:: %s Called\n", __func__);
 	return -EINVAL;
 }
 
@@ -453,6 +461,8 @@ static int vidioc_querybuf(struct file *file, void *priv,
 	struct usb_somagic *somagic = video_drvdata(file);
 	struct somagic_frame *frame;
 
+	// printk(KERN_ERR "somagic:: %s Called\n", __func__);
+
 	if (vb->index >= somagic->video.num_frames) {
 		return -EINVAL;
 	}
@@ -476,8 +486,8 @@ static int vidioc_querybuf(struct file *file, void *priv,
 	}
 	vb->memory = V4L2_MEMORY_MMAP;
 	vb->m.offset = vb->index * PAGE_ALIGN(somagic->video.max_frame_size);
-	vb->field = V4L2_FIELD_SEQ_TB;
-	vb->length = 720 * 576 * 2;
+	vb->field = V4L2_FIELD_INTERLACED;
+	vb->length = 720 * 2 * 627 * 2;
 	vb->timestamp = frame->timestamp;
 	vb->sequence = frame->sequence;
 
@@ -491,6 +501,8 @@ static int vidioc_qbuf(struct file *file, void *priv,
 	struct usb_somagic *somagic = video_drvdata(file);
 	struct somagic_frame *frame;
 	unsigned long lock_flags;
+
+	// printk(KERN_ERR "somagic:: %s Called\n", __func__);
 	
 	if (vb->index >= somagic->video.num_frames) {
 		return -EINVAL;
@@ -504,6 +516,8 @@ static int vidioc_qbuf(struct file *file, void *priv,
 
 	frame->grabstate = FRAME_STATE_READY;
 	frame->scanlength = 0;
+	frame->line = 0;
+	frame->col = 0;
 
 	vb->flags &= ~V4L2_BUF_FLAG_DONE;
 
@@ -521,11 +535,16 @@ static int vidioc_dqbuf(struct file *file, void *priv,
 	struct usb_somagic *somagic = video_drvdata(file);
 	struct somagic_frame *f;
 	unsigned long lock_flags;
-	//int rc;
+	int rc;
 
-	///FIXME: Add wait_event_interruptible, so we can wait for frame
+//	printk(KERN_ERR "somagic:: %s Called\n", __func__);
+
 	if (list_empty(&(somagic->video.outqueue))) {
-		return -EAGAIN; // -EINVAL
+		rc = wait_event_interruptible(somagic->video.wait_frame,
+																	!list_empty(&(somagic->video.outqueue)));
+		if (rc) {
+			return rc;
+		}
 	}
 
 	spin_lock_irqsave(&somagic->video.queue_lock, lock_flags);
@@ -533,15 +552,19 @@ static int vidioc_dqbuf(struct file *file, void *priv,
 										 struct somagic_frame, frame);
 	list_del(somagic->video.outqueue.next);
 	spin_unlock_irqrestore(&somagic->video.queue_lock, lock_flags);
-
 	f->grabstate = FRAME_STATE_UNUSED;
+
+/*
+	printk(KERN_ERR "somagic::%s: About to pass a buffer to userspace: "\
+									"scanlenght=%d", __func__, f->scanlength);
+*/
 
 	vb->memory = V4L2_MEMORY_MMAP;
 	vb->flags = V4L2_BUF_FLAG_MAPPED | V4L2_BUF_FLAG_QUEUED | V4L2_BUF_FLAG_DONE;
 	vb->index = f->index;
 	vb->sequence = f->sequence;
 	vb->timestamp = f->timestamp;
-	vb->field = V4L2_FIELD_SEQ_TB;
+	vb->field = V4L2_FIELD_INTERLACED;
 	vb->bytesused = f->scanlength;
 
 	return 0;
@@ -550,14 +573,20 @@ static int vidioc_dqbuf(struct file *file, void *priv,
 static int vidioc_streamon(struct file *file, void *priv, enum v4l2_buf_type i)
 {
 	struct usb_somagic *somagic = video_drvdata(file);
+
+	printk(KERN_ERR "somagic:: %s Called\n", __func__);
 	somagic_dev_video_start_stream(somagic);
+
 	return 0;
 }
 
 static int vidioc_streamoff(struct file *file, void *priv, enum v4l2_buf_type type)
 {
 	struct usb_somagic *somagic = video_drvdata(file);
+
+	printk(KERN_ERR "somagic:: %s Called\n", __func__);
 	somagic_dev_video_stop_stream(somagic);
+
 	return 0;
 }
 
@@ -565,6 +594,7 @@ static int vidioc_streamoff(struct file *file, void *priv, enum v4l2_buf_type ty
 static int vidioc_enum_fmt_vid_cap(struct file *file, void *priv,
 							struct v4l2_fmtdesc *f)
 {
+	printk(KERN_ERR "somagic:: %s Called\n", __func__);
 	if (f->index != 0) {
 		return -EINVAL;
 	}
@@ -580,12 +610,15 @@ static int vidioc_g_fmt_vid_cap(struct file *file, void *priv,
 							struct v4l2_format *vf)
 {
 	struct v4l2_pix_format *pix = &vf->fmt.pix;
+
+	printk(KERN_ERR "somagic:: %s Called\n", __func__);
+
 	pix->width = 720; 
-	pix->height = 576;
+	pix->height = 2 * 288;
 	pix->pixelformat = V4L2_PIX_FMT_UYVY;
-	pix->field = V4L2_FIELD_SEQ_TB;
-	pix->bytesperline = 1440; 
-	pix->sizeimage = 1440*576;
+	pix->field = V4L2_FIELD_INTERLACED;
+	pix->bytesperline = 2 * 720; 
+	pix->sizeimage = 2 * 720 * 2 * 288;
 	pix->colorspace = V4L2_COLORSPACE_SMPTE170M;
 	return 0;
 }
@@ -594,14 +627,16 @@ static int vidioc_g_fmt_vid_cap(struct file *file, void *priv,
 static int vidioc_try_fmt_vid_cap(struct file *file, void *priv,
 							struct v4l2_format *vf)
 {
-	return -EBUSY;
+	printk(KERN_ERR "somagic:: %s Called\n", __func__);
+	return 0;
 }
 
 // Set Video Format
 static int vidioc_s_fmt_vid_cap(struct file *file, void *priv,
 							struct v4l2_format *vf)
 {
-	return -EBUSY;
+	printk(KERN_ERR "somagic:: %s Called\n", __func__);
+	return 0;
 }
 
 /*****************************************************************************/
@@ -755,8 +790,10 @@ static ssize_t somagic_v4l2_read(struct file *file, char __user *buf,
 
 	frame->bytes_read += count;
 
+/*
 	printk(KERN_INFO "somagic::%s: frmx=%d, bytes_read=%d, scanlength=%d",
 				 __func__, frame->index, frame->bytes_read, frame->scanlength);
+*/
 
 	if (frame->bytes_read >= frame->scanlength) {
 		frame->bytes_read = 0;
@@ -780,8 +817,15 @@ static int somagic_v4l2_mmap(struct file *file, struct vm_area_struct *vma)
 	int i;
 	struct usb_somagic *somagic = video_drvdata(file);
 
+	printk(KERN_ERR "somagic:: %s Called\n", __func__);
+
 	if (!(vma->vm_flags & VM_WRITE) ||
 			size != PAGE_ALIGN(somagic->video.max_frame_size)) {
+
+		printk(KERN_ERR "somagic::%s: VM_Write not set Or wrong size!\n"\
+										"max_frame_size=%d, size=%ld",
+										__func__, somagic->video.max_frame_size, size);
+		
 		return -EFAULT;
 	}
 
@@ -815,7 +859,6 @@ static int somagic_v4l2_mmap(struct file *file, struct vm_area_struct *vma)
 	}
 
 	return 0;
-
 }
 
 /*****************************************************************************/

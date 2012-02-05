@@ -445,9 +445,47 @@ static enum parse_state parse_lines(struct usb_somagic *somagic)
 }
 */
 
+/**
+ * Write data to frame buffer.
+ * Interleave Odd & Even fields, and put VBI data in bottom of framebuffer.
+ *
+ * When we copy the buffer to userspace, we only copy the first 576 / 480 Lines.
+ * The rest of the buffer is only Vertical Blanking
+ */
+static inline void fill_frame(struct somagic_frame *frame, u8 c)
+{
+	int line_pos;
+
+	if (frame->field > 1) {
+		printk(KERN_INFO "somagic::%s: Frame->field value is out of range!\n", __func__);
+		frame->field = 0;
+	}
+
+	line_pos = (2 * frame->line + frame->field) * (720 * 2) + frame->col;
+	frame->col++;
+	
+	if (frame->col > 720 * 2) {
+		frame->col = 720 * 2;
+	}
+
+	if (line_pos > (720 * 2 * 627 * 2)) {
+		printk(KERN_INFO "somagic::%s: line_pos is larger than buffer\n", __func__);
+		line_pos = 0;
+	}
+
+	frame->data[line_pos] = c;
+	frame->scanlength++;
+}
+
 /* One PAL frame is 905000 Bytes, including TRC - (625 Lines).
- * An ODD Field is 4517756 Bytes, including TRC - (312 Lines).
- * An EVEN Field is 453224 Bytes, including TRC - (313 Lines).
+ * An ODD Field is 4517756 Bytes, including TRC - (312 Lines). (288 Active video lines + 24 Lines of VBI)
+ * An EVEN Field is 453224 Bytes, including TRC - (313 Lines). (288 Actice video lines + 25 Lines of VBI)
+ *
+ * VLC allocates: 831488 pr frame!
+ *
+ * mplayer expects one PAL frame to be: 829440
+ * That is 576 (288 * 2) lines of 1440 (720 * 2)Bytes
+ *
  */
 static enum parse_state parse_data(struct usb_somagic *somagic)
 {
@@ -460,7 +498,7 @@ static enum parse_state parse_data(struct usb_somagic *somagic)
 	while(scratch_len(somagic)) {
 		scratch_get(somagic, &c, 1);
 
-		if (frame->scanlength > 900000) {
+		if (frame->scanlength > (720 * 2 * 627 * 2)) {
 			frame->scanlength = 0;
 			printk(KERN_INFO "somagic::%s: Frame-error: buffer overflow!\n", __func__);
 		}
@@ -470,7 +508,7 @@ static enum parse_state parse_data(struct usb_somagic *somagic)
 				if (c == 0xff) {
 					frame->line_sync++;
 				} else {
-					frame->data[frame->scanlength++] = c;
+					fill_frame(frame, c);
 				}
 				break;
 			}
@@ -478,8 +516,8 @@ static enum parse_state parse_data(struct usb_somagic *somagic)
 				if (c == 0x00) {
 					frame->line_sync++;
 				} else {
-					frame->data[frame->scanlength++] = 0xff;
-					frame->data[frame->scanlength++] = c;
+					fill_frame(frame, 0xff);
+					fill_frame(frame, c);
 					frame->line_sync = HSYNC;
 				}
 				break;
@@ -487,9 +525,9 @@ static enum parse_state parse_data(struct usb_somagic *somagic)
 				if (c == 0x00) {
 					frame->line_sync++;
 				} else {
-					frame->data[frame->scanlength++] = 0xff;
-					frame->data[frame->scanlength++] = 0x00;
-					frame->data[frame->scanlength++] = c;
+					fill_frame(frame, 0xff);
+					fill_frame(frame, 0x00);
+					fill_frame(frame, c);
 					frame->line_sync = HSYNC;
 				}
 				break;
@@ -497,26 +535,62 @@ static enum parse_state parse_data(struct usb_somagic *somagic)
 			case SYNCAV : {
 				frame->line_sync = HSYNC;
 
-				if ((c & 0x10) == 0x10)	{ 	// TRC _ End of Line (EAV)
-						frame->line++;
-						if (frame->line == 625) {
-							printk(KERN_INFO "somagic::%s: We have a full frame!, size is %d bytes!\n", __func__, frame->scanlength);
-							return PARSE_STATE_NEXT_FRAME;
-							// FOR DEBUG!
-							// frame->scanlength = 0;
-							// frame->line = 0;
-							
+				if (c == 0x00) { // SDID (Sliced Data ID)
+					break;
+				}
+
+				if ((c & 0x10) == 0x10)	{ 	// TRC _ End of active data (EAV)
+					frame->line++;
+					frame->col = 0;
+					if (frame->line > 313) {
+						printk(KERN_INFO "somagic::%s: SYNC Error, got line number %d\n", __func__, frame->line);						
+						frame->line = 313;
+					}
+				} else { // TRC _ Start of active data (SAV)
+					/* SAV
+ 					 * 
+ 					 * F (Field bit) = Bit 6 (mask 0x40)
+ 					 * 0: Odd Field;
+ 					 * 1: Even Field;
+ 					 *
+ 					 * V (Vertical blanking bit) = Bit 5 (mask 0x20)
+ 					 * 0: in VBI
+ 					 * 1: in Active video
+ 					 */
+					int field_edge;
+					int blank_edge;
+
+					field_edge = frame->field;
+					blank_edge = frame->blank;
+
+					frame->field = (c & 0x40) ? 1 : 0;
+					frame->blank = (c & 0x20) ? 1 : 0; // 0 = In VBI!
+
+					field_edge = frame->field ^ field_edge;
+					blank_edge = frame->blank ^ blank_edge;
+
+					if (frame->field == 0 && field_edge) {
+//					printk(KERN_INFO "somagic::%s: We have a full frame!, size is %d bytes!\n", __func__, frame->scanlength);
+						/* We Should have a full frame by now,
+ 						 * but if we don't reset this frame, and try again
+ 						 */
+						if (frame->scanlength < (288 * 2 * 720 * 2)) {
+							frame->scanlength = 0;
+							frame->line = 0;
+							frame->col = 0;
+							continue;
 						}
+						return PARSE_STATE_NEXT_FRAME;
+					}
+
+					if (frame->blank == 0 && blank_edge) {
+						frame->line = 0;
+						frame->col = 0;
+					}
 				}
 			}
 		}
 	}
-/*
-				if (somagic->video.scan_state == SCANNER_FIND_ODD) {
-					if ((c & 0x10) == 0)	{ 	// TRC _ Start of Line (SAV)
-						if ((c & 0x20) == 0x20) { 	// In Active Video // ELSE VBI
-							if ((c & 0x40) == 0) { // ODD
-*/
 	
 	return PARSE_STATE_CONTINUE;
 }
@@ -600,14 +674,22 @@ static void somagic_dev_isoc_video_irq(struct urb *urb)
 	// We check if we have a v4l2_framebuffer to fill!
 	f = &somagic->video.cur_frame;
 	if (scratch_len(somagic) > 0x800 && !list_empty(&(somagic->video.inqueue))) {
+
+		//printk(KERN_INFO "somagic::%s: Parsing Data", __func__);
+
 		if (!(*f)) { // cur_frame == NULL
 			(*f) = list_entry(somagic->video.inqueue.next,
 												struct somagic_frame, frame);
+			(*f)->scanlength = 0;
 		}
 	
 		state = parse_data(somagic);
 
 		if (state == PARSE_STATE_NEXT_FRAME) {
+			if ((*f)->scanlength > 720 * 2 * 288 * 2) { // 288 PAL || 240 NTSC
+				(*f)->scanlength = 720 * 2 * 288 * 2;
+			}
+
 			(*f)->grabstate = FRAME_STATE_DONE;
 			do_gettimeofday(&((*f)->timestamp));
 			(*f)->sequence = somagic->video.frame_num;
