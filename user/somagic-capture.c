@@ -35,10 +35,14 @@
 #include <signal.h>
 #include <ctype.h>
 #include <libusb-1.0/libusb.h>
+#ifdef DEBUG
 #include <execinfo.h>
+#endif
 #include <unistd.h>
 #include <getopt.h>
+#include <errno.h>
 
+#define PROGRAM_NAME "somagic-capture"
 #define VERSION "1.0"
 #define VENDOR 0x1c88
 #define PRODUCT 0x003c
@@ -119,11 +123,12 @@ struct libusb_device *find_device(int vendor, int product)
 	struct libusb_device **list;
 	struct libusb_device *dev = NULL;
 	struct libusb_device_descriptor descriptor;
+	struct libusb_device *item;
 	int i;
 	ssize_t count;
 	count = libusb_get_device_list(NULL, &list);
 	for (i = 0; i < count; i++) {
-		struct libusb_device *item = list[i];
+		item = list[i];
 		libusb_get_device_descriptor(item, &descriptor);
 		if (descriptor.idVendor == vendor && descriptor.idProduct == product) {
 			dev = item;
@@ -164,6 +169,7 @@ void print_bytes_only(char *bytes, int len)
 	}
 }
 
+#ifdef DEBUG
 void trace()
 {
 	void *array[10];
@@ -176,6 +182,7 @@ void trace()
 	backtrace_symbols_fd(array, size, 1);
 	exit(1);
 }
+#endif
 
 enum sync_state {
 	HSYNC,
@@ -465,7 +472,7 @@ static int somagic_write_i2c(uint8_t dev_addr, uint8_t reg, uint8_t val)
 
 void version()
 {
-	fprintf(stderr, "capture "VERSION"\n");
+	fprintf(stderr, PROGRAM_NAME" "VERSION"\n");
 	fprintf(stderr, "Copyright 2011, 2012 Tony Brown, Michal Demin, Jeffry Johnston,\n");
 	fprintf(stderr, "                     Jon Arne Jørgensen\n");
 	fprintf(stderr, "License GPLv2+: GNU GPL version 2 or later <http://gnu.org/licenses/gpl.html>.\n");
@@ -475,7 +482,7 @@ void version()
 
 void usage()
 {
-	fprintf(stderr, "Usage: capture [options]\n");
+	fprintf(stderr, "Usage: "PROGRAM_NAME" [options]\n");
 	fprintf(stderr, "  -c, --cvbs                 Use CVBS (composite) input (default)\n");
 	fprintf(stderr, "  -B, --brightness=VALUE     Luminance brightness control,\n");
 	fprintf(stderr, "                             0 to 255 (default: 128)\n");
@@ -540,17 +547,14 @@ void usage()
 	fprintf(stderr, "      --version              Display version information\n");
 	fprintf(stderr, "\n");
 	fprintf(stderr, "Examples (run as root):\n");
-	fprintf(stderr, "# Initialize device (if not using kernel module)\n");
-	fprintf(stderr, "init\n");
-	fprintf(stderr, "\n");
 	fprintf(stderr, "# PAL, CVBS/composite:\n");
-	fprintf(stderr, "capture 2> /dev/null | mplayer - -vf yadif,screenshot -demuxer rawvideo -rawvideo \"pal:format=uyvy:fps=25\"\n");
+	fprintf(stderr, PROGRAM_NAME" 2> /dev/null | mplayer - -vf yadif,screenshot -demuxer rawvideo -rawvideo \"pal:format=uyvy:fps=25\"\n");
 	fprintf(stderr, "\n");
 	fprintf(stderr, "# NTSC, S-VIDEO\n");
-	fprintf(stderr, "capture -n -s 2> /dev/null | mplayer - -vf yadif,screenshot -demuxer rawvideo -rawvideo \"ntsc:format=uyvy:fps=30000/1001\"\n");
+	fprintf(stderr, PROGRAM_NAME" -n -s 2> /dev/null | mplayer - -vf yadif,screenshot -demuxer rawvideo -rawvideo \"ntsc:format=uyvy:fps=30000/1001\"\n");
 	fprintf(stderr, "\n");
 	fprintf(stderr, "# NTSC, CVBS/composite, increased sharpness:\n");
-	fprintf(stderr, "capture -n --luminance=2 --lum-aperture=3 2> /dev/null | mplayer - -vf yadif,screenshot -demuxer rawvideo -rawvideo \"pal:format=uyvy:fps=25\"\n");
+	fprintf(stderr, PROGRAM_NAME" -n --luminance=2 --lum-aperture=3 2> /dev/null | mplayer - -vf yadif,screenshot -demuxer rawvideo -rawvideo \"pal:format=uyvy:fps=25\"\n");
 }
 
 int main(int argc, char **argv)
@@ -735,13 +739,13 @@ int main(int argc, char **argv)
 	ret = libusb_claim_interface(devh, 0);
 	if (ret != 0) {
 		fprintf(stderr, "claim failed with error %d\n", ret);
-		exit(1);
+		return 1;
 	}
 	
 	ret = libusb_set_interface_alt_setting(devh, 0, 0);
 	if (ret != 0) {
-		fprintf(stderr, "set_interface_alt_setting failed with error %d\n", ret);
-		exit(1);
+		perror("Failed to set active alternate setting for interface");
+		return 1;
 	}
 
 	ret = libusb_get_descriptor(devh, 0x0000001, 0x0000000, buf, 0x0000012);
@@ -759,16 +763,24 @@ int main(int argc, char **argv)
 
 	ret = libusb_release_interface(devh, 0);
 	if (ret != 0) {
-		fprintf(stderr, "failed to release interface before set_configuration: %d\n", ret);
+		perror("Failed to release interface (before set_configuration)");
+		return 1;
 	}
 	ret = libusb_set_configuration(devh, 0x0000001);
-	fprintf(stderr, "4 set configuration returned %d\n", ret);
+	if (ret != 0) {
+		perror("Failed to set active device configuration");
+		return 1;
+	}
 	ret = libusb_claim_interface(devh, 0);
 	if (ret != 0) {
-		fprintf(stderr, "claim after set_configuration failed with error %d\n", ret);
+		perror("Failed to claim device interface (after set_configuration)");
+		return 1;
 	}
 	ret = libusb_set_interface_alt_setting(devh, 0, 0);
-	fprintf(stderr, "4 set alternate setting returned %d\n", ret);
+	if (ret != 0) {
+		perror("Failed to set active alternate setting for interface (after set_configuration)");
+		return 1;
+	}
 	ret = libusb_control_transfer(devh, LIBUSB_REQUEST_TYPE_VENDOR + LIBUSB_RECIPIENT_DEVICE + LIBUSB_ENDPOINT_IN, 0x0000001, 0x0000001, 0x0000000, buf, 2, 1000);
 	fprintf(stderr, "5 control msg returned %d, bytes: ", ret);
 	print_bytes(buf, ret);
@@ -1083,7 +1095,7 @@ int main(int argc, char **argv)
 	for (i = 0; i < NUM_ISO_TRANSFERS; i++)	{
 		tfr[i] = libusb_alloc_transfer(64);
 		if (tfr[i] == NULL) {
-			fprintf(stderr, "Failed to allocate USB transfer #%d\n", i);
+			fprintf(stderr, "%s: Error allocating USB transfer #%d: %s\n", argv[0], i, strerror(errno));
 			return 1;
 		}
 		libusb_fill_iso_transfer(tfr[i], devh, 0x00000082, isobuf[i], 64 * 3072, 64, gotdata, NULL, 2000);
@@ -1094,8 +1106,8 @@ int main(int argc, char **argv)
 	for (i = 0; i < NUM_ISO_TRANSFERS; i++) {
 		ret = libusb_submit_transfer(tfr[i]);
 		if (ret != 0) {
-			fprintf(stderr, "libusb_submit_transfer failed with error %d for transfer %d\n", ret, i);
-		exit(1);
+			fprintf(stderr, "%s: Error submitting request #%d for transfer: %s\n", argv[0], i, strerror(errno));
+			return 1;
 		}
 	}
 		

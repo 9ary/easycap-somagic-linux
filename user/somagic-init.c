@@ -35,11 +35,12 @@
 #include <string.h>
 #include <signal.h>
 #include <ctype.h>
-#include <usb.h>
+#include <libusb-1.0/libusb.h>
 #include <getopt.h>
 #include <errno.h>
-#include <error.h>
+#include <unistd.h>
 
+#define PROGRAM_NAME "somagic-init"
 #define VERSION "1.0"
 #define SOMAGIC_FIRMWARE_PATH "/lib/firmware/somagic_firmware.bin"
 #define SOMAGIC_FIRMWARE_LENGTH 7502
@@ -47,22 +48,27 @@
 #define ORIGINAL_PRODUCT 0x0007
 #define NEW_PRODUCT 0x003c
 
-struct usb_dev_handle *devh;
+struct libusb_device_handle *devh;
 
 #ifdef DEBUG
 void list_devices()
 {
-	struct usb_bus *bus;
-
-	for (bus = usb_get_busses(); bus; bus = bus->next) {
-		struct usb_device *dev;
-		for (dev = bus->devices; dev; dev = dev->next) {
-			printf("0x%04x 0x%04x\n", dev->descriptor.idVendor, dev->descriptor.idProduct);
-		}
+	struct libusb_device **list;
+	struct libusb_device_descriptor descriptor;
+	struct libusb_device *item;
+	int i;
+	ssize_t count;
+	count = libusb_get_device_list(NULL, &list);
+	for (i = 0; i < count; i++) {
+		item = list[i];
+		libusb_get_device_descriptor(item, &descriptor);
+		printf("0x%04x:0x%04x\n", descriptor.idVendor, descriptor.idProduct);
+		libusb_unref_device(item);
 	}
+	libusb_free_device_list(list, 0);
 }
 
-void print_bytes(char *bytes, int len)
+void print_bytes(unsigned char *bytes, int len)
 {
 	int i;
 	if (len > 0) {
@@ -80,55 +86,64 @@ void print_bytes(char *bytes, int len)
 
 void release_usb_device(int ret)
 {
-	ret = usb_release_interface(devh, 0);
+	ret = libusb_release_interface(devh, 0);
 	if (!ret) {
 		perror("Failed to release interface");
 	}
-	ret = usb_close(devh);
-	if (!ret) {
-		perror("Failed to close interface");
-	}
+	libusb_close(devh);
+	libusb_exit(NULL);
 	exit(1);
 }
 
-struct usb_device *find_device(int vendor, int product)
+struct libusb_device *find_device(int vendor, int product)
 {
-	struct usb_bus *bus;
-
-	for (bus = usb_get_busses(); bus; bus = bus->next) {
-		struct usb_device *dev;
-		
-		for (dev = bus->devices; dev; dev = dev->next) {
-			if (dev->descriptor.idVendor == vendor && dev->descriptor.idProduct == product)
-				return dev;
+	struct libusb_device **list;
+	struct libusb_device *dev = NULL;
+	struct libusb_device_descriptor descriptor;
+	struct libusb_device *item;
+	int i;
+	ssize_t count;
+	count = libusb_get_device_list(NULL, &list);
+	for (i = 0; i < count; i++) {
+		item = list[i];
+		libusb_get_device_descriptor(item, &descriptor);
+		if (descriptor.idVendor == vendor && descriptor.idProduct == product) {
+			dev = item;
+		} else {
+			libusb_unref_device(item);
 		}
 	}
-	return NULL;
+	libusb_free_device_list(list, 0);
+	return dev;
 }
 
 void version()
 {
-	fprintf(stderr, "init "VERSION"\n");
+	fprintf(stderr, PROGRAM_NAME" "VERSION"\n");
 	fprintf(stderr, "Copyright 2011, 2012 Tony Brown, Jeffry Johnston\n");
-	fprintf(stderr, "License GPLv3+: GNU GPL version 3 or later <http://gnu.org/licenses/gpl.html>.\n");
+	fprintf(stderr, "License GPLv2+: GNU GPL version 2 or later <http://gnu.org/licenses/gpl.html>.\n");
 	fprintf(stderr, "This is free software: you are free to change and redistribute it.\n");
 	fprintf(stderr, "There is NO WARRANTY, to the extent permitted by law.\n");
 }
 
 void usage()
 {
-	fprintf(stderr, "Usage: init [options]\n");
+	fprintf(stderr, "Usage: "PROGRAM_NAME" [options]\n");
 	fprintf(stderr, "  -f, --firmware=FILE   Use firmware file FILE\n");
 	fprintf(stderr, "                        (default: "SOMAGIC_FIRMWARE_PATH")\n");
 	fprintf(stderr, "      --help            Display usage\n");
 	fprintf(stderr, "      --version         Display version information\n");
+	fprintf(stderr, "\n");
+	fprintf(stderr, "Example (run as root):\n");
+	fprintf(stderr, "# Initialize device (if not using kernel module)\n");
+	fprintf(stderr, PROGRAM_NAME"\n");
 }
 
 int main(int argc, char **argv)
 {
 	int ret;
-	struct usb_device *dev;
-	char buf[65535];
+	struct libusb_device *dev;
+	unsigned char buf[65535];
 	char firmware[SOMAGIC_FIRMWARE_LENGTH];
 	FILE *infile;
 	int i;
@@ -183,119 +198,114 @@ int main(int argc, char **argv)
 	/* Read firmware file */
 	infile = fopen(firmware_path, "r");
 	if (infile == NULL) {
-		error(1, errno, "Error opening firmware file '%s'", firmware_path);
+		fprintf(stderr, "%s: Error opening firmware file '%s': %s\n", argv[0], firmware_path, strerror(errno));
+		return 1;
 	}
 	if ((fseek(infile, 0, SEEK_END) == -1) || (ftell(infile) == -1)) {
-		error(1, errno, "Error determining firmware file '%s' size", firmware_path);
+		fprintf(stderr, "%s: Error determining firmware file '%s' size: %s\n", argv[0], firmware_path, strerror(errno));
+		return 1;
 	}
 	if (ftell(infile) != SOMAGIC_FIRMWARE_LENGTH) {
 		fprintf(stderr, "Firmware file '%s' was not the expected size of %i bytes\n", firmware_path, SOMAGIC_FIRMWARE_LENGTH);
 		return 1;
 	}
 	if ((fseek(infile, 0, SEEK_SET) == -1)) {
-		error(1, errno, "Error determining firmware file '%s' size", firmware_path);
+		fprintf(stderr, "%s: Error determining firmware file '%s' size: %s\n", argv[0], firmware_path, strerror(errno));
+		return 1;
 	}
 	if (fread(&firmware, 1, SOMAGIC_FIRMWARE_LENGTH, infile) < SOMAGIC_FIRMWARE_LENGTH) {
 		if (ferror(infile)) {
-			error(1, errno, "Error reading firmware file '%s'", firmware_path);
+			fprintf(stderr, "%s: Error reading firmware file '%s': %s\n", argv[0], firmware_path, strerror(errno));
+			return 1;
 		}
 		fprintf(stderr, "Firmware file '%s' was not the expected size of %i bytes\n", firmware_path, SOMAGIC_FIRMWARE_LENGTH);
 		return 1;
 	}
 	if (fclose(infile) != 0) {
-		error(1, errno, "Error closing firmware file '%s'", firmware_path);
-	}
-
-	usb_init();
-	#ifdef DEBUG
-	usb_set_debug(255); 
-	#else
-	usb_set_debug(0); 
-	#endif
-	usb_find_busses();
-
-	usb_find_devices();
-	/* list_devices(); */
-	dev = find_device(VENDOR, ORIGINAL_PRODUCT);
-	if (!dev) {
-		fprintf(stderr, "USB device %04x:%04x was not found.\n"
-			"Either the device is not attached or a previous initialization was successful.\n", VENDOR, ORIGINAL_PRODUCT);
+		fprintf(stderr, "%s: Error closing firmware file '%s': %s\n", argv[0], firmware_path, strerror(errno));
 		return 1;
 	}
 
-	devh = usb_open(dev);
+	libusb_init(NULL);
+	#ifdef DEBUG
+	libusb_set_debug(NULL, 255); 
+	list_devices(); 
+	#else
+	libusb_set_debug(NULL, 0); 
+	#endif
+
+	dev = find_device(VENDOR, ORIGINAL_PRODUCT);
+	if (!dev) {
+		dev = find_device(VENDOR, NEW_PRODUCT);
+		if (dev) {
+	                fprintf(stderr, "USB device already initialized.\n");
+		} else {
+	                fprintf(stderr, "USB device %04x:%04x was not found. Is the device attached?\n", VENDOR, ORIGINAL_PRODUCT);
+		}
+                return 1;
+	}
+
+	ret = libusb_open(dev, &devh);
 	if (!devh) {
 		perror("Failed to open USB device");
 		return 1;
 	}
+	libusb_unref_device(dev);
 	
 	signal(SIGTERM, release_usb_device);
-
-	ret = usb_get_driver_np(devh, 0, buf, sizeof(buf));
-	#ifdef DEBUG
-	printf("usb_get_driver_np returned %d\n", ret); 
-	#endif
-	if (ret == 0) {
-		printf("Interface 0 already claimed by driver \"%s\", attempting to detach it.\n", buf);
-		ret = usb_detach_kernel_driver_np(devh, 0);
-		#ifdef DEBUG
-		printf("usb_detach_kernel_driver_np returned %d\n", ret);
-		#endif
-	}
-
-	ret = usb_claim_interface(devh, 0);
+	ret = libusb_claim_interface(devh, 0);
 	if (ret != 0) {
 		perror("Failed to claim device interface");
 		return 1;
 	}
 	
-	ret = usb_set_altinterface(devh, 0);
+	ret = libusb_set_interface_alt_setting(devh, 0, 0);
 	if (ret != 0) {
 		perror("Failed to set active alternate setting for interface");
 		return 1;
 	}
 
-	ret = usb_get_descriptor(devh, 0x0000001, 0x0000000, buf, 0x0000012);
+	ret = libusb_get_descriptor(devh, 0x0000001, 0x0000000, buf, 0x0000012);
 	#ifdef DEBUG
 	printf("1 get descriptor returned %d, bytes: ", ret);
 	print_bytes(buf, ret);
 	printf("\n");
 	#endif
-	ret = usb_get_descriptor(devh, 0x0000002, 0x0000000, buf, 0x0000009);
+	ret = libusb_get_descriptor(devh, 0x0000002, 0x0000000, buf, 0x0000009);
 	#ifdef DEBUG
 	printf("2 get descriptor returned %d, bytes: ", ret);
 	print_bytes(buf, ret);
 	printf("\n");
 	#endif
-	ret = usb_get_descriptor(devh, 0x0000002, 0x0000000, buf, 0x0000022);
+	ret = libusb_get_descriptor(devh, 0x0000002, 0x0000000, buf, 0x0000022);
 	#ifdef DEBUG
 	printf("3 get descriptor returned %d, bytes: ", ret);
 	print_bytes(buf, ret);
 	printf("\n");
 	#endif
-	ret = usb_release_interface(devh, 0);
+	ret = libusb_release_interface(devh, 0);
 	if (ret != 0) {
 		perror("Failed to release interface (before set_configuration)");
 		return 1;
 	}
-	ret = usb_set_configuration(devh, 0x0000001);
+	ret = libusb_set_configuration(devh, 0x0000001);
 	if (ret != 0) {
 		perror("Failed to set active device configuration");
 		return 1;
 	}
-	ret = usb_claim_interface(devh, 0);
+	ret = libusb_claim_interface(devh, 0);
 	if (ret != 0) {
 		perror("Failed to claim device interface (after set_configuration)");
 		return 1;
 	}
-	ret = usb_set_altinterface(devh, 0);
+	ret = libusb_set_interface_alt_setting(devh, 0, 0);
 	if (ret != 0) {
 		perror("Failed to set active alternate setting for interface (after set_configuration)");
 		return 1;
 	}
 
 	usleep(1 * 1000);
-	ret = usb_control_msg(devh, USB_TYPE_VENDOR + USB_RECIP_DEVICE + USB_ENDPOINT_IN, 0x0000001, 0x0000001, 0x0000000, buf, 0x0000002, 1000);
+	ret = libusb_control_transfer(devh, LIBUSB_REQUEST_TYPE_VENDOR + LIBUSB_RECIPIENT_DEVICE + LIBUSB_ENDPOINT_IN, 0x0000001, 0x0000001, 0x0000000, buf, 2, 1000);
 	#ifdef DEBUG
 	printf("5 control msg returned %d, bytes: ", ret);
 	print_bytes(buf, ret);
@@ -303,13 +313,13 @@ int main(int argc, char **argv)
 	#endif
 
 	#ifdef DEBUG
-	for (i = 0, j = 6; i < SOMAGIC_FIRMWARE_LENGTH; i += 0x000003e, ++j) {
+	for (i = 0, j = 6; i < SOMAGIC_FIRMWARE_LENGTH; i += 62, ++j) {
 	#else
-	for (i = 0; i < SOMAGIC_FIRMWARE_LENGTH; i += 0x000003e) {
+	for (i = 0; i < SOMAGIC_FIRMWARE_LENGTH; i += 62) {
 	#endif
-		memcpy(buf, "\x05\xff", 0x0000002);
-		memcpy(buf + 0x0000002, firmware + i, 0x000003e);
-		ret = usb_control_msg(devh, USB_TYPE_VENDOR + USB_RECIP_DEVICE, 0x0000001, 0x0000005, 0x0000000, buf, 0x0000040, 1000);
+		memcpy(buf, "\x05\xff", 2);
+		memcpy(buf + 2, firmware + i, 62);
+		ret = libusb_control_transfer(devh, LIBUSB_REQUEST_TYPE_VENDOR + LIBUSB_RECIPIENT_DEVICE, 0x0000001, 0x0000005, 0x0000000, buf, 64, 1000);
 		#ifdef DEBUG
 		printf("%i control msg returned %d, bytes: ", j, ret);
 		print_bytes(buf, ret);
@@ -318,31 +328,16 @@ int main(int argc, char **argv)
 		usleep(1 * 1000);
 	}
 
-	memcpy(buf, "\x07\x00", 0x0000002);
-	ret = usb_control_msg(devh, USB_TYPE_VENDOR + USB_RECIP_DEVICE, 0x0000001, 0x0000007, 0x0000000, buf, 0x0000002, 1000);
+	memcpy(buf, "\x07\x00", 2);
+	ret = libusb_control_transfer(devh, LIBUSB_REQUEST_TYPE_VENDOR + LIBUSB_RECIPIENT_DEVICE, 0x0000001, 0x0000007, 0x0000000, buf, 2, 1000);
 	#ifdef DEBUG
 	printf("127 control msg returned %d, bytes: ", ret);
 	print_bytes(buf, ret);
 	printf("\n");
 	#endif
 	
-	ret = usb_close(devh);
-	if (ret != 0) {
-		perror("Failed to close USB device");
-		return 1;
-	}
-
-	/* Verify that the new device ID is found */
-	usleep(1000 * 1000);
-	usb_find_devices();
-	#ifdef DEBUG
-	list_devices();
-	#endif
-	dev = find_device(VENDOR, NEW_PRODUCT);
-	if (!dev) {
-		fprintf(stderr, "USB device %04x:%04x was not found. Initialization failed.\n", VENDOR, NEW_PRODUCT);
-		return 1;
-	}
+	libusb_close(devh);
+	libusb_exit(NULL);
 
 	return 0;
 }

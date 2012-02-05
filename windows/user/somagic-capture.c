@@ -1,10 +1,10 @@
 /*******************************************************************************
- * both.c                                                                   *
+ * capture.c                                                                   *
  *                                                                             *
  * USB Driver for Somagic EasyCAP DC60                                         *
  * USB ID 1c88:0007                                                            *
  *                                                                             *
- * Initializes the Somagic EasyCAP DC60 registers and performs image AND AUDIO capture.  *
+ * Initializes the Somagic EasyCAP DC60 registers and performs image capture.  *
  * *****************************************************************************
  *
  * Copyright 2011, 2012 Tony Brown, Michal Demin, Jeffry Johnston, Jon Arne Jørgensen
@@ -34,32 +34,26 @@
 #include <string.h>
 #include <signal.h>
 #include <ctype.h>
-#include <libusb-1.0/libusb.h>
-#ifdef DEBUG
-#include <execinfo.h>
-#endif
+#include <usb.h>
 #include <unistd.h>
 #include <getopt.h>
+#include <errno.h>
 
+#define PROGRAM_NAME "somagic-capture"
 #define VERSION "1.0"
 #define VENDOR 0x1c88
 #define PRODUCT 0x003c
 #define MIN(a, b) (((a) < (b)) ? (a) : (b))
 
 /* Control the number of concurrent ISO transfers we have running */
-#define NUM_ISO_TRANSFERS 20
-#define NUM_ISO_SND_TRANSFERS 16
-
-struct libusb_transfer *vid_free[NUM_ISO_TRANSFERS];
-
-int vid_free_item = 0;
+static const int NUM_ISO_TRANSFERS = 4;
 
 int frames_generated = 0;
 int stop_sending_requests = 0;
 int pending_requests = 0;
 int lines_per_field;
 
-struct libusb_device_handle *devh;
+struct usb_dev_handle *devh;
 
 enum tv_standards {
 	NTSC,         /* 525/60 */
@@ -112,34 +106,29 @@ int luminance_aperture = 1;
 void release_usb_device(int ret)
 {
 	fprintf(stderr, "Emergency exit\n");
-	ret = libusb_release_interface(devh, 0);
+	ret = usb_release_interface(devh, 0);
 	if (!ret) {
 		perror("Failed to release interface");
 	}
-	libusb_close(devh);
-	libusb_exit(NULL);
+	ret = usb_close(devh);
+	if (!ret) {
+		perror("Failed to close interface");
+	}
 	exit(1);
 }
 
-struct libusb_device *find_device(int vendor, int product)
+struct usb_device *find_device(int vendor, int product)
 {
-	struct libusb_device **list;
-	struct libusb_device *dev = NULL;
-	struct libusb_device_descriptor descriptor;
-	int i;
-	ssize_t count;
-	count = libusb_get_device_list(NULL, &list);
-	for (i = 0; i < count; i++) {
-		struct libusb_device *item = list[i];
-		libusb_get_device_descriptor(item, &descriptor);
-		if (descriptor.idVendor == vendor && descriptor.idProduct == product) {
-			dev = item;
-		} else {
-			libusb_unref_device(item);
+	struct usb_bus *bus;
+	struct usb_device *dev;
+
+	for (bus = usb_get_busses(); bus; bus = bus->next) {
+		for (dev = bus->devices; dev; dev = dev->next) {
+			if (dev->descriptor.idVendor == vendor && dev->descriptor.idProduct == product)
+				return dev;
 		}
 	}
-	libusb_free_device_list(list, 0);
-	return dev;
+	return NULL;
 }
 
 void print_bytes(unsigned char *bytes, int len)
@@ -170,21 +159,6 @@ void print_bytes_only(char *bytes, int len)
 		}
 	}
 }
-
-#ifdef DEBUG
-void trace()
-{
-	void *array[10];
-	size_t size;
-
-	/* get void*'s for all entries on the stack */
-	size = backtrace(array, 10);
-
-	/* print out all the frames */
-	backtrace_symbols_fd(array, size, 1);
-	exit(1);
-}
-#endif
 
 enum sync_state {
 	HSYNC,
@@ -328,134 +302,38 @@ static void process(struct video_state_t *vs, uint8_t c)
 	}
 }
 
-void control_rx(struct libusb_transfer *tfr)
+void gotdata(char **argv, void *request, unsigned char *data, int length)
 {
-//	fprintf(stderr,"control_rx: done, status=%d\n", tfr->status);
-	libusb_free_transfer(tfr);
-}
-
-
-uint8_t async_ctl_buf[64];
-uint8_t async_set_intf_buf[64];
-
-static int iso_mode = 0;
-
-
-
-
-
-
-void int_set_1_rx( struct libusb_transfer *tfr)
-{
-	libusb_free_transfer(tfr);
-	iso_mode = 1;
-
-}
-
-void int_set_2_rx( struct libusb_transfer *tfr)
-{
-	libusb_free_transfer(tfr);
-	iso_mode = 0;
-	
-}
-
-void set_vid_mode( libusb_device_handle *dev_handle)
-{
-	struct libusb_transfer *async_ctl = libusb_alloc_transfer(0);
-
-	libusb_fill_control_setup(async_ctl_buf,  LIBUSB_REQUEST_TYPE_VENDOR + LIBUSB_RECIPIENT_DEVICE, 0x0000001, 0x0000001, 0x0000000, 2);
-
-	libusb_fill_control_transfer( async_ctl, dev_handle, async_ctl_buf, control_rx, NULL, 1000); 
-
-	struct libusb_transfer *async_set_intf = libusb_alloc_transfer(0);
-
-	
-	memcpy(libusb_control_transfer_get_data( async_ctl ),"\x01\x05",2); 
-	libusb_fill_control_setup(async_set_intf_buf,  1, 0x0b, 2, 0, 0);
-	
-	libusb_submit_transfer( async_ctl );
-
-	libusb_fill_control_transfer( async_set_intf, dev_handle, async_set_intf_buf, int_set_2_rx, NULL, 1000); 
-	libusb_submit_transfer( async_set_intf );
-}
-
-
-void set_snd_mode( libusb_device_handle *dev_handle)
-{
-	
-	struct libusb_transfer *async_ctl = libusb_alloc_transfer(0);
-
-	libusb_fill_control_setup(async_ctl_buf,  LIBUSB_REQUEST_TYPE_VENDOR + LIBUSB_RECIPIENT_DEVICE, 0x0000001, 0x0000001, 0x0000000, 2);
-
-	libusb_fill_control_transfer( async_ctl, dev_handle, async_ctl_buf, control_rx, NULL, 1000); 
-
-	struct libusb_transfer *async_set_intf = libusb_alloc_transfer(0);
-
-	
-	memcpy(libusb_control_transfer_get_data( async_ctl ),"\x00\x02",2); 
-	libusb_fill_control_setup(async_set_intf_buf,  1, 0x0b, 1, 0, 0);
-	
-	libusb_submit_transfer( async_ctl );
-
-	libusb_fill_control_transfer( async_set_intf, dev_handle, async_set_intf_buf, int_set_1_rx, NULL, 1000); 
-	libusb_submit_transfer( async_set_intf );
-	
-}
-
-
-void gotdata(struct libusb_transfer *tfr)
-{
-	//int ret;
-	int num = tfr->num_iso_packets;
 	int i;
+	int pos = 0;
+	int k;
 
 	pending_requests--;
 
-	for (i = 0; i < num; i++) {
-		unsigned char *data = libusb_get_iso_packet_buffer_simple(tfr, i);
-		int length = tfr->iso_packet_desc[i].actual_length;
-		int pos = 0;
-		int k;
-//fprintf(stderr," %d", length);
-		while (pos < length) {
-			/*
-			* Within each packet of the transfer, the data is divided into blocks of 0x400 bytes
-			* beginning with [0xaa 0xaa 0x00 0x00].
-			* Check for this signature and process each block of data individually.
-			*/
-			if (data[pos] == 0xaa && data[pos + 1] == 0xaa && data[pos + 2] == 0x00 &&  data[pos + 3] == 0x00 ) {
-				/* process the received data, excluding the 4 marker bytes */
-				for (k = 4; k < 0x400; k++) {
-					process(&vs, data[k + pos]);
-				}
-			} else if (data[pos] == 0xaa && data[pos + 1] == 0xaa && data[pos + 2] == 0x00 &&  data[pos + 3] == 0x01 ) {
-				/* blocks [0xaa 0xaa 0x00 0x01 are AUDIO blocks (when device setup correctly) 
-				 write these to fd #2 (stderr)*/
-				write( 2, data +4 , 0x400 - 4);
-				
-			} else {
- 				fprintf(stderr, "Unexpected block, expected [aa aa 00 00/01] found [%02x %02x %02x %02x]\n", data[pos], data[pos + 1], data[pos + 2], data[pos + 3]);
+	while (pos < length) {
+		/*
+		 * Within each packet of the transfer, the data is divided into blocks of 0x400 bytes
+		 * beginning with [0xaa 0xaa 0x00 0x00].
+		 * Check for this signature and process each block of data individually.
+		 */
+		if (data[pos] == 0xaa && data[pos + 1] == 0xaa && data[pos + 2] == 0x00 && data[pos + 3] == 0x00) {
+			/* process the received data, excluding the 4 marker bytes */
+			for (k = 4; k < 0x400; k++) {
+				process(&vs, data[k + pos]);
 			}
-			pos += 0x400;
+		} else {
+			fprintf(stderr, "Unexpected block, expected [aa aa 00 00] found [%02x %02x %02x %02x]\n", data[pos], data[pos + 1], data[pos + 2], data[pos + 3]);
 		}
+		pos += 0x400;
 	}
 
-	//add transfer to free transfer list
-	if( vid_free_item < NUM_ISO_TRANSFERS ){
-		vid_free[vid_free_item] = tfr;
-		vid_free_item++;
+	if (!stop_sending_requests) {
+		if (usb_submit_async(request, data, 64 * 3072) < 0) {
+			fprintf(stderr, "%s: Error submitting request #%d for transfer: %s\n", argv[0], i, strerror(errno));
+			exit(1);
+		} 
+		pending_requests++;
 	}
-// 	if (!stop_sending_requests) {
-// 		reqcount++;
-// 		if( iso_mode == 1 ) set_vid_mode( tfr->dev_handle );
-// 		ret = libusb_submit_transfer(tfr);
-// 		if (ret != 0) {
-// 			fprintf(stderr, "libusb_submit_transfer failed with error %d\n", ret);
-// 			exit(1);
-// 
-// 		}
-// 		pending_requests++;
-// 	}
 }
 
 uint8_t somagic_read_reg(uint16_t reg)
@@ -467,18 +345,18 @@ uint8_t somagic_read_reg(uint16_t reg)
 	buf[5] = reg >> 8;
 	buf[6] = reg & 0xff;
 
-	ret = libusb_control_transfer(devh, LIBUSB_REQUEST_TYPE_VENDOR + LIBUSB_RECIPIENT_DEVICE, 0x0000001, 0x000000b, 0x0000000, buf, 8, 1000);
+	ret = usb_control_msg(devh, USB_TYPE_VENDOR + USB_RECIP_DEVICE, 0x0000001, 0x000000b, 0x0000000, buf, 8, 1000);
 	if (ret != 8) {
-//		fprintf(stderr, "read_reg msg returned %d, bytes: ", ret);
-		//print_bytes(buf, ret);
-		//fprintf(stderr, "\n");
+		fprintf(stderr, "read_reg msg returned %d, bytes: ", ret);
+		print_bytes(buf, ret);
+		fprintf(stderr, "\n");
 	}
 
-	ret = libusb_control_transfer(devh, LIBUSB_REQUEST_TYPE_VENDOR + LIBUSB_RECIPIENT_DEVICE + LIBUSB_ENDPOINT_IN, 0x0000001, 0x000000b, 0x0000000, buf, 13, 1000);
+	ret = usb_control_msg(devh, USB_TYPE_VENDOR + USB_RECIP_DEVICE + USB_ENDPOINT_IN, 0x0000001, 0x000000b, 0x0000000, buf, 13, 1000);
 	if (ret != 13) {
-		//fprintf(stderr, "read_reg control msg returned %d, bytes: ", ret);
-		//print_bytes(buf, ret);
-		//fprintf(stderr, "\n");
+		fprintf(stderr, "read_reg control msg returned %d, bytes: ", ret);
+		print_bytes(buf, ret);
+		fprintf(stderr, "\n");
 	}
 
 	return buf[7];
@@ -494,11 +372,11 @@ static int somagic_write_reg(uint16_t reg, uint8_t val)
 	buf[6] = reg & 0xff;
 	buf[7] = val;
 
-	ret = libusb_control_transfer(devh, LIBUSB_REQUEST_TYPE_VENDOR + LIBUSB_RECIPIENT_DEVICE, 0x0000001, 0x000000b, 0x0000000, buf, 8, 1000);
+	ret = usb_control_msg(devh, USB_TYPE_VENDOR + USB_RECIP_DEVICE, 0x0000001, 0x000000b, 0x0000000, buf, 8, 1000);
 	if (ret != 8) {
-		//fprintf(stderr, "write reg control msg returned %d, bytes: ", ret);
-		//print_bytes(buf, ret);
-		//fprintf(stderr, "\n");
+		fprintf(stderr, "write reg control msg returned %d, bytes: ", ret);
+		print_bytes(buf, ret);
+		fprintf(stderr, "\n");
 	}
 
 	return ret;
@@ -506,7 +384,7 @@ static int somagic_write_reg(uint16_t reg, uint8_t val)
 
 static uint8_t somagic_read_i2c(uint8_t dev_addr, uint8_t reg)
 {
-	//int ret;
+	int ret;
 	uint8_t buf[13];
 
 	memcpy(buf, "\x0b\x4a\x84\x00\x01\x10\x00\x00\x00\x00\x00\x00\x00", 13);
@@ -514,26 +392,26 @@ static uint8_t somagic_read_i2c(uint8_t dev_addr, uint8_t reg)
 	buf[1] = dev_addr;
 	buf[5] = reg;
 
-	libusb_control_transfer(devh, LIBUSB_REQUEST_TYPE_VENDOR + LIBUSB_RECIPIENT_DEVICE, 0x0000001, 0x000000b, 0x0000000, buf, 13, 1000);
-	//fprintf(stderr, "-> i2c_read msg returned %d, bytes: ", ret);
-	//print_bytes(buf, ret);
-	//fprintf(stderr, "\n");
+	ret = usb_control_msg(devh, USB_TYPE_VENDOR + USB_RECIP_DEVICE, 0x0000001, 0x000000b, 0x0000000, buf, 13, 1000);
+	fprintf(stderr, "-> i2c_read msg returned %d, bytes: ", ret);
+	print_bytes(buf, ret);
+	fprintf(stderr, "\n");
 	usleep(18 * 1000);
 
 	memcpy(buf, "\x0b\x4a\xa0\x00\x01\x00\xff\xff\xff\xff\xff\xff\xff", 13);
 
 	buf[1] = dev_addr;
 
-	libusb_control_transfer(devh, LIBUSB_REQUEST_TYPE_VENDOR + LIBUSB_RECIPIENT_DEVICE, 0x0000001, 0x000000b, 0x0000000, buf, 13, 1000);
-	//fprintf(stderr, "-> i2c_read msg returned %d, bytes: ", ret);
-	//print_bytes(buf, ret);
-	//fprintf(stderr, "\n");
+	ret = usb_control_msg(devh, USB_TYPE_VENDOR + USB_RECIP_DEVICE, 0x0000001, 0x000000b, 0x0000000, buf, 13, 1000);
+	fprintf(stderr, "-> i2c_read msg returned %d, bytes: ", ret);
+	print_bytes(buf, ret);
+	fprintf(stderr, "\n");
 
 	memset(buf, 0xff, 0x000000d);
-	libusb_control_transfer(devh, LIBUSB_REQUEST_TYPE_VENDOR + LIBUSB_RECIPIENT_DEVICE + LIBUSB_ENDPOINT_IN, 0x0000001, 0x000000b, 0x0000000, buf, 13, 1000);
-	//fprintf(stderr, "<- i2c_read msg returned %d, bytes: ", ret);
-	//print_bytes(buf, ret);
-	//fprintf(stderr, "\n");
+	ret = usb_control_msg(devh, USB_TYPE_VENDOR + USB_RECIP_DEVICE + USB_ENDPOINT_IN, 0x0000001, 0x000000b, 0x0000000, buf, 13, 1000);
+	fprintf(stderr, "<- i2c_read msg returned %d, bytes: ", ret);
+	print_bytes(buf, ret);
+	fprintf(stderr, "\n");
 	usleep(11 * 1000);
 
 	return buf[5];
@@ -550,11 +428,11 @@ static int somagic_write_i2c(uint8_t dev_addr, uint8_t reg, uint8_t val)
 	buf[5] = reg;
 	buf[6] = val;
 
-	ret = libusb_control_transfer(devh, LIBUSB_REQUEST_TYPE_VENDOR + LIBUSB_RECIPIENT_DEVICE, 0x0000001, 0x000000b, 0x0000000, buf, 8, 1000);
+	ret = usb_control_msg(devh, USB_TYPE_VENDOR + USB_RECIP_DEVICE, 0x0000001, 0x000000b, 0x0000000, buf, 8, 1000);
 	if (ret != 8) {
-		//fprintf(stderr, "write_i2c returned %d, bytes: ", ret);
-		//print_bytes(buf, ret);
-		//fprintf(stderr, "\n");
+		fprintf(stderr, "write_i2c returned %d, bytes: ", ret);
+		print_bytes(buf, ret);
+		fprintf(stderr, "\n");
 	}
 
 	return ret;
@@ -562,7 +440,7 @@ static int somagic_write_i2c(uint8_t dev_addr, uint8_t reg, uint8_t val)
 
 void version()
 {
-	fprintf(stderr, "capture "VERSION"\n");
+	fprintf(stderr, PROGRAM_NAME" "VERSION"\n");
 	fprintf(stderr, "Copyright 2011, 2012 Tony Brown, Michal Demin, Jeffry Johnston,\n");
 	fprintf(stderr, "                     Jon Arne Jørgensen\n");
 	fprintf(stderr, "License GPLv2+: GNU GPL version 2 or later <http://gnu.org/licenses/gpl.html>.\n");
@@ -572,7 +450,7 @@ void version()
 
 void usage()
 {
-	fprintf(stderr, "Usage: capture [options]\n");
+	fprintf(stderr, "Usage: "PROGRAM_NAME" [options]\n");
 	fprintf(stderr, "  -c, --cvbs                 Use CVBS (composite) input (default)\n");
 	fprintf(stderr, "  -B, --brightness=VALUE     Luminance brightness control,\n");
 	fprintf(stderr, "                             0 to 255 (default: 128)\n");
@@ -637,17 +515,14 @@ void usage()
 	fprintf(stderr, "      --version              Display version information\n");
 	fprintf(stderr, "\n");
 	fprintf(stderr, "Examples (run as root):\n");
-	fprintf(stderr, "# Initialize device (if not using kernel module)\n");
-	fprintf(stderr, "init\n");
-	fprintf(stderr, "\n");
 	fprintf(stderr, "# PAL, CVBS/composite:\n");
-	fprintf(stderr, "capture 2> /dev/null | mplayer - -vf yadif,screenshot -demuxer rawvideo -rawvideo \"pal:format=uyvy:fps=25\"\n");
+	fprintf(stderr, PROGRAM_NAME" 2> /dev/null | mplayer - -vf yadif,screenshot -demuxer rawvideo -rawvideo \"pal:format=uyvy:fps=25\"\n");
 	fprintf(stderr, "\n");
 	fprintf(stderr, "# NTSC, S-VIDEO\n");
-	fprintf(stderr, "capture -n -s 2> /dev/null | mplayer - -vf yadif,screenshot -demuxer rawvideo -rawvideo \"ntsc:format=uyvy:fps=30000/1001\"\n");
+	fprintf(stderr, PROGRAM_NAME" -n -s 2> /dev/null | mplayer - -vf yadif,screenshot -demuxer rawvideo -rawvideo \"ntsc:format=uyvy:fps=30000/1001\"\n");
 	fprintf(stderr, "\n");
 	fprintf(stderr, "# NTSC, CVBS/composite, increased sharpness:\n");
-	fprintf(stderr, "capture -n --luminance=2 --lum-aperture=3 2> /dev/null | mplayer - -vf yadif,screenshot -demuxer rawvideo -rawvideo \"pal:format=uyvy:fps=25\"\n");
+	fprintf(stderr, PROGRAM_NAME" -n --luminance=2 --lum-aperture=3 2> /dev/null | mplayer - -vf yadif,screenshot -demuxer rawvideo -rawvideo \"pal:format=uyvy:fps=25\"\n");
 }
 
 int main(int argc, char **argv)
@@ -656,16 +531,15 @@ int main(int argc, char **argv)
 	int i = 0;
 	uint8_t status;
 	uint8_t work; 
-	struct libusb_device *dev;
+	struct usb_device *dev;
 
 	/* buffer for control messages */
 	unsigned char buf[65535];
 	
-	/* buffers and transfer pointers for isochronous data */
-	struct libusb_transfer *tfr[NUM_ISO_TRANSFERS];
+	/* context and buffers for isochronous data */
+	void *request[NUM_ISO_TRANSFERS];
 	unsigned char isobuf[NUM_ISO_TRANSFERS][64 * 3072];
 
-	
 	/* parsing */
 	int c;
 	int option_index = 0;
@@ -813,64 +687,75 @@ int main(int argc, char **argv)
 		return 1;
 	}
 
-	libusb_init(NULL);
-	libusb_set_debug(NULL, 0);
+	usb_init();
+	usb_set_debug(0);
 
+	usb_find_busses();
+	usb_find_devices();
 	dev = find_device(VENDOR, PRODUCT);
 	if (!dev) {
 		fprintf(stderr, "USB device %04x:%04x was not found. Has device initialization been performed?\n", VENDOR, PRODUCT);
 		return 1;
 	}
 
-	ret = libusb_open(dev, &devh);
+	devh = usb_open(dev);
 	if (!devh) {
 		perror("Failed to open USB device");
 		return 1;
 	}
-	libusb_unref_device(dev);
 	
 	signal(SIGTERM, release_usb_device);
-	ret = libusb_claim_interface(devh, 0);
+
+	ret = usb_claim_interface(devh, 0);
 	if (ret != 0) {
-		fprintf(stderr, "claim failed with error %d\n", ret);
-		exit(1);
+		perror("Failed to claim device interface");
+		return 1;
 	}
 	
-	ret = libusb_set_interface_alt_setting(devh, 0, 0);
+	ret = usb_set_altinterface(devh, 0);
 	if (ret != 0) {
-		fprintf(stderr, "set_interface_alt_setting failed with error %d\n", ret);
-		exit(1);
+		perror("Failed to set active alternate setting for interface");
+		return 1;
 	}
 
-	ret = libusb_get_descriptor(devh, 0x0000001, 0x0000000, buf, 0x0000012);
+	ret = usb_get_descriptor(devh, 0x0000001, 0x0000000, buf, 0x0000012);
 	fprintf(stderr, "1 get descriptor returned %d, bytes: ", ret);
-	//print_bytes(buf, ret);
-	//fprintf(stderr, "\n");
-	ret = libusb_get_descriptor(devh, 0x0000002, 0x0000000, buf, 0x0000009);
-	//fprintf(stderr, "2 get descriptor returned %d, bytes: ", ret);
-	//print_bytes(buf, ret);
-	//fprintf(stderr, "\n");
-	ret = libusb_get_descriptor(devh, 0x0000002, 0x0000000, buf, 0x0000042);
-	//fprintf(stderr, "3 get descriptor returned %d, bytes: ", ret);
-	//print_bytes(buf, ret);
-	//fprintf(stderr, "\n");
+	print_bytes(buf, ret);
+	fprintf(stderr, "\n");
+	ret = usb_get_descriptor(devh, 0x0000002, 0x0000000, buf, 0x0000009);
+	fprintf(stderr, "2 get descriptor returned %d, bytes: ", ret);
+	print_bytes(buf, ret);
+	fprintf(stderr, "\n");
+	ret = usb_get_descriptor(devh, 0x0000002, 0x0000000, buf, 0x0000042);
+	fprintf(stderr, "3 get descriptor returned %d, bytes: ", ret);
+	print_bytes(buf, ret);
+	fprintf(stderr, "\n");
 
-	ret = libusb_release_interface(devh, 0);
+	ret = usb_release_interface(devh, 0);
 	if (ret != 0) {
-		//fprintf(stderr, "failed to release interface before set_configuration: %d\n", ret);
+		perror("Failed to release interface (before set_configuration)");
+		return 1;
 	}
-	ret = libusb_set_configuration(devh, 0x0000001);
-	//fprintf(stderr, "4 set configuration returned %d\n", ret);
-	ret = libusb_claim_interface(devh, 0);
+	ret = usb_set_configuration(devh, 0x0000001);
 	if (ret != 0) {
-		//fprintf(stderr, "claim after set_configuration failed with error %d\n", ret);
+		perror("Failed to set active configuration");
+		return 1;
 	}
-	ret = libusb_set_interface_alt_setting(devh, 0, 0);
-	//fprintf(stderr, "4 set alternate setting returned %d\n", ret);
-	ret = libusb_control_transfer(devh, LIBUSB_REQUEST_TYPE_VENDOR + LIBUSB_RECIPIENT_DEVICE + LIBUSB_ENDPOINT_IN, 0x0000001, 0x0000001, 0x0000000, buf, 2, 1000);
-	//fprintf(stderr, "5 control msg returned %d, bytes: ", ret);
-	//print_bytes(buf, ret);
-	//fprintf(stderr, "\n");
+	fprintf(stderr, "4 set configuration returned %d\n", ret);
+	ret = usb_claim_interface(devh, 0);
+	if (ret != 0) {
+		perror("Failed to claim device interface (after set_configuration)");
+		return 1;
+	}
+	ret = usb_set_altinterface(devh, 0);
+	if (ret != 0) {
+		perror("Failed to set active alternate setting for interface (after set_configuration)");
+		return 1;
+	}
+	ret = usb_control_msg(devh, USB_TYPE_VENDOR + USB_RECIP_DEVICE + USB_ENDPOINT_IN, 0x0000001, 0x0000001, 0x0000000, buf, 2, 1000);
+	fprintf(stderr, "5 control msg returned %d, bytes: ", ret);
+	print_bytes(buf, ret);
+	fprintf(stderr, "\n");
 
 	somagic_write_reg(0x3a, 0x80);
 	somagic_write_reg(0x3b, 0x00);
@@ -964,7 +849,7 @@ int main(int argc, char **argv)
 		/* Chrominance trap bypass (BYPS) = Chrominance trap bypassed; default for S-video mode */
 		work |= 0x80;
 	}
-	//fprintf(stderr, "Subaddress 0x09 set to %02x\n", work); 
+	fprintf(stderr, "Subaddress 0x09 set to %02x\n", work); 
 	somagic_write_i2c(0x4a, 0x09, work);
 
 	/* Subaddress 0x0a, Luminance brightness control */
@@ -1145,93 +1030,73 @@ int main(int argc, char **argv)
 	somagic_write_i2c(0x4a, 0x5e, 0x00);
 
 	status = somagic_read_i2c(0x4a, 0x10);
-	//fprintf(stderr,"i2c_read(0x10) = %02x\n", status);
+	fprintf(stderr,"i2c_read(0x10) = %02x\n", status);
 
 	status = somagic_read_i2c(0x4a, 0x02);
-	//fprintf(stderr,"i2c_stat(0x02) = %02x\n", status);
+	fprintf(stderr,"i2c_stat(0x02) = %02x\n", status);
 
 	somagic_write_reg(0x1740, 0x40);
 
 	status = somagic_read_reg(0x3080);
-	//fprintf(stderr, "status is %02x\n", status);
+	fprintf(stderr, "status is %02x\n", status);
 
 	somagic_write_reg(0x1740, 0x00);
 	usleep(250 * 1000);
 	somagic_write_reg(0x1740, 0x00);
 
 	status = somagic_read_reg(0x3080);
-	//fprintf(stderr, "status is %02x\n", status);
+	fprintf(stderr, "status is %02x\n", status);
 
-	
-	memcpy(buf, "\x01\x02", 2);
-	ret = libusb_control_transfer(devh, LIBUSB_REQUEST_TYPE_VENDOR + LIBUSB_RECIPIENT_DEVICE, 0x0000001, 0x0000001, 0x0000000, buf, 2, 1000);
-	//fprintf(stderr, "190 control msg returned %d, bytes: ", ret);
-	//print_bytes(buf, ret);
-	//fprintf(stderr, "\n");
+	memcpy(buf, "\x01\x05", 2);
+	ret = usb_control_msg(devh, USB_TYPE_VENDOR + USB_RECIP_DEVICE, 0x0000001, 0x0000001, 0x0000000, buf, 2, 1000);
+	fprintf(stderr, "190 control msg returned %d, bytes: ", ret);
+	print_bytes(buf, ret);
+	fprintf(stderr, "\n");
+	ret = usb_get_descriptor(devh, 0x0000002, 0x0000000, buf, 0x0000109);
+	fprintf(stderr, "191 get descriptor returned %d, bytes: ", ret);
+	print_bytes(buf, ret);
+	fprintf(stderr, "\n");
+	ret = usb_set_altinterface(devh, 2);
+	fprintf(stderr, "192 set alternate setting returned %d\n", ret);
 
-//	somagic_write_reg(0x1740, 0x05);
+	/* Disable sound?  - If we remove this line, we start to receive data with the header [0xaa 0xaa 0x00 0x01] */
+	somagic_write_reg(0x1740, 0x00);
 	usleep(30 * 1000);
-	ret = libusb_set_interface_alt_setting(devh, 0, 2);
-	//fprintf(stderr, "192 set alternate setting returned %d\n", ret);
 
-	
 	for (i = 0; i < NUM_ISO_TRANSFERS; i++)	{
-		tfr[i] = libusb_alloc_transfer(64);
-		if (tfr[i] == NULL) {
-			//fprintf(stderr, "Failed to allocate USB transfer #%d\n", i);
+		if (usb_isochronous_setup_async(devh, &request[i], 0x00000082, 3072) < 0) {
+			fprintf(stderr, "%s: Error allocating USB transfer #%d: %s\n", argv[0], i, strerror(errno));
 			return 1;
 		}
-		libusb_fill_iso_transfer(tfr[i], devh, 0x00000082, isobuf[i], 64 * 3072, 64, gotdata, NULL, 2000);
-		libusb_set_iso_packet_lengths(tfr[i], 3072);
+		if (usb_submit_async(request[i], isobuf[i], 64 * 3072) < 0) {
+			fprintf(stderr, "%s: Error submitting request #%d for transfer: %s\n", argv[0], i, strerror(errno));
+			return 1;
+		} 
 	}
+	
+	somagic_write_reg(0x1800, 0x0d);
 	
 	pending_requests = NUM_ISO_TRANSFERS;
-	for (i = 0; i < NUM_ISO_TRANSFERS; i++) {
-		ret = libusb_submit_transfer(tfr[i]);
-		if (ret != 0) {
-			//fprintf(stderr, "libusb_submit_transfer failed with error %d for transfer %d\n", ret, i);
-			exit(1);
+	while (pending_requests > 0) {
+		for (i = 0; i < NUM_ISO_TRANSFERS; i++) {
+			gotdata(argv, request[i], isobuf[i], usb_reap_async(request[i], 2000));
 		}
 	}
-
-
-	set_snd_mode( devh );
-	
-	while( iso_mode != 1 ){
-		libusb_handle_events(NULL);
-	}
-
-	
-	set_vid_mode( devh );
-	
-	while( iso_mode != 0 ){
-		libusb_handle_events(NULL);
-	}
-
-	
-
-	while (/*pending_requests > 0*/ 1) {
-		libusb_handle_events(NULL);
-		//fprintf(stderr,"vf=%d sf=%d\n",vid_free_item, snd_free_item );
-
-		if( vid_free_item >= NUM_ISO_TRANSFERS - 4 ){ 
-			//fprintf(stderr,"v\n");
-			for( i = 0 ; i < vid_free_item; i++ ) libusb_submit_transfer( vid_free[i] );
-			vid_free_item = 0;
-		}
-	
-	}
-	
+		
 	for (i = 0; i < NUM_ISO_TRANSFERS; i++) {
-		libusb_free_transfer(tfr[i]);
+		usb_free_async(&request[i]);
 	}
 
-	ret = libusb_release_interface(devh, 0);
+	ret = usb_release_interface(devh, 0);
 	if (ret != 0) {
 		perror("Failed to release interface");
 		return 1;
 	}
-	libusb_close(devh);
-	libusb_exit(NULL);
+	ret = usb_close(devh);
+	if (ret != 0) {
+		perror("Failed to close USB device");
+		return 1;
+	}
+
 	return 0;
 }

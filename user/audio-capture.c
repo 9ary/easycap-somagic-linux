@@ -47,7 +47,9 @@
 #include <signal.h>
 #include <ctype.h>
 #include <libusb-1.0/libusb.h>
+#ifdef DEBUG
 #include <execinfo.h>
+#endif
 #include <unistd.h>
 
 #define VENDOR 0x1c88
