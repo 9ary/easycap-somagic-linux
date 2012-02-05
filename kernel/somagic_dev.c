@@ -453,230 +453,72 @@ static enum parse_state parse_data(struct usb_somagic *somagic)
 {
 	int j;
 	struct somagic_frame *frame;
-	enum parse_state newstate;
-	unsigned long lock_flags;
 	u8 c;
-	u8 line[1448];
 
 	frame = somagic->video.cur_frame;
 
 	while(scratch_len(somagic)) {
-		if (somagic->video.scan_state != SCANNER_PARSE_LINES) {
-			scratch_get(somagic, &c, 1);
-		} else { // PARSE LINES!!
-			if (scratch_len(somagic) < 1448) {
-				return PARSE_STATE_CONTINUE;
-			} else {
-				if (frame->line == 625) {
-					scratch_get(somagic, line, 704);
-					if (line[700] != 0xff && line[701] != 0x00 && line[702] != 0x00) {
-						printk(KERN_INFO "somagic::%s: Lost line sync on line %d!\n",
- 									 __func__, frame->line);
-						somagic->video.scan_state = SCANNER_FIND_VBI;
-						frame->bytes = 0;
-						frame->line = 0;
-						frame->scanlength = 0;
-						continue;
-					} else {
-						memcpy(frame->data + frame->scanlength, line, 696);
-						frame->scanlength += 696;
-						return PARSE_STATE_NEXT_FRAME;
-					}
-				} else {
-					scratch_get(somagic, line, 1448);
-					if (line[1444] != 0xff && line[1445] != 0x00 && line[1446] != 0x00) {
-						printk(KERN_INFO "somagic::%s: Lost line sync on line %d!\n",
- 									 __func__, frame->line);
-						somagic->video.scan_state = SCANNER_FIND_VBI;
-						frame->bytes = 0;
-						frame->line = 0;
-						frame->scanlength = 0;
-						continue;
-					} else {
-						memcpy(frame->data + frame->scanlength, line, 1440);
-						frame->scanlength += 1440;
-						frame->line++;
-						continue;
-					}
-				}
-			}
+		scratch_get(somagic, &c, 1);
+
+		if (frame->scanlength > 900000) {
+			frame->scanlength = 0;
+			printk(KERN_INFO "somagic::%s: Frame-error: buffer overflow!\n", __func__);
 		}
+
 		switch(frame->line_sync) {
 			case HSYNC : {
 				if (c == 0xff) {
 					frame->line_sync++;
+				} else {
+					frame->data[frame->scanlength++] = c;
 				}
 				break;
 			}
 			case SYNCZ1 :
+				if (c == 0x00) {
+					frame->line_sync++;
+				} else {
+					frame->data[frame->scanlength++] = 0xff;
+					frame->data[frame->scanlength++] = c;
+					frame->line_sync = HSYNC;
+				}
+				break;
 			case SYNCZ2 : {
 				if (c == 0x00) {
 					frame->line_sync++;
 				} else {
+					frame->data[frame->scanlength++] = 0xff;
+					frame->data[frame->scanlength++] = 0x00;
+					frame->data[frame->scanlength++] = c;
 					frame->line_sync = HSYNC;
 				}
 				break;
 			}
 			case SYNCAV : {
 				frame->line_sync = HSYNC;
-				if (somagic->video.scan_state == SCANNER_FIND_VBI) {
-					if ((c & 0x10) == 0)	{ 	// TRC _ Start of Line (SAV)
-						if ((c & 0x20) == 0) { 	// In VBI
-							printk(KERN_INFO "somagic::%s: Found VBI after %d bytes, "\
-															 "will now scan for first NON-VBI Line\n",
- 											__func__, frame->bytes);
-							frame->bytes = 0;
-							somagic->video.scan_state = SCANNER_FIND_VBI_END;
+
+				if ((c & 0x10) == 0x10)	{ 	// TRC _ End of Line (EAV)
+						frame->line++;
+						if (frame->line == 625) {
+							printk(KERN_INFO "somagic::%s: We have a full frame!, size is %d bytes!\n", __func__, frame->scanlength);
+							return PARSE_STATE_NEXT_FRAME;
+							// FOR DEBUG!
+							// frame->scanlength = 0;
+							// frame->line = 0;
+							
 						}
-					}
-					break;
 				}
-				if (somagic->video.scan_state == SCANNER_FIND_VBI_END) {
-					if ((c & 0x10) == 0)	{ 	// TRC _ Start of Line (SAV)
-						if ((c & 0x20) == 0x20) { 	// In Active Video
-							printk(KERN_INFO "somagic::%s: Found NON-VBI Line after %d bytes, "\
-															 "will now scan for first ODD Image Line\n",
- 											__func__, frame->bytes);
-							frame->bytes = 0;
-							somagic->video.scan_state = SCANNER_FIND_ODD;
-							frame->even_read = 0;
-							frame->odd_read = 0;
-						}
-					}
-				}
+			}
+		}
+	}
+/*
 				if (somagic->video.scan_state == SCANNER_FIND_ODD) {
 					if ((c & 0x10) == 0)	{ 	// TRC _ Start of Line (SAV)
-						if ((c & 0x20) == 0x20) { 	// In Active Video
+						if ((c & 0x20) == 0x20) { 	// In Active Video // ELSE VBI
 							if ((c & 0x40) == 0) { // ODD
-								printk(KERN_INFO "somagic::%s: Found ODD after %d bytes!\n",
- 												__func__, frame->bytes);
-								frame->bytes = 0;
-								frame->odd_read++;
-								somagic->video.scan_state = SCANNER_FIND_EVEN;
-/*
-								if (frame->odd_read >= 10) {
-									somagic->video.scan_state = SCANNER_PARSE_LINES;
-									frame->line = 0;
-									frame->scanlength = 0;
-								}
 */
-							}
-						}
-					}
-					break;
-				}
-				if (somagic->video.scan_state == SCANNER_FIND_EVEN) {
-					if ((c & 0x10) == 0)	{ 	// TRC _ Start of Line (SAV)
-						if ((c & 0x20) == 0x20) { 	// In Active Video
-							if ((c & 0x40) == 0x40) { // EVEN
-								printk(KERN_INFO "somagic::%s: Found EVEN after %d bytes!\n",
- 												__func__, frame->bytes);
-								frame->bytes = 0;
-								somagic->video.scan_state = SCANNER_FIND_ODD;
-								frame->even_read++;
-							}
-						}
-					}
-					break;
-				}
-
-/*
-				if ((c & 0x10) == 0)	{ 	// SAV
-					if ((c & 0x20) == 0x20) { 	// Active Video
-						if ((frame->bfFrameStatus & FRAME_STATUS_HAS_FIRST_LINE) == 0) {
-							frame->bfFrameStatus |= FRAME_STATUS_IN_FIRST_LINE;
-							frame->bfFrameStatus |= FRAME_STATUS_IN_AV;
-							printk(KERN_INFO "somagic::%s: Found First video line after %d bytes!\n", __func__, frame->bytes);
-							if (c & 0x40) {
-								printk(KERN_INFO "somagic::%s: Frame is EVEN\n", __func__);
-							} else {
-								printk(KERN_INFO "somagic::%s: Frame is ODD\n", __func__);
-							}
-							frame->col = 0;
-							frame->bytes = 0;
-						}
-					} else if ((frame->bfFrameStatus & FRAME_STATUS_IN_AV) == FRAME_STATUS_IN_AV) {
-						frame->bfFrameStatus &= ~FRAME_STATUS_IN_AV;
-						printk(KERN_INFO "somagic::%s: Found First VBI line after %d bytes!\n", __func__, frame->bytes);
-					}
-				} else { // EAV
-					frame->col -= 4;
-					if ((frame->bfFrameStatus & FRAME_STATUS_IN_FIRST_LINE) == FRAME_STATUS_IN_FIRST_LINE) {
-						frame->bfFrameStatus |= FRAME_STATUS_HAS_FIRST_LINE;
-						frame->bfFrameStatus &= ~FRAME_STATUS_IN_FIRST_LINE;
-						printk(KERN_INFO "somagic::%s: First Video Line, end after %d bytes!\n", __func__, frame->col);
-					}
-				}
-				break;
-*/
-			}
-		}
-		frame->col++;
-		frame->bytes++;
-	}
-
+	
 	return PARSE_STATE_CONTINUE;
-/*
-	while(1) {
-		newstate = PARSE_STATE_OUT;
-		if (scratch_len(somagic)) {
-			if (frame->scanstate == SCAN_STATE_SCANNING) {
-				newstate = find_SAV(somagic);
-			} else if (frame->scanstate == SCAN_STATE_LINES) {
-				newstate = parse_lines(somagic);
-			} else if (frame->scanstate == SCAN_STATE_VBI) {
-				// Skip VBI lines;
-				// Move the scratch_read_ptr 1444 bytes forward.
-				// TODO: this should probably be turned into a function!i
-				{
-					if (scratch_len(somagic) >= 1444) { // 1444 = VBI-Line_data + EAV
-						if (somagic->video.scratch_read_ptr + 1444 < scratch_buf_size) {
-							somagic->video.scratch_read_ptr += 1444;
-						} else {
-							int r = somagic->video.scratch_read_ptr + 1444 - scratch_buf_size;
-							somagic->video.scratch_read_ptr = r;
-						}
-					} else {
-						somagic->video.scratch_read_ptr = somagic->video.scratch_write_ptr - 1; 
-					}
-				}
-				frame->scanstate = SCAN_STATE_SCANNING;
-				newstate = PARSE_STATE_CONTINUE;
-			}
-		}
-
-		if (newstate == PARSE_STATE_CONTINUE) {
-			continue;
-		}
-		if (newstate == PARSE_STATE_NEXT_FRAME || newstate == PARSE_STATE_OUT) {
-			break;
-		}
-
-		// PARSE_STATE_END_OF_PARSE
-		return;
-	}
-
-	if (newstate == PARSE_STATE_NEXT_FRAME) {
-		frame->grabstate = FRAME_STATE_DONE;
-		do_gettimeofday(&(frame->timestamp));
-		frame->sequence = somagic->video.frame_num;
-
-		spin_lock_irqsave(&somagic->video.queue_lock, lock_flags);
-		list_move_tail(&(frame->frame), &somagic->video.outqueue);
-		somagic->video.cur_frame = NULL;
-		spin_unlock_irqrestore(&somagic->video.queue_lock, lock_flags);
-
-		somagic->video.frame_num++;
-
-		// Hang here, wait for new frame!
-		if (waitqueue_active(&somagic->video.wait_frame)) {
-			wake_up_interruptible(&somagic->video.wait_frame);
-		}
-	} else { // PARSE_STATE_OUT
-		// No more data to parse, but still no completed frame
-		frame->grabstate = FRAME_STATE_GRABBING;
-	}
-*/
 }
 
 static void somagic_dev_isoc_video_irq(struct urb *urb)

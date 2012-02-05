@@ -689,6 +689,7 @@ static ssize_t somagic_v4l2_read(struct file *file, char __user *buf,
 	}
 
 	if (!somagic->video.num_frames) {
+		somagic->video.cur_read_frame = NULL;
 		somagic_video_frames_free(somagic);
 		somagic_video_empty_framequeues(somagic);
 		somagic_video_frames_alloc(somagic, SOMAGIC_NUM_FRAMES);
@@ -705,6 +706,8 @@ static ssize_t somagic_v4l2_read(struct file *file, char __user *buf,
 			// Mark frame as ready and enqueue the frame!
 			frame->grabstate = FRAME_STATE_READY;
 			frame->scanlength = 0;
+			frame->line = 0;
+			frame->bytes_read = 0;
 
 			spin_lock_irqsave(&somagic->video.queue_lock, lock_flags);
 			list_add_tail(&frame->frame, &somagic->video.inqueue);
@@ -712,25 +715,30 @@ static ssize_t somagic_v4l2_read(struct file *file, char __user *buf,
 		}
 	}
 
-	// Then try to steal a frame, like a VIDIOC_DQBU would do
-	if (list_empty(&(somagic->video.outqueue))) {
-		if (noblock) {
-			return -EAGAIN;
+	if (somagic->video.cur_read_frame == NULL) {
+		if (list_empty(&(somagic->video.outqueue))) {
+			if (noblock) {
+				return -EAGAIN;
+			}
+
+			rc = wait_event_interruptible(somagic->video.wait_frame,
+													!list_empty(&(somagic->video.outqueue)));
+
+			if (rc) {
+				return rc;
+			}
 		}
 
-		rc = wait_event_interruptible(somagic->video.wait_frame,
-												!list_empty(&(somagic->video.outqueue)));
+		spin_lock_irqsave(&somagic->video.queue_lock, lock_flags);
+		frame = list_entry(somagic->video.outqueue.next,
+													struct somagic_frame, frame);
+		list_del(somagic->video.outqueue.next);
+		spin_unlock_irqrestore(&somagic->video.queue_lock, lock_flags);
 
-		if (rc) {
-			return rc;
-		}
+		somagic->video.cur_read_frame = frame;
+	} else {
+		frame = somagic->video.cur_read_frame;
 	}
-
-	spin_lock_irqsave(&somagic->video.queue_lock, lock_flags);
-	frame = list_entry(somagic->video.outqueue.next,
-												struct somagic_frame, frame);
-	list_del(somagic->video.outqueue.next);
-	spin_unlock_irqrestore(&somagic->video.queue_lock, lock_flags);
 
 	if (frame->grabstate == FRAME_STATE_ERROR) {
 		frame->bytes_read = 0;
@@ -747,8 +755,16 @@ static ssize_t somagic_v4l2_read(struct file *file, char __user *buf,
 
 	frame->bytes_read += count;
 
-	return count;
+	printk(KERN_INFO "somagic::%s: frmx=%d, bytes_read=%d, scanlength=%d",
+				 __func__, frame->index, frame->bytes_read, frame->scanlength);
 
+	if (frame->bytes_read >= frame->scanlength) {
+		frame->bytes_read = 0;
+		frame->grabstate = FRAME_STATE_UNUSED;
+		somagic->video.cur_read_frame = NULL;
+	}
+
+	return count;
 } 
 
 /*

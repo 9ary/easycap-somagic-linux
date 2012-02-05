@@ -70,7 +70,7 @@
 #define SOMAGIC_SAA_0C_DEFAULT 0x40
 #define SOMAGIC_SAA_0D_DEFAULT 0x00
 
-#define SOMAGIC_URB_STD_TIMEOUT 500
+#define SOMAGIC_URB_STD_TIMEOUT 1000
 #define SOMAGIC_URB_STD_REQUEST 0x01
 #define SOMAGIC_URB_STD_INDEX 0x0000
 #define SOMAGIC_URB_PREPARE_FOR_FIRMWARE_VALUE 0x0001
@@ -196,6 +196,8 @@ struct somagic_video {
 
 	struct somagic_frame *cur_frame;		// Pointer to current frame
 	struct somagic_frame frame[SOMAGIC_NUM_FRAMES];	// Frame buffer
+
+	struct somagic_frame *cur_read_frame; // Used by somagic_v4l2_read (somagic_video.c)
 
 	// Scratch space for ISOC Pipe
 	unsigned char *scratch;
