@@ -106,6 +106,14 @@ enum scan_state {
 	SCAN_STATE_VBI
 };
 
+enum scanner_state {
+	SCANNER_FIND_VBI,
+	SCANNER_FIND_VBI_END,
+	SCANNER_FIND_ODD,
+	SCANNER_FIND_EVEN,
+	SCANNER_PARSE_LINES
+};
+
 enum parse_state {
 	PARSE_STATE_OUT,
 	PARSE_STATE_CONTINUE,
@@ -125,26 +133,36 @@ struct somagic_sbuf {
 	struct urb *urb;	
 };
 
+#define FRAME_STATUS_IN_FIRST_LINE 0x01
+#define FRAME_STATUS_HAS_FIRST_LINE 0x02
+#define FRAME_STATUS_IN_AV 0x04
+
 struct somagic_frame {
 	char *data;								// Pointer to somagic_video->fbuf[offset_of_this_frame]
 	volatile int grabstate;		// State of grabbing
 
 	int index;								// Frame index
 
-	int scanstate;						
-	int scanlength;						// Mapped to v4l2_buffer.bytesused
-	int bytes_read;
+//	int scanstate;						
+	int scanlength;						// The number of bytes this frame contains (one frame should be 900000 Bytes)
+	int bytes_read;						// Count the bytes read out of this buffer from userspace
+
+	// Testing stuff!
+	int bytes;						
+	u8 bfFrameStatus;			  	// Status BitField
+	int odd_read;
+	int even_read;
+	int col;									// Byte conter pr. line!
 
 	enum line_sync_state line_sync;
 	int line;									// Current line
-	u8 sav;										// Last read SAV 
+	u8 sav;										// Last read SAV
+
 
 	int sequence;							// Frame number since start of capture
 	struct timeval timestamp;	// Time, when frame was captured
 
-	struct list_head frame;		//
-
-	// v4l2_format -- Don't think we need this
+	struct list_head frame;		// For frame inqueue/outqueue
 };
 
 struct somagic_audio {
@@ -161,6 +179,7 @@ struct somagic_video {
 	//unsigned char ctrl_urb_buffer[8];
 	//struct usb_ctrlrequest ctrl_urb_setup;
 
+	volatile enum scanner_state scan_state;
 	unsigned int open_instances;
 	u8 setup_sent;
 	u8 streaming;
@@ -168,7 +187,7 @@ struct somagic_video {
 	int max_frame_size;
 	int num_frames;	
 	int fbuf_size;
-	char *fbuf;													// V4L2 Videodev buffer area for frame data!
+	char *fbuf;													// V4L2 Videodev buffer area for frame data! // This is allocated in somagic_video.c!
 	spinlock_t queue_lock; 							// Spinlock for protecting mods on inqueue and outqueue
 	wait_queue_head_t wait_frame;				// Processes waiting
 	wait_queue_head_t wait_stream;			// Processes waiting

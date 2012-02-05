@@ -337,7 +337,7 @@ int somagic_dev_init_video(struct usb_somagic *somagic, v4l2_std_id std)
 }
 
 
-
+/*
 static inline void write_frame(struct somagic_frame *frame, u8 c)
 {
 	frame->data[frame->scanlength++] = c;
@@ -350,13 +350,12 @@ static enum parse_state find_SAV(struct usb_somagic *somagic)
 	enum parse_state rc = PARSE_STATE_CONTINUE;
 
 	scratch_get(somagic, &c, 1);
-	
-	/*
- 	 * Timing reference code (TRC)	:
- 	 * 		[ff 00 00 SAV] [ff 00 00 EAV]
- 	 * A Line of video will look like 1448 bytes total:
- 	 * [ff 00 00 SAV] [1440 bytes of active video (UYVY)] [ff 00 00 EAV]
- 	 */
+
+// 	 * Timing reference code (TRC)	:
+// 	 * 		[ff 00 00 SAV] [ff 00 00 EAV]
+// 	 * A Line of video will look like 1448 bytes total:
+// 	 * [ff 00 00 SAV] [1440 bytes of active video (UYVY)] [ff 00 00 EAV]
+
 
 	switch(frame->line_sync) {
 		case HSYNC : {
@@ -382,9 +381,32 @@ static enum parse_state find_SAV(struct usb_somagic *somagic)
 
 			// If Bit4 = 1 We are in EAV, else it's SAV
 			if (c & 0x10) {
+				frame->line_sync = HSYNC;
 				break;
 			} else { // In SAV
+ //				 * F (Field Bit) = Bit 6 (mask 0x40)
+ //				 * 0: Odd, 1: Even
+ //				 *
+ //				 * V (Vertical Blanking) = Bit 5 (mask 0x20)
+ //				 * 0: in VBI, 1: in active video
+				if (((c & 0x20) == 0) && !frame->odd_read) { // In VBI
+						// Wait for active video
+						frame->line_sync = HSYNC;
+						break;
+				}
+				if (c & 0x40) { // Even field!
+					if (!frame->odd_read) {
+						// Wait for odd field!
+						frame->line_sync = HSYNC;
+						break;
+					}
+					frame->even_read = 1;
+				} else { // Odd Field!
+					frame->odd_read = 1;
+				}
 				frame->sav = c;
+				somagic->video.scan_state = SCAN_STATE_LINES;
+
 				if (c & 0x20) { // V-BLANK = Bit 5, 0: in VBI 1: active video 
 					frame->scanstate = SCAN_STATE_LINES;
 				} else {
@@ -398,7 +420,6 @@ static enum parse_state find_SAV(struct usb_somagic *somagic)
 	}
 	return rc;
 }
-
 static enum parse_state parse_lines(struct usb_somagic *somagic)
 {
 	struct somagic_frame *frame;
@@ -422,15 +443,180 @@ static enum parse_state parse_lines(struct usb_somagic *somagic)
 
 	return PARSE_STATE_CONTINUE;
 }
+*/
 
-static void parse_data(struct usb_somagic *somagic)
+/* One PAL frame is 905000 Bytes, including TRC - (625 Lines).
+ * An ODD Field is 4517756 Bytes, including TRC - (312 Lines).
+ * An EVEN Field is 453224 Bytes, including TRC - (313 Lines).
+ */
+static enum parse_state parse_data(struct usb_somagic *somagic)
 {
+	int j;
 	struct somagic_frame *frame;
 	enum parse_state newstate;
 	unsigned long lock_flags;
+	u8 c;
+	u8 line[1448];
 
 	frame = somagic->video.cur_frame;
 
+	while(scratch_len(somagic)) {
+		if (somagic->video.scan_state != SCANNER_PARSE_LINES) {
+			scratch_get(somagic, &c, 1);
+		} else { // PARSE LINES!!
+			if (scratch_len(somagic) < 1448) {
+				return PARSE_STATE_CONTINUE;
+			} else {
+				if (frame->line == 625) {
+					scratch_get(somagic, line, 704);
+					if (line[700] != 0xff && line[701] != 0x00 && line[702] != 0x00) {
+						printk(KERN_INFO "somagic::%s: Lost line sync on line %d!\n",
+ 									 __func__, frame->line);
+						somagic->video.scan_state = SCANNER_FIND_VBI;
+						frame->bytes = 0;
+						frame->line = 0;
+						frame->scanlength = 0;
+						continue;
+					} else {
+						memcpy(frame->data + frame->scanlength, line, 696);
+						frame->scanlength += 696;
+						return PARSE_STATE_NEXT_FRAME;
+					}
+				} else {
+					scratch_get(somagic, line, 1448);
+					if (line[1444] != 0xff && line[1445] != 0x00 && line[1446] != 0x00) {
+						printk(KERN_INFO "somagic::%s: Lost line sync on line %d!\n",
+ 									 __func__, frame->line);
+						somagic->video.scan_state = SCANNER_FIND_VBI;
+						frame->bytes = 0;
+						frame->line = 0;
+						frame->scanlength = 0;
+						continue;
+					} else {
+						memcpy(frame->data + frame->scanlength, line, 1440);
+						frame->scanlength += 1440;
+						frame->line++;
+						continue;
+					}
+				}
+			}
+		}
+		switch(frame->line_sync) {
+			case HSYNC : {
+				if (c == 0xff) {
+					frame->line_sync++;
+				}
+				break;
+			}
+			case SYNCZ1 :
+			case SYNCZ2 : {
+				if (c == 0x00) {
+					frame->line_sync++;
+				} else {
+					frame->line_sync = HSYNC;
+				}
+				break;
+			}
+			case SYNCAV : {
+				frame->line_sync = HSYNC;
+				if (somagic->video.scan_state == SCANNER_FIND_VBI) {
+					if ((c & 0x10) == 0)	{ 	// TRC _ Start of Line (SAV)
+						if ((c & 0x20) == 0) { 	// In VBI
+							printk(KERN_INFO "somagic::%s: Found VBI after %d bytes, "\
+															 "will now scan for first NON-VBI Line\n",
+ 											__func__, frame->bytes);
+							frame->bytes = 0;
+							somagic->video.scan_state = SCANNER_FIND_VBI_END;
+						}
+					}
+					break;
+				}
+				if (somagic->video.scan_state == SCANNER_FIND_VBI_END) {
+					if ((c & 0x10) == 0)	{ 	// TRC _ Start of Line (SAV)
+						if ((c & 0x20) == 0x20) { 	// In Active Video
+							printk(KERN_INFO "somagic::%s: Found NON-VBI Line after %d bytes, "\
+															 "will now scan for first ODD Image Line\n",
+ 											__func__, frame->bytes);
+							frame->bytes = 0;
+							somagic->video.scan_state = SCANNER_FIND_ODD;
+							frame->even_read = 0;
+							frame->odd_read = 0;
+						}
+					}
+				}
+				if (somagic->video.scan_state == SCANNER_FIND_ODD) {
+					if ((c & 0x10) == 0)	{ 	// TRC _ Start of Line (SAV)
+						if ((c & 0x20) == 0x20) { 	// In Active Video
+							if ((c & 0x40) == 0) { // ODD
+								printk(KERN_INFO "somagic::%s: Found ODD after %d bytes!\n",
+ 												__func__, frame->bytes);
+								frame->bytes = 0;
+								frame->odd_read++;
+								somagic->video.scan_state = SCANNER_FIND_EVEN;
+/*
+								if (frame->odd_read >= 10) {
+									somagic->video.scan_state = SCANNER_PARSE_LINES;
+									frame->line = 0;
+									frame->scanlength = 0;
+								}
+*/
+							}
+						}
+					}
+					break;
+				}
+				if (somagic->video.scan_state == SCANNER_FIND_EVEN) {
+					if ((c & 0x10) == 0)	{ 	// TRC _ Start of Line (SAV)
+						if ((c & 0x20) == 0x20) { 	// In Active Video
+							if ((c & 0x40) == 0x40) { // EVEN
+								printk(KERN_INFO "somagic::%s: Found EVEN after %d bytes!\n",
+ 												__func__, frame->bytes);
+								frame->bytes = 0;
+								somagic->video.scan_state = SCANNER_FIND_ODD;
+								frame->even_read++;
+							}
+						}
+					}
+					break;
+				}
+
+/*
+				if ((c & 0x10) == 0)	{ 	// SAV
+					if ((c & 0x20) == 0x20) { 	// Active Video
+						if ((frame->bfFrameStatus & FRAME_STATUS_HAS_FIRST_LINE) == 0) {
+							frame->bfFrameStatus |= FRAME_STATUS_IN_FIRST_LINE;
+							frame->bfFrameStatus |= FRAME_STATUS_IN_AV;
+							printk(KERN_INFO "somagic::%s: Found First video line after %d bytes!\n", __func__, frame->bytes);
+							if (c & 0x40) {
+								printk(KERN_INFO "somagic::%s: Frame is EVEN\n", __func__);
+							} else {
+								printk(KERN_INFO "somagic::%s: Frame is ODD\n", __func__);
+							}
+							frame->col = 0;
+							frame->bytes = 0;
+						}
+					} else if ((frame->bfFrameStatus & FRAME_STATUS_IN_AV) == FRAME_STATUS_IN_AV) {
+						frame->bfFrameStatus &= ~FRAME_STATUS_IN_AV;
+						printk(KERN_INFO "somagic::%s: Found First VBI line after %d bytes!\n", __func__, frame->bytes);
+					}
+				} else { // EAV
+					frame->col -= 4;
+					if ((frame->bfFrameStatus & FRAME_STATUS_IN_FIRST_LINE) == FRAME_STATUS_IN_FIRST_LINE) {
+						frame->bfFrameStatus |= FRAME_STATUS_HAS_FIRST_LINE;
+						frame->bfFrameStatus &= ~FRAME_STATUS_IN_FIRST_LINE;
+						printk(KERN_INFO "somagic::%s: First Video Line, end after %d bytes!\n", __func__, frame->col);
+					}
+				}
+				break;
+*/
+			}
+		}
+		frame->col++;
+		frame->bytes++;
+	}
+
+	return PARSE_STATE_CONTINUE;
+/*
 	while(1) {
 		newstate = PARSE_STATE_OUT;
 		if (scratch_len(somagic)) {
@@ -490,13 +676,16 @@ static void parse_data(struct usb_somagic *somagic)
 		// No more data to parse, but still no completed frame
 		frame->grabstate = FRAME_STATE_GRABBING;
 	}
+*/
 }
 
 static void somagic_dev_isoc_video_irq(struct urb *urb)
 {
+	unsigned long lock_flags;
 	int i,j,rc,debugged = 0;
 	struct usb_somagic *somagic = urb->context;
 	struct somagic_frame **f;
+	enum parse_state state;
 
 	if (urb->status == -ENOENT) {
 		printk(KERN_INFO "somagic::%s: Recieved empty ISOC urb!\n", __func__);
@@ -511,8 +700,10 @@ static void somagic_dev_isoc_video_irq(struct urb *urb)
 		int packet_len = urb->iso_frame_desc[i].actual_length;
 		int pos = 0;
 
+
 		if ((packet_len % 0x400) != 0) {
-				printk(KERN_INFO "somagic::%s: pack_len = %d\n",
+				printk(KERN_INFO "somagic::%s: recieved ISOC packet with "\
+							           "unknown size! Size is %d\n",
 								__func__, packet_len);
 		}
 /*
@@ -566,12 +757,31 @@ static void somagic_dev_isoc_video_irq(struct urb *urb)
 
 	// We check if we have a v4l2_framebuffer to fill!
 	f = &somagic->video.cur_frame;
-	if (scratch_len(somagic) > 0x400 && !list_empty(&(somagic->video.inqueue))) {
+	if (scratch_len(somagic) > 0x800 && !list_empty(&(somagic->video.inqueue))) {
 		if (!(*f)) { // cur_frame == NULL
 			(*f) = list_entry(somagic->video.inqueue.next,
 												struct somagic_frame, frame);
 		}
-		parse_data(somagic);
+	
+		state = parse_data(somagic);
+
+		if (state == PARSE_STATE_NEXT_FRAME) {
+			(*f)->grabstate = FRAME_STATE_DONE;
+			do_gettimeofday(&((*f)->timestamp));
+			(*f)->sequence = somagic->video.frame_num;
+
+			spin_lock_irqsave(&somagic->video.queue_lock, lock_flags);
+			list_move_tail(&((*f)->frame), &somagic->video.outqueue);
+			somagic->video.cur_frame = NULL;
+			spin_unlock_irqrestore(&somagic->video.queue_lock, lock_flags);
+
+			somagic->video.frame_num++;
+
+			// Hang here, wait for new frame!
+			if (waitqueue_active(&somagic->video.wait_frame)) {
+				wake_up_interruptible(&somagic->video.wait_frame);
+			}
+		}
 	}
 
 
@@ -601,10 +811,13 @@ int somagic_dev_video_start_stream(struct usb_somagic *somagic)
 	data[0] = 0x01;
 	data[1] = 0x05;
 
+	/* TODO: Check that we have allocated the ISOC memory (fbuf) */
+
 	if (somagic->video.streaming) {
 		return 0;
 	}
 
+	somagic->video.scan_state = SCANNER_FIND_VBI;
 	somagic->video.cur_frame = NULL;
 	scratch_reset(somagic);
 

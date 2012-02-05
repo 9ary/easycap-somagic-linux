@@ -62,6 +62,7 @@ static struct video_device somagic_video_template;
 /*****************************************************************************/
 /*                                                                           */
 /*            Memory management                                              */
+/*            TODO: Move this to somagic_dev.c                               */
 /*                                                                           */
 /*****************************************************************************/
 static void *somagic_rvmalloc(unsigned long size)
@@ -106,11 +107,14 @@ static void somagic_rvfree(void *mem, unsigned long size)
 	vfree(mem);
 }
 
+// Allocate Buffer for somagic->video.fbuf
+// This is the buffer that will hold the frame data received from the device,
+// when we have stripped of the TRC header & footer of each line.
 static int somagic_video_frames_alloc(struct usb_somagic *somagic, int number_of_frames)
 {
 	int i;
 
-	somagic->video.max_frame_size = PAGE_ALIGN(720 * 576 * 2);
+	somagic->video.max_frame_size = PAGE_ALIGN(720 * 625 * 2);
 	somagic->video.num_frames = number_of_frames;
 
 	while (somagic->video.num_frames > 0) {
@@ -135,6 +139,8 @@ static int somagic_video_frames_alloc(struct usb_somagic *somagic, int number_of
 		somagic->video.frame[i].data = somagic->video.fbuf + 
 			(i * somagic->video.max_frame_size);
 		somagic->video.frame[i].bytes_read = 0;
+		somagic->video.frame[i].bfFrameStatus = 0;
+		somagic->video.frame[i].bytes = 0;
 	}
 
 	return somagic->video.num_frames;
@@ -497,7 +503,6 @@ static int vidioc_qbuf(struct file *file, void *priv,
 	}
 
 	frame->grabstate = FRAME_STATE_READY;
-	frame->scanstate = SCAN_STATE_SCANNING;
 	frame->scanlength = 0;
 
 	vb->flags &= ~V4L2_BUF_FLAG_DONE;
@@ -648,6 +653,9 @@ static int somagic_v4l2_close(struct file *file)
 
 		somagic_video_frames_free(somagic);
 		somagic->video.cur_frame = NULL;
+		somagic->video.streaming = 0;
+
+		printk(KERN_INFO "somagic::%s: Freed frames!\n", __func__);
 	}
 
 	printk(KERN_INFO "somagic::%s: %d open instances\n",
@@ -696,7 +704,6 @@ static ssize_t somagic_v4l2_read(struct file *file, char __user *buf,
 		if (frame->grabstate == FRAME_STATE_UNUSED) {
 			// Mark frame as ready and enqueue the frame!
 			frame->grabstate = FRAME_STATE_READY;
-			frame->scanstate = SCAN_STATE_SCANNING;
 			frame->scanlength = 0;
 
 			spin_lock_irqsave(&somagic->video.queue_lock, lock_flags);
@@ -738,8 +745,7 @@ static ssize_t somagic_v4l2_read(struct file *file, char __user *buf,
 		return -EFAULT;
 	}
 
-	frame->bytes_read = 0;
-	frame->grabstate = FRAME_STATE_UNUSED;
+	frame->bytes_read += count;
 
 	return count;
 
