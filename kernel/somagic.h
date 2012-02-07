@@ -86,7 +86,8 @@
 #define SOMAGIC_NORMS (V4L2_STD_PAL | V4L2_STD_NTSC | V4L2_STD_SECAM | V4L2_STD_PAL_M)
 #define SOMAGIC_NUM_FRAMES 4 // Maximum number of frames an application can get
 
-enum {
+/* V4L2 Device Inputs */
+enum inputs {
 	INPUT_CVBS,
 	INPUT_SVIDEO,
 	INPUT_MANY
@@ -98,20 +99,6 @@ enum {
 	FRAME_STATE_READY,				// Frame in Ingoing Queue
 	FRAME_STATE_DONE, 				// Frame in Outgoing Queue
 	FRAME_STATE_ERROR					// An error occured
-};
-
-enum scan_state {
-	SCAN_STATE_SCANNING,
-	SCAN_STATE_LINES,
-	SCAN_STATE_VBI
-};
-
-enum scanner_state {
-	SCANNER_FIND_VBI,
-	SCANNER_FIND_VBI_END,
-	SCANNER_FIND_ODD,
-	SCANNER_FIND_EVEN,
-	SCANNER_PARSE_LINES
 };
 
 enum parse_state {
@@ -128,14 +115,11 @@ enum line_sync_state {
 	SYNCAV
 };
 
+/* USB - Isochronous Buffer */
 struct somagic_sbuf {
 	char *data;
 	struct urb *urb;	
 };
-
-//#define FRAME_STATUS_IN_FIRST_LINE 0x01
-//#define FRAME_STATUS_HAS_FIRST_LINE 0x02
-//#define FRAME_STATUS_IN_AV 0x04
 
 struct somagic_frame {
 	char *data;								// Pointer to somagic_video->fbuf[offset_of_this_frame]
@@ -143,15 +127,8 @@ struct somagic_frame {
 
 	int index;								// Frame index
 
-//	int scanstate;						
-	int scanlength;						// The number of bytes this frame contains (one frame should be 900000 Bytes)
+	int scanlength;						// The number of bytes this frame contains (one PAL frame should be (2 * 288 * 2 * 720)  Bytes)
 	int bytes_read;						// Count the bytes read out of this buffer from userspace
-
-	// Testing stuff!
-//	int bytes;						
-//	u8 bfFrameStatus;			  	// Status BitField
-//	int odd_read;
-//	int even_read;
 
 	// Used by parser!
 	enum line_sync_state line_sync;
@@ -159,8 +136,6 @@ struct somagic_frame {
 	u16 col;
 	u8 field;
 	u8 blank;
-//	u8 sav;										// Last read SAV
-
 
 	int sequence;							// Frame number since start of capture
 	struct timeval timestamp;	// Time, when frame was captured
@@ -182,7 +157,6 @@ struct somagic_video {
 	//unsigned char ctrl_urb_buffer[8];
 	//struct usb_ctrlrequest ctrl_urb_setup;
 
-	volatile enum scanner_state scan_state;
 	unsigned int open_instances;
 	u8 setup_sent;
 	u8 streaming;
@@ -211,7 +185,7 @@ struct somagic_video {
 
 	int frame_num;											// For sequencing of frames sent to userspace
 
-	// Debug
+	// Debug - Info that can be retrieved from by sysfs calls!
 	int received_urbs;
 
 };
@@ -251,28 +225,3 @@ void somagic_dev_video_stop_stream(struct usb_somagic *somagic);
 
 #endif /* SOMAGIC_H */
 
-
-// VPO 0-7 = Output pins
-// Controlled by I2C-Bus Register LCR2 - LCR24
-// If I2C-Bus bit VIPB = 1, the high bits of digitized inputs are connected to these outputs?
-// This is configured by I2C control signals MODE3 to MODE0
-//
-// After Power-on (reset sequence) a complete I2C-Bus transmission is required. (saa7113h - Table2 - Page 24)
-//
-// The Programming of Multi-Standard VBI - Slicing (Teletext etc.)
-// I2C Bus 41H - 57H (LCR2[7:0] to LCR24[7:0]),
-// 0x5B [2-0], 0x59 (HOFF10-HOFF0) and
-// 0x5B [4] , 0x5A (VOFF8-VOFF0)
-//
-// 8Bit VPO Bus, dataformats (saa7113h - Table 4 - Page 26)
-// Type 3  = Widescreen signaling bits (32 Bytes pr line - Might be less) 
-// Type 6  = YUV 4:2:2 (Testline) (1440 Bytes pr line) Only available on lines with (VREF = 0)
-// Type 7  = RAW (Oversampled CVBS Data) (Programmable Bytecount)
-// Type 15 = YUV 4:2:2 (Active Video) (1440 Bytes pr line) (720Pixels pr line)
-//
-// SAV/EAV format (Start Acttive Video / End Active Video | VBI - Vertical Blanking)
-// Bit 7 = 1
-// Bit 6 = (F)ield Bit (Odd/Even)
-// Bit 5 = (V)ertical blanking bit (1 = VBI , 0 = Active Video)
-// Bit 4 = (H) 0 = in SAV , 1 = in EAV (0 during active data)
-// Bit 3-0 = Reserved!

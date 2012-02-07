@@ -598,7 +598,8 @@ static int somagic_v4l2_close(struct file *file)
 /*
  * somagic_v4l2_read()
  *
- * This makes us able to cat data from the device, right into a file
+ * This gives us the ability to read streaming video data
+ * from the device.
  *
  */
 static ssize_t somagic_v4l2_read(struct file *file, char __user *buf,
@@ -649,6 +650,7 @@ static ssize_t somagic_v4l2_read(struct file *file, char __user *buf,
 		}
 	}
 
+	// Now we wait for the driver to put a frame in the outqueue.
 	if (somagic->video.cur_read_frame == NULL) {
 		if (list_empty(&(somagic->video.outqueue))) {
 			if (noblock) {
@@ -683,10 +685,14 @@ static ssize_t somagic_v4l2_read(struct file *file, char __user *buf,
 		count = frame->scanlength - frame->bytes_read;
 	}
 
+	// We have a verified frame,
+	// now copy the data from this frame to userspace!
 	if (copy_to_user(buf, frame->data + frame->bytes_read, count)) {
 		return -EFAULT;
 	}
 
+	// We store the amount of bytes copied to userspace in the frame,
+	// so we can copy the rest of the frame in successive reads!
 	frame->bytes_read += count;
 
 /*
