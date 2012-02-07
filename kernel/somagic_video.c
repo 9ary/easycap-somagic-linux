@@ -61,113 +61,6 @@ static struct video_device somagic_video_template;
 
 /*****************************************************************************/
 /*                                                                           */
-/*            Memory management                                              */
-/*            TODO: Move this to somagic_dev.c                               */
-/*                                                                           */
-/*****************************************************************************/
-static void *somagic_rvmalloc(unsigned long size)
-{
-	void *mem;
-	unsigned long adr;
-
-	size = PAGE_ALIGN(size);
-	mem = vmalloc_32(size);
-	if (!mem) {
-		return NULL;
-	}
-
-	memset(mem, 0, size);
-	adr = (unsigned long)mem;
-	while ((long) size > 0) {
-		SetPageReserved(vmalloc_to_page((void*)adr));
-		adr += PAGE_SIZE;
-		size -= PAGE_SIZE;
-	}
-
-	return mem;
-}
-
-static void somagic_rvfree(void *mem, unsigned long size)
-{
-	unsigned long adr;
-
-	if (!mem) {
-		return;
-	}
-
-	size = PAGE_ALIGN(size);
-	adr = (unsigned long) mem;
-
-	while((long) size > 0) {
-		ClearPageReserved(vmalloc_to_page((void *)adr));
-		adr += PAGE_SIZE;
-		size -= PAGE_SIZE;
-	}
-
-	vfree(mem);
-}
-
-// Allocate Buffer for somagic->video.fbuf
-// This is the buffer that will hold the frame data received from the device,
-// when we have stripped of the TRC header & footer of each line.
-static int somagic_video_frames_alloc(struct usb_somagic *somagic, int number_of_frames)
-{
-	int i;
-
-	somagic->video.max_frame_size = PAGE_ALIGN(720 * 2 * 627 * 2);
-	somagic->video.num_frames = number_of_frames;
-
-	while (somagic->video.num_frames > 0) {
-		somagic->video.fbuf_size = somagic->video.num_frames *
-				somagic->video.max_frame_size;
-
-		somagic->video.fbuf = somagic_rvmalloc(somagic->video.fbuf_size);
-		if (somagic->video.fbuf) {
-			break;
-		}
-		somagic->video.num_frames--;
-	}
-
-	spin_lock_init(&somagic->video.queue_lock);
-	init_waitqueue_head(&somagic->video.wait_frame);
-	init_waitqueue_head(&somagic->video.wait_stream);
-
-	// Allocate all buffers
-	for (i = 0; i < somagic->video.num_frames; i++) {
-		somagic->video.frame[i].index = i;	
-		somagic->video.frame[i].grabstate = FRAME_STATE_UNUSED;
-		somagic->video.frame[i].data = somagic->video.fbuf + 
-			(i * somagic->video.max_frame_size);
-		somagic->video.frame[i].bytes_read = 0;
-	}
-
-	return somagic->video.num_frames;
-}
-
-static void somagic_video_frames_free(struct usb_somagic *somagic)
-{
-	if (somagic->video.fbuf != NULL) {
-		somagic_rvfree(somagic->video.fbuf, somagic->video.fbuf_size);
-		somagic->video.fbuf = NULL;
-
-		somagic->video.num_frames = 0;
-	}
-}
-
-static void somagic_video_empty_framequeues(struct usb_somagic *somagic)
-{
-	int i;
-	INIT_LIST_HEAD(&(somagic->video.inqueue));
-	INIT_LIST_HEAD(&(somagic->video.outqueue));
-
-	for (i = 0; i < SOMAGIC_NUM_FRAMES; i++) {
-		somagic->video.frame[i].grabstate = FRAME_STATE_UNUSED;
-		somagic->video.frame[i].bytes_read = 0;	
-	}
-}
-
-/*****************************************************************************/
-/*                                                                           */
 /* SYSFS Code	- Copied from the stv680.c usb module.												 */
 /* Device information is located at /sys/class/video4linux/videoX            */
 /* Device parameters information is located at /sys/module/somagic_easycap   */
@@ -446,9 +339,12 @@ static int vidioc_reqbufs(struct file *file, void *priv,
 		vr->count = SOMAGIC_NUM_FRAMES;
 	}
 
-	somagic_video_frames_free(somagic);
-	somagic_video_empty_framequeues(somagic);
-	vr->count = somagic_video_frames_alloc(somagic, vr->count);
+	somagic_dev_video_free_frames(somagic);
+	somagic_dev_video_empty_framequeues(somagic);
+
+	// Allocate the frames data-buffers
+	// and return the number of frames we have available
+	vr->count = somagic_dev_video_alloc_frames(somagic, vr->count);
 
 	somagic->video.cur_frame = NULL;
 	return 0;
@@ -686,7 +582,7 @@ static int somagic_v4l2_close(struct file *file)
 	if (!somagic->video.open_instances) {
 		somagic_dev_video_free_isoc(somagic);
 
-		somagic_video_frames_free(somagic);
+		somagic_dev_video_free_frames(somagic);
 		somagic->video.cur_frame = NULL;
 		somagic->video.streaming = 0;
 
@@ -723,11 +619,14 @@ static ssize_t somagic_v4l2_read(struct file *file, char __user *buf,
 		return -EFAULT;
 	}
 
+	/* We setup the frames, just like a regular v4l2 call to vidioc_reqbufs
+   * would do
+   */
 	if (!somagic->video.num_frames) {
 		somagic->video.cur_read_frame = NULL;
-		somagic_video_frames_free(somagic);
-		somagic_video_empty_framequeues(somagic);
-		somagic_video_frames_alloc(somagic, SOMAGIC_NUM_FRAMES);
+		somagic_dev_video_free_frames(somagic);
+		somagic_dev_video_empty_framequeues(somagic);
+		somagic_dev_video_alloc_frames(somagic, SOMAGIC_NUM_FRAMES);
 		printk(KERN_INFO "somagic::%s: Allocated frames!\n", __func__);
 	}
 

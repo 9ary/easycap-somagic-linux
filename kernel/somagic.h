@@ -237,6 +237,11 @@ void somagic_dev_video_free_scratch(struct usb_somagic *somagic);
 int somagic_dev_video_alloc_isoc(struct usb_somagic *somagic);
 void somagic_dev_video_free_isoc(struct usb_somagic *somagic);
 
+int somagic_dev_video_alloc_frames(struct usb_somagic *somagic,
+                                   int number_of_frames);
+void somagic_dev_video_free_frames(struct usb_somagic *somagic);
+void somagic_dev_video_empty_framequeues(struct usb_somagic *somagic);
+
 // Send saa7113 Setup code to device
 int somagic_dev_init_video(struct usb_somagic *somagic, v4l2_std_id std);
 
