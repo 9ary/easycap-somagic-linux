@@ -739,28 +739,28 @@ static int somagic_v4l2_mmap(struct file *file, struct vm_area_struct *vma)
 				vma->vm_pgoff) {
 			break;
 		}
+	}
 
-		if (i == somagic->video.num_frames) {
-			printk(KERN_ERR "somagic::%s: mmap:" \
-											"user supplied mapping address is out of range!\n",
-						__func__ );
-			return -EINVAL;
+	if (i == somagic->video.num_frames) {
+		printk(KERN_ERR "somagic::%s: mmap:" \
+										"user supplied mapping address is out of range!\n",
+					 __func__ );
+		return -EINVAL;
+	}
+
+	vma->vm_flags |= VM_IO;	
+	vma->vm_flags |= VM_RESERVED;	// Avoid to swap out this VMA
+
+	pos = somagic->video.frame[i].data;
+	while(size > 0) {
+		if (vm_insert_page(vma, start, vmalloc_to_page(pos))) {
+			printk(KERN_WARNING "somagic::%s: mmap: vm_insert_page failed!\n",
+						 __func__);
+			return -EAGAIN;
 		}
-
-		vma->vm_flags |= VM_IO;	
-		vma->vm_flags |= VM_RESERVED;	// Avoid to swap out this VMA
-
-		pos = somagic->video.frame[i].data;
-		while(size > 0) {
-			if (vm_insert_page(vma, start, vmalloc_to_page(pos))) {
-				printk(KERN_WARNING "somagic::%s: mmap: vm_insert_page failed!\n",
-							__func__);
-				return -EAGAIN;
-			}
-			start += PAGE_SIZE;
-			pos += PAGE_SIZE;
-			size -= PAGE_SIZE;
-		}
+		start += PAGE_SIZE;
+		pos += PAGE_SIZE;
+		size -= PAGE_SIZE;
 	}
 
 	return 0;
