@@ -277,8 +277,7 @@ void somagic_dev_video_empty_framequeues(struct usb_somagic *somagic)
 static const struct saa_setup {
 	int reg;
 	int val;
-} 
-saa_setupNTSC[256] = {
+} saa_setupNTSC[256] = {
 	{0x01, 0x08},
 	{0x02, 0xc0}, // FUSE0 + FUSE1 -- MODE0 (CVBS - Input)
 	{0x03, 0x33}, // WHITEPEAK OFF | LONG V-BLANK -- AGC ON | AUTOMATIC GAIN MODE0-3 | GAI18 = 1 | GAI28 = 1
@@ -337,8 +336,8 @@ saa_setupNTSC[256] = {
 	
 	{0xff, 0xff} // END MARKER
 };
-/*
-saa_setupPAL[256] = {
+
+struct saa_setup saa_setupPAL[256] = {
 	{0x01, 0x08},
 	{0x02, 0xc0}, // FUSE0 + FUSE1 -- MODE0 (CVBS - Input)
 	{0x03, 0x33}, // WHITEPEAK OFF | LONG V-BLANK -- AGC ON | AUTOMATIC GAIN MODE0-3 | GAI18 = 1 | GAI28 = 1
@@ -496,6 +495,7 @@ int somagic_dev_init_video(struct usb_somagic *somagic, v4l2_std_id std)
 {
 	int i,rc;
 	u8 buf[2];
+	const struct saa_setup *setup;
 
 	// No need to send this more than once?	
 	if (somagic->video.setup_sent) {
@@ -522,11 +522,19 @@ int somagic_dev_init_video(struct usb_somagic *somagic, v4l2_std_id std)
 		return -1;
 	}
 
+	somagic->video.cur_std = SOMAGIC_DEFAULT_STD;
+	if (SOMAGIC_DEFAULT_STD == V4L2_STD_PAL) {
+		setup = saa_setupPAL;
+		somagic->video.field_lines = SOMAGIC_STD_FIELD_LINES_PAL;
+	} else {
+		setup = saa_setupNTSC;
+		somagic->video.field_lines = SOMAGIC_STD_FIELD_LINES_NTSC;
+	}
 
-	//for(i=0; saa_setupPAL[i].reg != 0xff; i++) {
-	for(i=0; saa_setupNTSC[i].reg != 0xff; i++) { //pm
-		//rc = saa_write(somagic, saa_setupPAL[i].reg, saa_setupPAL[i].val);
-		rc = saa_write(somagic, saa_setupNTSC[i].reg, saa_setupNTSC[i].val); //pm
+	somagic->video.frame_size = somagic->video.field_lines * 2 * SOMAGIC_BYTES_PER_LINE;
+
+	for(i=0; setup[i].reg != 0xff; i++) {
+		rc = saa_write(somagic, setup[i].reg, setup[i].val);
 		if (rc < 0) {
 			return -1;
 		}
@@ -775,8 +783,7 @@ static enum parse_state parse_data(struct usb_somagic *somagic)
 						/* We Should have a full frame by now.
  						 * If we don't; reset this frame and try again
  						 */
-						//if (frame->scanlength < (288 * 2 * 720 * 2)) {
-						  if (frame->scanlength < (240 * 2 * 720 * 2)) { //pm
+						  if (frame->scanlength < somagic->video.frame_size) {
 							frame->scanlength = 0;
 							frame->line = 0;
 							frame->col = 0;
@@ -865,10 +872,9 @@ static void somagic_dev_isoc_video_irq(struct urb *urb)
 		state = parse_data(somagic);
 
 		if (state == PARSE_STATE_NEXT_FRAME) {
-			//if ((*f)->scanlength > 720 * 2 * 288 * 2) { // 288 PAL || 240 NTSC
-			//	(*f)->scanlength = 720 * 2 * 288 * 2;
-			if ((*f)->scanlength > 720 * 2 * 240 * 2) { // 288 PAL || 240 NTSC
-				(*f)->scanlength = 720 * 2 * 240 * 2;
+			// This should never occur, don't know if we need to check this here?
+			if ((*f)->scanlength > somagic->video.frame_size) {
+				(*f)->scanlength = somagic->video.frame_size;
 			}
 
 			(*f)->grabstate = FRAME_STATE_DONE;

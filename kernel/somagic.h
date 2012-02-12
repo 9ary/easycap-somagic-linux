@@ -83,8 +83,18 @@
 
 #define SOMAGIC_ACK_READY_FOR_FIRMWARE 0x0701
 
-#define SOMAGIC_NORMS (V4L2_STD_PAL | V4L2_STD_NTSC | V4L2_STD_SECAM | V4L2_STD_PAL_M)
+#define SOMAGIC_NORMS (V4L2_STD_PAL | V4L2_STD_NTSC) // | V4L2_STD_SECAM | V4L2_STD_PAL_M)
 #define SOMAGIC_NUM_FRAMES 4 // Maximum number of frames an application can get
+
+#define SOMAGIC_DEFAULT_STD V4L2_STD_NTSC
+#ifdef SOMAGIC_DEFAULT_PAL
+#define SOMAGIC_DEFAULT_STD V4L2_STD_PAL
+#endif
+
+#define SOMAGIC_LINE_WIDTH 720
+#define SOMAGIC_STD_FIELD_LINES_PAL 288
+#define SOMAGIC_STD_FIELD_LINES_NTSC 240
+#define SOMAGIC_BYTES_PER_LINE 1440
 
 /* V4L2 Device Inputs */
 enum inputs {
@@ -188,6 +198,10 @@ struct somagic_video {
 	// Debug - Info that can be retrieved from by sysfs calls!
 	int received_urbs;
 
+	// PAL/NTSC toggle handling
+	v4l2_std_id cur_std;								// Current Video standard NTSC/PAL
+	u16 field_lines;											// Lines per field NTSC:240 PAL:288
+	int frame_size;											// Size of one completed frame
 };
 
 struct usb_somagic {

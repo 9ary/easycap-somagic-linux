@@ -224,6 +224,8 @@ static int vidioc_querycap(struct file *file, void *priv,
 static int vidioc_enum_input(struct file *file, void *priv,
 							struct v4l2_input *vi)
 {
+	struct usb_somagic *somagic = video_drvdata(file);
+
 	printk(KERN_ERR "somagic:: %s Called\n", __func__);
 	switch(vi->index) {
 		case INPUT_CVBS : {
@@ -241,7 +243,7 @@ static int vidioc_enum_input(struct file *file, void *priv,
 	vi->type = V4L2_INPUT_TYPE_CAMERA;
 	vi->audioset = 0;
 	vi->tuner = 0;
-	vi->std = V4L2_STD_PAL;
+	vi->std = somagic->video.cur_std;
 	vi->status = 0x00;
 	vi->capabilities = V4L2_CAP_VIDEO_CAPTURE | V4L2_CAP_STREAMING;
 	return 0;	
@@ -282,8 +284,9 @@ static int vidioc_s_std(struct file *file, void *priv, v4l2_std_id *id)
 
 static int vidioc_querystd(struct file *file, void *priv, v4l2_std_id *a)
 {
-	printk(KERN_ERR "somagic:: %s Called\n", __func__);
-	*a = V4L2_STD_PAL;
+	struct usb_somagic *somagic = video_drvdata(file);
+
+	*a = somagic->video.cur_std;
 	return 0;
 }
 
@@ -506,18 +509,17 @@ static int vidioc_enum_fmt_vid_cap(struct file *file, void *priv,
 static int vidioc_g_fmt_vid_cap(struct file *file, void *priv,
 							struct v4l2_format *vf)
 {
+	struct usb_somagic *somagic = video_drvdata(file);
 	struct v4l2_pix_format *pix = &vf->fmt.pix;
 
 	printk(KERN_ERR "somagic:: %s Called\n", __func__);
 
-	pix->width = 720; 
-	//pix->height = 2 * 288;
-	pix->height = 2 * 240; //PMartos
+	pix->width = SOMAGIC_LINE_WIDTH; 
+	pix->height = 2 * somagic->video.field_lines;
 	pix->pixelformat = V4L2_PIX_FMT_UYVY;
 	pix->field = V4L2_FIELD_INTERLACED;
-	pix->bytesperline = 2 * 720; 
-	//pix->sizeimage = 2 * 720 * 2 * 288;
-	pix->sizeimage = 2 * 720 * 2 * 240;
+	pix->bytesperline = SOMAGIC_BYTES_PER_LINE;
+	pix->sizeimage = somagic->video.frame_size;
 	pix->colorspace = V4L2_COLORSPACE_SMPTE170M;
 	return 0;
 }
@@ -815,10 +817,8 @@ static struct video_device somagic_video_template = {
 	.ioctl_ops = &somagic_ioctl_ops,
 	.name = SOMAGIC_DRIVER_NAME,														// V4L2 Driver Name
 	.release = video_device_release,
-	//.tvnorms = V4L2_STD_PAL,				 //SOMAGIC_NORMS,   // Supported TV Standards
-	//.current_norm = V4L2_STD_PAL,												// Current TV Standard on startup
-	.tvnorms = V4L2_STD_NTSC,				 //SOMAGIC_NORMS,   // Supported TV Standards
-	.current_norm = V4L2_STD_NTSC,												// Current TV Standard on startup
+	.tvnorms = SOMAGIC_NORMS,   														// Supported TV Standards
+	.current_norm = SOMAGIC_DEFAULT_STD,										// Current TV Standard on startup
 	.vfl_type = VFL_TYPE_GRABBER
 };
 
