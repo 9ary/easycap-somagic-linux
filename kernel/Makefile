@@ -29,8 +29,16 @@ somagic-y += somagic_dev.o \
              somagic_bootloader.o \
              somagic_main.o
 
+
 KDIR ?= /lib/modules/$(shell uname -r)/build
 PWD := $(shell pwd)
+
+pal : EXTRA_CFLAGS += -DSOMAGIC_DEFAULT_PAL
+
+# I guess there is a way to do this without code duplication
+pal:
+	$(MAKE) -C $(KDIR) M=$(PWD) modules
+
 all:
 	$(MAKE) -C $(KDIR) M=$(PWD) modules
 

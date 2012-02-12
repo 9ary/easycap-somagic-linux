@@ -526,9 +526,11 @@ int somagic_dev_init_video(struct usb_somagic *somagic, v4l2_std_id std)
 	if (SOMAGIC_DEFAULT_STD == V4L2_STD_PAL) {
 		setup = saa_setupPAL;
 		somagic->video.field_lines = SOMAGIC_STD_FIELD_LINES_PAL;
+		printk("somagic::%s: Setup PAL!\n", __func__);
 	} else {
 		setup = saa_setupNTSC;
 		somagic->video.field_lines = SOMAGIC_STD_FIELD_LINES_NTSC;
+		printk("somagic::%s: Setup NTSC!\n", __func__);
 	}
 
 	somagic->video.frame_size = somagic->video.field_lines * 2 * SOMAGIC_BYTES_PER_LINE;
