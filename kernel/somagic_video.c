@@ -135,8 +135,9 @@ int __devinit somagic_connect_video(struct usb_somagic *somagic)
 	}
 
 	// Send SAA7113 - Setup
-	somagic_dev_init_video(somagic, V4L2_STD_PAL);
-
+	//somagic_dev_init_video(somagic, V4L2_STD_PAL);
+	somagic_dev_init_video(somagic, V4L2_STD_NTSC); //PMartos
+	
 	// Allocate scratch - ring buffer
 	somagic_dev_video_alloc_scratch(somagic);
 
@@ -510,11 +511,13 @@ static int vidioc_g_fmt_vid_cap(struct file *file, void *priv,
 	printk(KERN_ERR "somagic:: %s Called\n", __func__);
 
 	pix->width = 720; 
-	pix->height = 2 * 288;
+	//pix->height = 2 * 288;
+	pix->height = 2 * 240; //PMartos
 	pix->pixelformat = V4L2_PIX_FMT_UYVY;
 	pix->field = V4L2_FIELD_INTERLACED;
 	pix->bytesperline = 2 * 720; 
-	pix->sizeimage = 2 * 720 * 2 * 288;
+	//pix->sizeimage = 2 * 720 * 2 * 288;
+	pix->sizeimage = 2 * 720 * 2 * 240;
 	pix->colorspace = V4L2_COLORSPACE_SMPTE170M;
 	return 0;
 }
@@ -812,8 +815,10 @@ static struct video_device somagic_video_template = {
 	.ioctl_ops = &somagic_ioctl_ops,
 	.name = SOMAGIC_DRIVER_NAME,														// V4L2 Driver Name
 	.release = video_device_release,
-	.tvnorms = V4L2_STD_PAL,				 //SOMAGIC_NORMS,   // Supported TV Standards
-	.current_norm = V4L2_STD_PAL,												// Current TV Standard on startup
+	//.tvnorms = V4L2_STD_PAL,				 //SOMAGIC_NORMS,   // Supported TV Standards
+	//.current_norm = V4L2_STD_PAL,												// Current TV Standard on startup
+	.tvnorms = V4L2_STD_NTSC,				 //SOMAGIC_NORMS,   // Supported TV Standards
+	.current_norm = V4L2_STD_NTSC,												// Current TV Standard on startup
 	.vfl_type = VFL_TYPE_GRABBER
 };
 

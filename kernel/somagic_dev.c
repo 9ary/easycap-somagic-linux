@@ -277,7 +277,68 @@ void somagic_dev_video_empty_framequeues(struct usb_somagic *somagic)
 static const struct saa_setup {
 	int reg;
 	int val;
-} saa_setupPAL[256] = {
+} 
+saa_setupNTSC[256] = {
+	{0x01, 0x08},
+	{0x02, 0xc0}, // FUSE0 + FUSE1 -- MODE0 (CVBS - Input)
+	{0x03, 0x33}, // WHITEPEAK OFF | LONG V-BLANK -- AGC ON | AUTOMATIC GAIN MODE0-3 | GAI18 = 1 | GAI28 = 1
+	{0x04, 0x00}, // GAI10-GAI17 Gain-control Input 1
+	{0x05, 0x00}, // GAI20-GAI27 Gain-control Input 2
+	{0x06, 0xe9}, // Horizontal-Sync Begin (-23)
+	{0x07, 0x0d}, // Horizontal-Sync End (13)
+	{0x08, 0x98}, // Sync CTRL (Automatic field detection (PAL / NTSC))
+	{0x09, 0x01},	// Luminance CTRL (Aperture factor 0.25)
+	{0x0a, 0x80}, // Luminance Brightness
+	{0x0b, 0x40}, // Luminance Contrast
+	{0x0c, 0x40}, // Chrominance Saturation
+	{0x0d, 0x00}, // Chrominance Hue
+	{0x0e, 0x01}, // Chrominance CTRL // Chrominance Bandwidth = 800kHz - Colorstandard selection NTSC M/PAL BGHIN
+	{0x0f, 0x2a}, // Chrominance gain control
+	{0x10, 0x40}, // Format/Delay CTRL //pm
+	{0x11, 0x0c}, // Output CTRL #1
+	{0x12, 0x01}, // RTS0/RTS1 Output CTRL
+	{0x13, 0x80}, // Output CTRL #2 //pm
+	{0x14, 0x00}, // -- RESERVED
+	{0x15, 0x00}, // VGATE Start
+	{0x16, 0x00}, // VGATE Stop
+	{0x17, 0x00}, // VGATE MSB
+	// 0x18 - 0x3f   -- RESERVED
+	{0x40, 0x82}, // Slicer CTRL //pm
+	{0x41, 0x77}, // Line Control Register2
+	{0x42, 0x77}, // Line Control Register3
+	{0x43, 0x77}, // Line Control Register4
+	{0x44, 0x77}, // Line Control Register5
+	{0x45, 0x77}, // Line Control Register6
+	{0x46, 0x77}, // Line Control Register7
+	{0x47, 0x77}, // Line Control Register8
+	{0x48, 0x77}, // Line Control Register9
+	{0x49, 0x77}, // Line Control Register10
+	{0x4a, 0x77}, // Line Control Register11
+	{0x4b, 0x77}, // Line Control Register12
+	{0x4c, 0x77}, // Line Control Register13
+	{0x4d, 0x77}, // Line Control Register14
+	{0x4e, 0x77}, // Line Control Register15
+	{0x4f, 0x77}, // Line Control Register16
+	{0x50, 0x77}, // Line Control Register17
+	{0x51, 0x77}, // Line Control Register18
+	{0x52, 0x77}, // Line Control Register19
+	{0x53, 0x77}, // Line Control Register20
+	{0x54, 0x77}, // Line Control Register21
+	{0x55, 0xFF}, // Line Control Register22
+	{0x56, 0xFF}, // Line Control Register23
+	{0x57, 0xFF}, // Line Control Register24
+	{0x58, 0x00}, // Programmable framing code
+	{0x59, 0x54}, // Horiz. offset
+	{0x5a, 0x0A}, // Vert. offset //pm
+	{0x5b, 0x83}, // Field offset
+	{0x5c, 0x00}, // -- RESERVED
+	{0x5d, 0x00}, // -- RESERVED
+	{0x5e, 0x00}, // Sliced data id code
+	
+	{0xff, 0xff} // END MARKER
+};
+/*
+saa_setupPAL[256] = {
 	{0x01, 0x08},
 	{0x02, 0xc0}, // FUSE0 + FUSE1 -- MODE0 (CVBS - Input)
 	{0x03, 0x33}, // WHITEPEAK OFF | LONG V-BLANK -- AGC ON | AUTOMATIC GAIN MODE0-3 | GAI18 = 1 | GAI28 = 1
@@ -462,8 +523,10 @@ int somagic_dev_init_video(struct usb_somagic *somagic, v4l2_std_id std)
 	}
 
 
-	for(i=0; saa_setupPAL[i].reg != 0xff; i++) {
-		rc = saa_write(somagic, saa_setupPAL[i].reg, saa_setupPAL[i].val);
+	//for(i=0; saa_setupPAL[i].reg != 0xff; i++) {
+	for(i=0; saa_setupNTSC[i].reg != 0xff; i++) { //pm
+		//rc = saa_write(somagic, saa_setupPAL[i].reg, saa_setupPAL[i].val);
+		rc = saa_write(somagic, saa_setupNTSC[i].reg, saa_setupNTSC[i].val); //pm
 		if (rc < 0) {
 			return -1;
 		}
@@ -712,7 +775,8 @@ static enum parse_state parse_data(struct usb_somagic *somagic)
 						/* We Should have a full frame by now.
  						 * If we don't; reset this frame and try again
  						 */
-						if (frame->scanlength < (288 * 2 * 720 * 2)) {
+						//if (frame->scanlength < (288 * 2 * 720 * 2)) {
+						  if (frame->scanlength < (240 * 2 * 720 * 2)) { //pm
 							frame->scanlength = 0;
 							frame->line = 0;
 							frame->col = 0;
@@ -801,8 +865,10 @@ static void somagic_dev_isoc_video_irq(struct urb *urb)
 		state = parse_data(somagic);
 
 		if (state == PARSE_STATE_NEXT_FRAME) {
-			if ((*f)->scanlength > 720 * 2 * 288 * 2) { // 288 PAL || 240 NTSC
-				(*f)->scanlength = 720 * 2 * 288 * 2;
+			//if ((*f)->scanlength > 720 * 2 * 288 * 2) { // 288 PAL || 240 NTSC
+			//	(*f)->scanlength = 720 * 2 * 288 * 2;
+			if ((*f)->scanlength > 720 * 2 * 240 * 2) { // 288 PAL || 240 NTSC
+				(*f)->scanlength = 720 * 2 * 240 * 2;
 			}
 
 			(*f)->grabstate = FRAME_STATE_DONE;
