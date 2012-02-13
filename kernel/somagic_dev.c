@@ -287,10 +287,10 @@ static const struct saa_setup {
 	{0x07, 0x0d}, // Horizontal-Sync End (13)
 	{0x08, 0x98}, // Sync CTRL (Automatic field detection (PAL / NTSC))
 	{0x09, 0x01},	// Luminance CTRL (Aperture factor 0.25)
-	{0x0a, 0x80}, // Luminance Brightness
-	{0x0b, 0x40}, // Luminance Contrast
-	{0x0c, 0x40}, // Chrominance Saturation
-	{0x0d, 0x00}, // Chrominance Hue
+	{0x0a, SOMAGIC_DEFAULT_BRIGHTNESS}, // Luminance Brightness
+	{0x0b, SOMAGIC_DEFAULT_CONTRAST}, // Luminance Contrast
+	{0x0c, SOMAGIC_DEFAULT_SATURATION}, // Chrominance Saturation
+	{0x0d, SOMAGIC_DEFAULT_HUE}, // Chrominance Hue
 	{0x0e, 0x01}, // Chrominance CTRL // Chrominance Bandwidth = 800kHz - Colorstandard selection NTSC M/PAL BGHIN
 	{0x0f, 0x2a}, // Chrominance gain control
 	{0x10, 0x40}, // Format/Delay CTRL //pm
@@ -347,10 +347,10 @@ struct saa_setup saa_setupPAL[256] = {
 	{0x07, 0x0d}, // Horizontal-Sync End (13)
 	{0x08, 0x98}, // Sync CTRL (Automatic field detection (PAL / NTSC))
 	{0x09, 0x01},	// Luminance CTRL (Aperture factor 0.25)
-	{0x0a, 0x80}, // Luminance Brightness
-	{0x0b, 0x40}, // Luminance Contrast
-	{0x0c, 0x40}, // Chrominance Saturation
-	{0x0d, 0x00}, // Chrominance Hue
+	{0x0a, SOMAGIC_DEFAULT_BRIGHTNESS}, // Luminance Brightness
+	{0x0b, SOMAGIC_DEFAULT_CONTRAST}, // Luminance Contrast
+	{0x0c, SOMAGIC_DEFAULT_SATURATION}, // Chrominance Saturation
+	{0x0d, SOMAGIC_DEFAULT_HUE}, // Chrominance Hue
 	{0x0e, 0x01}, // Chrominance CTRL // Chrominance Bandwidth = 800kHz - Colorstandard selection NTSC M/PAL BGHIN
 	{0x0f, 0x2a}, // Chrominance gain control
 	{0x10, 0x00}, // Format/Delay CTRL
@@ -522,7 +522,13 @@ int somagic_dev_init_video(struct usb_somagic *somagic, v4l2_std_id tvnorm)
 		return -1;
 	}
 
+	somagic->video.cur_input = INPUT_CVBS;
 	somagic->video.cur_std = tvnorm;
+	somagic->video.cur_brightness = SOMAGIC_DEFAULT_BRIGHTNESS;
+	somagic->video.cur_contrast = SOMAGIC_DEFAULT_CONTRAST;
+	somagic->video.cur_saturation = SOMAGIC_DEFAULT_SATURATION;
+	somagic->video.cur_hue = SOMAGIC_DEFAULT_HUE;
+
 	if (tvnorm == V4L2_STD_PAL) {
 		setup = saa_setupPAL;
 		somagic->video.field_lines = SOMAGIC_STD_FIELD_LINES_PAL;
@@ -1031,6 +1037,71 @@ int somagic_dev_video_set_std(struct usb_somagic *somagic, v4l2_std_id id)
 	}
 
 	return 0;
+}
+
+int somagic_dev_video_set_input(struct usb_somagic *somagic, unsigned int input)
+{
+	enum somagic_inputs new_input = (enum somagic_inputs)input;
+	if (new_input == somagic->video.cur_input) {
+		return 0;
+	}
+	if (new_input >= INPUT_MANY) {
+		return -EINVAL;
+	}
+	/* FIXME:
+	 * Register 0x09 Contains the current luminance settings,
+	 * this will discard any luminance changes made by the user!
+	 */
+
+	if (new_input == INPUT_CVBS) {
+		saa_write(somagic, 0x02, 0xC0);
+		saa_write(somagic, 0x03, 0x33);
+		saa_write(somagic, 0x09, 0x01);
+		saa_write(somagic, 0x13, 0x80);
+	} else if (new_input == INPUT_SVIDEO) {
+		saa_write(somagic, 0x02, 0xC7);
+		saa_write(somagic, 0x03, 0x31);
+		saa_write(somagic, 0x09, 0x81);
+		saa_write(somagic, 0x13, 0x00);
+	}
+	somagic->video.cur_input = new_input;
+	return 0;
+}
+
+void somagic_dev_video_set_brightness(struct usb_somagic *somagic, s32 value)
+{
+	if (value > 127 || value < -128) {
+		return;
+	}
+	saa_write(somagic, 0x0a, value);
+	somagic->video.cur_brightness = value;
+}
+
+void somagic_dev_video_set_contrast(struct usb_somagic *somagic, s32 value)
+{
+	if (value > 127 || value < -128) {
+		return;
+	}
+	saa_write(somagic, 0x0b, value);
+	somagic->video.cur_contrast = value;
+}
+
+void somagic_dev_video_set_saturation(struct usb_somagic *somagic, s32 value)
+{
+	if (value > 127 || value < -128) {
+		return;
+	}
+	saa_write(somagic, 0x0c, value);
+	somagic->video.cur_saturation = value;
+}
+
+void somagic_dev_video_set_hue(struct usb_somagic *somagic, s32 value)
+{
+	if (value > 127 || value < -128) {
+		return;
+	}
+	saa_write(somagic, 0x0d, value);
+	somagic->video.cur_hue = value;
 }
 
 int somagic_dev_video_start_stream(struct usb_somagic *somagic)

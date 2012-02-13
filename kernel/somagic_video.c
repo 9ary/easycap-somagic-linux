@@ -224,7 +224,6 @@ static int vidioc_querycap(struct file *file, void *priv,
 static int vidioc_enum_input(struct file *file, void *priv,
 							struct v4l2_input *vi)
 {
-	printk(KERN_ERR "somagic:: %s Called\n", __func__);
 	switch(vi->index) {
 		case INPUT_CVBS : {
 			strcpy(vi->name, "CVBS");
@@ -254,8 +253,9 @@ static int vidioc_enum_input(struct file *file, void *priv,
  */
 static int vidioc_g_input(struct file *file, void *priv, unsigned int *input)
 {
-	printk(KERN_ERR "somagic:: %s Called\n", __func__);
-	*input = (unsigned int)INPUT_CVBS;
+	struct usb_somagic *somagic = video_drvdata(file);
+
+	*input = (unsigned int)somagic->video.cur_input;
 	return 0;
 }
 
@@ -266,12 +266,8 @@ static int vidioc_g_input(struct file *file, void *priv, unsigned int *input)
  */
 static int vidioc_s_input(struct file *file, void *priv, unsigned int input)
 {
-	printk(KERN_ERR "somagic:: %s Called\n", __func__);
-	if (input >= INPUT_MANY) {
-		return -EINVAL;
-	}
-
-	return 0;
+	struct usb_somagic *somagic = video_drvdata(file);
+	return somagic_dev_video_set_input(somagic, input);
 }
 
 static int vidioc_g_std(struct file *file, void *priv, v4l2_std_id *id)
@@ -319,22 +315,77 @@ static int vidioc_s_audio(struct file *file, void *priv, struct v4l2_audio *a)
 static int vidioc_queryctrl(struct file *file, void *priv,
 							struct v4l2_queryctrl *ctrl)
 {
-	printk(KERN_ERR "somagic:: %s Called\n", __func__);
-	return -EINVAL;
+	
+	u32 id = ctrl->id;
+	
+	if (ctrl->id & V4L2_CTRL_FLAG_NEXT_CTRL) {
+		printk(KERN_INFO "somagic::%s: V4L2_CTRL_FLAG_NEXT_CTRL "\
+                     "not implemented yet!\n", __func__);
+		return -EINVAL;
+	}
+
+	memset(ctrl, 0, sizeof(ctrl));
+	ctrl->id = id;
+	ctrl->type = V4L2_CTRL_TYPE_INTEGER;
+	// ctrl->flags = V4L2_CTRL_FLAG_SLIDER;
+	ctrl->minimum = (s8)-128;
+	ctrl->maximum = (s8)127;
+	ctrl->step = 1;
+	
+	if (ctrl->id == V4L2_CID_BRIGHTNESS) {
+		strlcpy(ctrl->name, "Brightness", sizeof(ctrl->name));
+		ctrl->default_value = (s8)SOMAGIC_DEFAULT_BRIGHTNESS;
+	} else if (ctrl->id == V4L2_CID_CONTRAST) {
+		strlcpy(ctrl->name, "Contrast", sizeof(ctrl->name));
+		ctrl->default_value = (s8)SOMAGIC_DEFAULT_CONTRAST;
+	} else if (ctrl->id == V4L2_CID_SATURATION) {
+		strlcpy(ctrl->name, "Saturation", sizeof(ctrl->name));
+		ctrl->default_value = (s8)SOMAGIC_DEFAULT_SATURATION;
+	} else if (ctrl->id == V4L2_CID_HUE) {
+		strlcpy(ctrl->name, "Hue",  sizeof(ctrl->name));
+		ctrl->default_value = (s8)SOMAGIC_DEFAULT_HUE;
+	} else {
+		return -EINVAL;
+	}
+	return 0;
 }
 
 static int vidioc_g_ctrl(struct file *file, void *priv,
 							struct v4l2_control *ctrl)
 {
-	printk(KERN_ERR "somagic:: %s Called\n", __func__);
-	return -EINVAL;
+	struct usb_somagic *somagic = video_drvdata(file);
+
+	if (ctrl->id == V4L2_CID_BRIGHTNESS) {
+		ctrl->value = somagic->video.cur_brightness;
+	} else if (ctrl->id == V4L2_CID_CONTRAST) {
+		ctrl->value = somagic->video.cur_contrast;
+	} else if (ctrl->id == V4L2_CID_SATURATION) {
+		ctrl->value = somagic->video.cur_saturation;
+	} else if (ctrl->id == V4L2_CID_HUE) {
+		ctrl->value = somagic->video.cur_hue;
+	} else {
+		return -EINVAL;
+	}
+	return 0;
 }
 
 static int vidioc_s_ctrl(struct file *file, void *priv,
 							struct v4l2_control *ctrl)
 {
-	printk(KERN_ERR "somagic:: %s Called\n", __func__);
-	return -EINVAL;
+	struct usb_somagic *somagic = video_drvdata(file);
+
+	if (ctrl->id == V4L2_CID_BRIGHTNESS) {
+		somagic_dev_video_set_brightness(somagic, ctrl->value);
+	} else if (ctrl->id == V4L2_CID_CONTRAST) {
+		somagic_dev_video_set_contrast(somagic, ctrl->value);
+	} else if (ctrl->id == V4L2_CID_SATURATION) {
+		somagic_dev_video_set_saturation(somagic, ctrl->value);
+	} else if (ctrl->id == V4L2_CID_HUE) {
+		somagic_dev_video_set_hue(somagic, ctrl->value);
+	} else {
+		return -EINVAL;
+	}
+	return 0;
 }
 
 // Initialize buffers
