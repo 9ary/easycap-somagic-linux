@@ -135,8 +135,8 @@ int __devinit somagic_connect_video(struct usb_somagic *somagic)
 	}
 
 	// Send SAA7113 - Setup
-	//somagic_dev_init_video(somagic, V4L2_STD_PAL);
-	somagic_dev_init_video(somagic, V4L2_STD_NTSC); //PMartos
+	// TODO: Change this to take TV-Norm value from a module argument!
+	somagic_dev_init_video(somagic, SOMAGIC_DEFAULT_STD);
 	
 	// Allocate scratch - ring buffer
 	somagic_dev_video_alloc_scratch(somagic);
@@ -224,8 +224,6 @@ static int vidioc_querycap(struct file *file, void *priv,
 static int vidioc_enum_input(struct file *file, void *priv,
 							struct v4l2_input *vi)
 {
-	struct usb_somagic *somagic = video_drvdata(file);
-
 	printk(KERN_ERR "somagic:: %s Called\n", __func__);
 	switch(vi->index) {
 		case INPUT_CVBS : {
@@ -243,7 +241,7 @@ static int vidioc_enum_input(struct file *file, void *priv,
 	vi->type = V4L2_INPUT_TYPE_CAMERA;
 	vi->audioset = 0;
 	vi->tuner = 0;
-	vi->std = somagic->video.cur_std;
+	vi->std = SOMAGIC_NORMS;
 	vi->status = 0x00;
 	vi->capabilities = V4L2_CAP_VIDEO_CAPTURE | V4L2_CAP_STREAMING;
 	return 0;	
@@ -276,17 +274,29 @@ static int vidioc_s_input(struct file *file, void *priv, unsigned int input)
 	return 0;
 }
 
-static int vidioc_s_std(struct file *file, void *priv, v4l2_std_id *id)
+static int vidioc_g_std(struct file *file, void *priv, v4l2_std_id *id)
 {
-	printk(KERN_ERR "somagic:: %s Called\n", __func__);
+	struct usb_somagic *somagic = video_drvdata(file);
+	*id = somagic->video.cur_std;
 	return 0;
 }
 
-static int vidioc_querystd(struct file *file, void *priv, v4l2_std_id *a)
+static int vidioc_s_std(struct file *file, void *priv, v4l2_std_id *id)
 {
 	struct usb_somagic *somagic = video_drvdata(file);
+	return somagic_dev_video_set_std(somagic, *id);
+}
 
-	*a = somagic->video.cur_std;
+/*
+ * vidioc_querystd()
+ *
+ * A request to the device to check what TV-Norm it's sensing on it's input.
+ * I'm not sure how to implement this,
+ * so we just return the list of supported norms.
+ */
+static int vidioc_querystd(struct file *file, void *priv, v4l2_std_id *a)
+{
+	*a = SOMAGIC_NORMS;
 	return 0;
 }
 
@@ -787,7 +797,8 @@ static const struct v4l2_ioctl_ops somagic_ioctl_ops = {
 	.vidioc_querybuf      = vidioc_querybuf,							//
 	.vidioc_qbuf          = vidioc_qbuf,									// Put a Video Buffer into incomming queue // LWN v4l2 arictle part6b
 	.vidioc_dqbuf         = vidioc_dqbuf,									// Get a Video Buffer from the outgoing queue // LWN v4l2 arictle part6b
-	.vidioc_s_std         = vidioc_s_std,									// Set TV Standard
+	.vidioc_g_std         = vidioc_g_std,									// Get Current TV Standard
+	.vidioc_s_std         = vidioc_s_std,									// Set Current TV Standard
 	.vidioc_querystd      = vidioc_querystd,							// What standard the device believe it's receiving
 	.vidioc_enum_input    = vidioc_enum_input,						// List of videoinputs on card // LWN v4l2 article part4
 	.vidioc_g_input       = vidioc_g_input,								// Get Current Video Input

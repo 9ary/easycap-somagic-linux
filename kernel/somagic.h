@@ -49,6 +49,7 @@
 #include <linux/types.h>
 
 #include <media/v4l2-device.h>
+#include <media/v4l2-ioctl.h>
 
 #define SOMAGIC_USB_VENDOR_ID 0x1c88
 #define SOMAGIC_USB_BOOTLOADER_PRODUCT_ID 0x0007
@@ -232,7 +233,9 @@ void somagic_dev_video_free_frames(struct usb_somagic *somagic);
 void somagic_dev_video_empty_framequeues(struct usb_somagic *somagic);
 
 // Send saa7113 Setup code to device
-int somagic_dev_init_video(struct usb_somagic *somagic, v4l2_std_id std);
+int somagic_dev_init_video(struct usb_somagic *somagic, v4l2_std_id id);
+
+int somagic_dev_video_set_std(struct usb_somagic *somagic, v4l2_std_id id);
 
 int somagic_dev_video_start_stream(struct usb_somagic *somagic);
 void somagic_dev_video_stop_stream(struct usb_somagic *somagic);

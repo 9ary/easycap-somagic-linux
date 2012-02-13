@@ -491,7 +491,7 @@ static int reg_write(struct usb_somagic *somagic, u16 reg, u8 val)
  *
  * Send the SAA7113 Setup commands to the device!
  */
-int somagic_dev_init_video(struct usb_somagic *somagic, v4l2_std_id std)
+int somagic_dev_init_video(struct usb_somagic *somagic, v4l2_std_id tvnorm)
 {
 	int i,rc;
 	u8 buf[2];
@@ -522,8 +522,8 @@ int somagic_dev_init_video(struct usb_somagic *somagic, v4l2_std_id std)
 		return -1;
 	}
 
-	somagic->video.cur_std = SOMAGIC_DEFAULT_STD;
-	if (SOMAGIC_DEFAULT_STD == V4L2_STD_PAL) {
+	somagic->video.cur_std = tvnorm;
+	if (tvnorm == V4L2_STD_PAL) {
 		setup = saa_setupPAL;
 		somagic->video.field_lines = SOMAGIC_STD_FIELD_LINES_PAL;
 		printk("somagic::%s: Setup PAL!\n", __func__);
@@ -915,6 +915,124 @@ static void somagic_dev_isoc_video_irq(struct urb *urb)
 	return;
 }
 
+// Set video standard NTSC | PAL
+int somagic_dev_video_set_std(struct usb_somagic *somagic, v4l2_std_id id)
+{
+	int i, rc;
+	static const struct v_std {
+		int reg;
+		int val;
+	}	ntsc[] = {
+		{0x10, 0x40}, // Format/Delay CTRL
+		{0x13, 0x80}, // Output CTRL #2
+		{0x40, 0x82}, // Slicer CTRL
+		{0x41, 0x77}, // Line Control Register2
+		{0x42, 0x77}, // Line Control Register3
+		{0x43, 0x77}, // Line Control Register4
+		{0x44, 0x77}, // Line Control Register5
+		{0x45, 0x77}, // Line Control Register6
+		{0x46, 0x77}, // Line Control Register7
+		{0x47, 0x77}, // Line Control Register8
+		{0x48, 0x77}, // Line Control Register9
+		{0x49, 0x77}, // Line Control Register10
+		{0x4a, 0x77}, // Line Control Register11
+		{0x4b, 0x77}, // Line Control Register12
+		{0x4c, 0x77}, // Line Control Register13
+		{0x4d, 0x77}, // Line Control Register14
+		{0x4e, 0x77}, // Line Control Register15
+		{0x4f, 0x77}, // Line Control Register16
+		{0x50, 0x77}, // Line Control Register17
+		{0x51, 0x77}, // Line Control Register18
+		{0x52, 0x77}, // Line Control Register19
+		{0x53, 0x77}, // Line Control Register20
+		{0x54, 0x77}, // Line Control Register21
+		{0x5a, 0x0A}, // Vert. offset
+		{0xff, 0xff} // END MARKER
+	};
+
+	static const struct v_std pal[] = {
+		{0x10, 0x00}, // Format/Delay CTRL
+		{0x13, 0x00}, // Output CTRL #2
+		{0x40, 0x02}, // Slicer CTRL
+		{0x41, 0xFF}, // Line Control Register2
+		{0x42, 0xFF}, // Line Control Register3
+		{0x43, 0xFF}, // Line Control Register4
+		{0x44, 0xFF}, // Line Control Register5
+		{0x45, 0xFF}, // Line Control Register6
+		{0x46, 0xFF}, // Line Control Register7
+		{0x47, 0xFF}, // Line Control Register8
+		{0x48, 0xFF}, // Line Control Register9
+		{0x49, 0xFF}, // Line Control Register10
+		{0x4a, 0xFF}, // Line Control Register11
+		{0x4b, 0xFF}, // Line Control Register12
+		{0x4c, 0xFF}, // Line Control Register13
+		{0x4d, 0xFF}, // Line Control Register14
+		{0x4e, 0xFF}, // Line Control Register15
+		{0x4f, 0xFF}, // Line Control Register16
+		{0x50, 0xFF}, // Line Control Register17
+		{0x51, 0xFF}, // Line Control Register18
+		{0x52, 0xFF}, // Line Control Register19
+		{0x53, 0xFF}, // Line Control Register20
+		{0x54, 0xFF}, // Line Control Register21
+		{0x5a, 0x07}, // Vert. offset
+		{0xff, 0xff} // END MARKER
+	};
+
+	const struct v_std *std;
+
+	printk(KERN_INFO "somagic::%s: Cur std is %s, User requests standard %s\n",
+         __func__,
+         v4l2_norm_to_name(somagic->video.cur_std),
+         v4l2_norm_to_name(id));
+
+	if ((somagic->video.cur_std & id) == id) {
+		return 0;
+	}
+
+	// Not sure what will happen if we change this while we are streaming!
+	// Could probably be tested!
+	if (somagic->video.streaming == 1) {
+		printk(KERN_INFO "somagic::%s: Warning: application is trying to "\
+                     "change tv-standard while streaming!\n", __func__);	
+		return -EAGAIN;
+	}
+
+/*
+	printk(KERN_INFO "somagic::%s: User requests standard 0x%08X%08X\n", __func__,
+				 (int)((id & (((v4l2_std_id)0xFFFFFFFF) << 32 )) >> 32),
+				 (int)(id & ((v4l2_std_id)0xFFFFFFFF)));	
+*/
+
+
+	if ((id & V4L2_STD_NTSC) == id) {
+		printk(KERN_INFO "somagic::%s: Set device to NTSC!\n", __func__);
+		std = ntsc;
+		somagic->video.cur_std = V4L2_STD_NTSC;
+		somagic->video.field_lines = SOMAGIC_STD_FIELD_LINES_NTSC;
+	} else if ((id & V4L2_STD_PAL) == id) {
+		printk(KERN_INFO "somagic::%s: Set device to PAL!\n", __func__);
+		std = pal;
+		somagic->video.cur_std = V4L2_STD_PAL;
+		somagic->video.field_lines = SOMAGIC_STD_FIELD_LINES_PAL;
+	} else {
+		printk(KERN_INFO "somagic::%s: Warning: "\
+                     "Application tries to set unsupported tv-standard!\n",
+           __func__);	
+		return -EINVAL;
+	}
+
+	somagic->video.frame_size = somagic->video.field_lines * 2 * SOMAGIC_BYTES_PER_LINE;
+
+	for(i=0; std[i].reg != 0xff; i++) {
+		rc = saa_write(somagic, std[i].reg, std[i].val);
+		if (rc < 0) {
+			return -EAGAIN;
+		}
+	}
+
+	return 0;
+}
+
 int somagic_dev_video_start_stream(struct usb_somagic *somagic)
 {
 
@@ -987,7 +1105,36 @@ int somagic_dev_video_start_stream(struct usb_somagic *somagic)
 
 void somagic_dev_video_stop_stream(struct usb_somagic *somagic)
 {
+	int rc;
+	u8 data[2];
+
 	somagic->video.streaming = 0;
+
+	data[0] = 0x01;
+	data[1] = 0x03;
+
+	rc = usb_control_msg(somagic->dev,
+											 usb_sndctrlpipe(somagic->dev, 0x00),
+											 SOMAGIC_USB_STD_REQUEST,
+											 USB_DIR_OUT | USB_TYPE_VENDOR | USB_RECIP_DEVICE,
+											 0x01, // VALUE
+											 0x00, // INDEX
+											 (void *)&data,
+											 sizeof(data),
+											 1000);
+	if (rc < 0) {
+		printk(KERN_ERR "somagic:%s:: error while trying to set device" \
+                    "to idle mode: %d\n",
+										__func__, rc);
+	}
+
+	rc = usb_set_interface(somagic->dev, 0, 0);
+	if (rc < 0) {
+		printk(KERN_ERR "somagic:%s:: error while trying to set" \
+                    "alt interface to 0: %d\n",
+										__func__, rc);
+	}
+
 }
 
 int somagic_dev_video_alloc_isoc(struct usb_somagic *somagic)
