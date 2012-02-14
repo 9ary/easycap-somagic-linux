@@ -106,6 +106,9 @@ uint8_t brightness = 128;
 /* Luminance aperture factor: 0 = 0, 1 = 0.25, 2 = 0.5, 3 = 1.0 */
 int luminance_aperture = 1;
 
+/* Video sync and processing algorithm: 1 (Tony Brown), 2 (Michal Demin) */ 
+int sync_algorithm = 2;
+
 void release_usb_device(int ret)
 {
 	fprintf(stderr, "Emergency exit\n");
@@ -184,14 +187,211 @@ void trace()
 }
 #endif
 
+/*
+ * Write a number of bytes from the iso transfer buffer to the appropriate line and field of the frame buffer.
+ * Returns the number of bytes actually used from the buffer
+ */
+int write_buffer(unsigned char *data, unsigned char *end, int count, unsigned char *frame, int line, int field)
+{
+	int dowrite;
+	int line_pos;
+	int lines_per_field = (tv_standard == PAL ? 288 : 240);
+	dowrite = MIN(end - data, count);
+
+	line_pos = line * (720 * 2) * 2 + (field * 720 * 2) + ((720 * 2) - count);
+
+	if (line < lines_per_field) {
+		memcpy(line_pos + frame, data, dowrite);
+	}
+	return dowrite;
+}
+
 enum sync_state {
 	HSYNC,
 	SYNCZ1,
 	SYNCZ2,
 	SYNCAV,
+	VBLANK,
+	VACTIVE,
+	REMAINDER
 };
 
-struct video_state_t {
+struct alg1_video_state_t {
+	int line_remaining;
+	int active_line_count;
+	int vblank_found;
+	int field;
+
+	enum sync_state state;
+
+	unsigned char frame[720 * 2 * 288 * 2];
+};
+
+static struct alg1_video_state_t alg1_vs = { .line_remaining = 0, .active_line_count = 0, .vblank_found = 0, .field = 0, .state = HSYNC, .frame = { 0 } };
+
+void alg1_process(struct alg1_video_state_t *vs, unsigned char *buffer, int length)
+{
+	unsigned char *next = buffer;
+	unsigned char *end = buffer + length;
+	int bs = 0; /* bad (lost) sync: 0=no, 1=yes */
+	int hs = 0;
+	int lines_per_field = (tv_standard == PAL ? 288 : 240);
+	unsigned char nc;
+	int skip;
+	int wrote;
+	do {
+		nc = *next;
+		/*
+		 * Timing reference code (TRC):
+		 *     [ff 00 00 SAV] [ff 00 00 EAV]
+		 * Where SAV is 80 or c7, and EAV is 9d or da.
+		 * A line of video will look like (1448 bytes total):
+		 *     [ff 00 00 EAV] [ff 00 00 SAV] [1440 bytes of UYVY video] (repeat on next line)
+		 */
+		switch (vs->state) {
+			case HSYNC:
+				hs++;
+				if (nc == (unsigned char)0xff) {
+					vs->state = SYNCZ1;
+					if (bs == 1) {
+						fprintf(stderr, "resync after %d @%ld(%04lx)\n", hs, next - buffer, next - buffer);
+					}
+					bs = 0;
+				} else if (bs != 1) {
+					/*
+					 * The 1st byte in the TRC must be 0xff. It
+					 * wasn't, so sync was either lost or has not
+					 * yet been regained. Sync is regained by
+					 * ignoring bytes until the next 0xff.
+					 */
+					fprintf(stderr, "bad sync on line %d @%ld (%04lx)\n", vs->active_line_count, next - buffer, next - buffer);
+					/*
+					 *				print_bytes_only(pbuffer, buffer_pos + 64);
+					 *				print_bytes(pbuffer + buffer_pos, 8);
+					 */
+					bs = 1;
+				}
+				next++;
+				break;
+			case SYNCZ1:
+				if (nc == (unsigned char)0x00) {
+					vs->state = SYNCZ2;
+				} else {
+					/*
+					 * The 2nd byte in the TRC must be 0x00. It
+					 * wasn't, so sync was lost.
+					 */
+					vs->state = HSYNC;
+				}
+				next++;
+				break;
+			case SYNCZ2:
+				if (nc == (unsigned char)0x00) {
+					vs->state = SYNCAV;
+				} else {
+					/*
+					 * The 3rd byte in the TRC must be 0x00. It
+					 * wasn't, so sync was lost.
+					 */
+					vs->state = HSYNC;
+				}
+				next++;
+				break;
+			case SYNCAV:
+				/*
+				 * Found 0xff 0x00 0x00, now expecting SAV or EAV. Might
+				 * also be the SDID (sliced data ID), 0x00.
+				 */
+				/* fprintf(stderr,"%02x", nc); */
+				if (nc == (unsigned char)0x00) {
+					/*
+					 * SDID detected, so we still haven't found the
+					 * active YUV data.
+					 */
+					vs->state = HSYNC;
+					next++;
+					break;
+				}
+				
+				/*
+				 * H = Bit 4 (mask 0x10).
+				 * 0: in SAV, 1: in EAV.
+				 */
+				if (nc & (unsigned char)0x10) {
+					/* EAV (end of active data) */
+					vs->state = HSYNC;
+				} else {
+					/* SAV (start of active data) */
+					/*
+						* F (field bit) = Bit 6 (mask 0x40).
+						* 0: first field, 1: 2nd field.
+						*/
+					vs->field = (nc & (unsigned char)0x40) ? 1 : 0;
+					/*
+						* V (vertical blanking bit) = Bit 5 (mask 0x20).
+						* 0: in VBI, 1: in active video.
+						*/
+					if (nc & (unsigned char)0x20) {
+						/* VBI (vertical blank) */
+						vs->state = VBLANK;
+						vs->vblank_found++;
+						if (vs->active_line_count > (lines_per_field - 8)) {
+							if (vs->field == 0) {
+								if (frames_generated < frame_count || frame_count == -1) {
+									write(1, vs->frame, 720 * 2 * lines_per_field * 2);
+									frames_generated++;
+								}
+								if (frames_generated >= frame_count && frame_count != -1) {
+									stop_sending_requests = 1;
+								}
+								
+							}
+							vs->vblank_found = 0;
+							/* fprintf(stderr, "lines: %d\n", vs->active_line_count); */
+						}
+						vs->active_line_count = 0;
+					} else {
+						/* Line is active video */
+						vs->state = VACTIVE;
+					}
+					vs->line_remaining = 720 * 2;
+				}
+				next++;
+				break;
+			case VBLANK:
+			case VACTIVE:
+			case REMAINDER:
+				/* fprintf(stderr,"line %d, rem=%d ,next=%08x, end=%08x ", active_line_count, line_remaining, next, end); */
+				if (vs->state == VBLANK || vs->vblank_found < 20) {
+					skip = MIN(vs->line_remaining, (end - next));
+					/* fprintf(stderr,"skipped: %d\n", skip); */
+					vs->line_remaining -= skip;
+					next += skip ;
+					/* fprintf(stderr, "vblank_found=%d\n", vblank_found); */
+				} else {
+					wrote = write_buffer(next, end, vs->line_remaining, vs->frame, vs->active_line_count, vs->field);
+					/* fprintf(stderr,"wrote: %d\n", wrote); */
+					vs->line_remaining -= wrote;
+					next += wrote;
+					if (vs->line_remaining <= 0) {
+						vs->active_line_count++;
+					}
+				}
+				/* fprintf(stderr, "vblank_found: %d, line remaining: %d, line_count: %d\n", vblank_found, line_remaining, active_line_count); */
+				if (vs->line_remaining <= 0) {
+					vs->state = HSYNC;
+				} else {
+					/* fprintf(stderr, "\nOn line %d, line_remaining: %d(%04x). bp=%04x/%04x\n", active_line_count, line_remaining, line_remaining, buffer_pos, buffer_size); */
+					vs->state = REMAINDER;
+					/* no more data in this buffer. exit loop */
+					next = end;
+				}
+				break;
+		} /* end switch */
+	} while (next < end);
+}
+
+struct alg2_video_state_t {
 	uint16_t line;
 	uint16_t col;
 
@@ -199,13 +399,13 @@ struct video_state_t {
 
 	uint8_t field;
 	uint8_t blank;
+
+	unsigned char frame[720 * 2 * 627 * 2];
 };
 
-static struct video_state_t vs = { .line = 0, .col = 0, .state = 0, .field = 0, .blank = 0};
+static struct alg2_video_state_t alg2_vs = { .line = 0, .col = 0, .state = HSYNC, .field = 0, .blank = 0, .frame = { 0 } };
 
-unsigned char frame[720 * 2 * 627 * 2] = { 0 };
-
-static void put_data(struct video_state_t *vs, uint8_t c)
+static void alg2_put_data(struct alg2_video_state_t *vs, uint8_t c)
 {
 	int line_pos;
 
@@ -216,10 +416,10 @@ static void put_data(struct video_state_t *vs, uint8_t c)
 	if (vs->col > 720 * 2)
 		vs->col = 720 * 2;
 
-	frame[line_pos] = c;
+	vs->frame[line_pos] = c;
 }
 
-static void process(struct video_state_t *vs, uint8_t c)
+static void alg2_process(struct alg2_video_state_t *vs, uint8_t c)
 {
 	/*
 	 * Timing reference code (TRC):
@@ -232,7 +432,7 @@ static void process(struct video_state_t *vs, uint8_t c)
 			/* The 1st byte in the TRC must be 0xff. */
 			vs->state++;
 		} else {
-			put_data(vs, c);
+			alg2_put_data(vs, c);
 		}
 	} else if (vs->state == SYNCZ1) {
 		if (c == 0x00) {
@@ -244,8 +444,8 @@ static void process(struct video_state_t *vs, uint8_t c)
 			 */
 			vs->state = HSYNC;
 
-			put_data(vs, 0xff);
-			put_data(vs, c);
+			alg2_put_data(vs, 0xff);
+			alg2_put_data(vs, c);
 		}
 	} else if (vs->state == SYNCZ2) {
 		if (c == 0x00) {
@@ -257,9 +457,9 @@ static void process(struct video_state_t *vs, uint8_t c)
 			 */
 			vs->state = HSYNC;
 
-			put_data(vs, 0xff);
-			put_data(vs, 0x00);
-			put_data(vs, c);
+			alg2_put_data(vs, 0xff);
+			alg2_put_data(vs, 0x00);
+			alg2_put_data(vs, c);
 		}
 	} else if (vs->state == SYNCAV) {
 		/*
@@ -269,7 +469,7 @@ static void process(struct video_state_t *vs, uint8_t c)
 		vs->state = HSYNC;
 		if (c == 0x00) {
 			/*
-			 * SDID (sliced data ID) detected, so active YUV data  
+			 * SDID (sliced data ID) detected, so active YUV data
 			 * still hasn't been found.
 			 */
 			return;
@@ -309,7 +509,7 @@ static void process(struct video_state_t *vs, uint8_t c)
 
 			if (vs->field == 0 && field_edge) {
 				if (frames_generated < frame_count || frame_count == -1) {
-					write(1, frame, 720 * 2 * lines_per_field * 2);
+					write(1, vs->frame, 720 * 2 * lines_per_field * 2);
 					frames_generated++;
 				}
 				
@@ -331,14 +531,17 @@ void gotdata(struct libusb_transfer *tfr)
 	int ret;
 	int num = tfr->num_iso_packets;
 	int i;
+	unsigned char *data;
+	int length;
+	int pos;
+	int k;
 
 	pending_requests--;
 
 	for (i = 0; i < num; i++) {
-		unsigned char *data = libusb_get_iso_packet_buffer_simple(tfr, i);
-		int length = tfr->iso_packet_desc[i].actual_length;
-		int pos = 0;
-		int k;
+		data = libusb_get_iso_packet_buffer_simple(tfr, i);
+		length = tfr->iso_packet_desc[i].actual_length;
+		pos = 0;
 
 		while (pos < length) {
 			/*
@@ -348,8 +551,15 @@ void gotdata(struct libusb_transfer *tfr)
 			 */
 			if (data[pos] == 0xaa && data[pos + 1] == 0xaa && data[pos + 2] == 0x00 && data[pos + 3] == 0x00) {
 				/* process the received data, excluding the 4 marker bytes */
-				for (k = 4; k < 0x400; k++) {
-					process(&vs, data[k + pos]);
+				switch (sync_algorithm) {
+				case 1:
+					alg1_process(&alg1_vs, data + 4 + pos, 0x400 - 4);
+					break;
+				case 2:
+					for (k = 4; k < 0x400; k++) {
+						alg2_process(&alg2_vs, data[k + pos]);
+					}
+					break;
 				}
 			} else {
 				fprintf(stderr, "Unexpected block, expected [aa aa 00 00] found [%02x %02x %02x %02x]\n", data[pos], data[pos + 1], data[pos + 2], data[pos + 3]);
@@ -543,6 +753,10 @@ void usage()
 	fprintf(stderr, "                              -128  -2.000000 (inverse)\n");
 	fprintf(stderr, "  -s, --s-video              Use S-VIDEO input\n");
 	fprintf(stderr, "      --secam                SECAM             [625 lines, 25 Hz]\n");
+	fprintf(stderr, "      --sync=VALUE           Sync algorithm (default: 2)\n");
+	fprintf(stderr, "                             Value  Algorithm\n");
+	fprintf(stderr, "                                 1  TB\n");
+	fprintf(stderr, "                                 2  MD (default)\n");
 	fprintf(stderr, "      --help                 Display usage\n");
 	fprintf(stderr, "      --version              Display version information\n");
 	fprintf(stderr, "\n");
@@ -588,6 +802,7 @@ int main(int argc, char **argv)
 		{"pal-m", 0, 0, 0},             /* index 9 */
 		{"pal-combination-n", 0, 0, 0}, /* index 10 */
 		{"secam", 0, 0, 0},             /* index 11 */
+		{"sync", 1, 0, 0},              /* index 12 */
 		{"brightness", 1, 0, 'B'},
 		{"cvbs", 0, 0, 'c'},
 		{"contrast", 1, 0, 'C'},
@@ -622,14 +837,14 @@ int main(int argc, char **argv)
 					return 1;
 				}
 				break;
-			case 3: /* --lum-aperture*/
+			case 3: /* --lum-aperture */
 				luminance_aperture = atoi(optarg);
 				if (luminance_aperture < 0 || luminance_aperture > 3) {
 					fprintf(stderr, "Invalid luminance aperture '%i', must be from 0 to 3\n", luminance_mode);
 					return 1;
 				}
 				break;
-			case 4: /* --lum-prefilter*/
+			case 4: /* --lum-prefilter */
 				luminance_prefilter = 1;
 				break;
 			case 5: /* --ntsc-4.43-50 */
@@ -652,6 +867,13 @@ int main(int argc, char **argv)
 				break;
 			case 11: /* --secam */
 				tv_standard = SECAM;
+				break;
+			case 12: /* --sync */
+				sync_algorithm = atoi(optarg);
+				if (sync_algorithm < 1 || sync_algorithm > 2) {
+					fprintf(stderr, "Invalid sync algorithm '%i', must be from 1 to 2\n", sync_algorithm);
+					return 1;
+				}
 				break;
 			default:
 				usage();
@@ -901,7 +1123,7 @@ int main(int argc, char **argv)
 	/* Disable chrominance comb filter (DCCF) = Chrominance comb filter on (during lines determined by VREF = 1) */
 	/* Clear DTO (CDTO) = Disabled */
 	switch (tv_standard) {
-        case PAL:
+	case PAL:
 	case NTSC:
 		work = 0x01;
 		break;
@@ -1088,7 +1310,7 @@ int main(int argc, char **argv)
 	ret = libusb_set_interface_alt_setting(devh, 0, 2);
 	fprintf(stderr, "192 set alternate setting returned %d\n", ret);
 
-	/* Disable sound?  - If we remove this line, we start to receicve data with the header [0xaa 0xaa 0x00 0x01] */
+	/* Disable sound - If this line is removed, we start to receive data with the header [0xaa 0xaa 0x00 0x01] */
 	somagic_write_reg(0x1740, 0x00);
 	usleep(30 * 1000);
 	
