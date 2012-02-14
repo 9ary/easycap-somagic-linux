@@ -1081,7 +1081,7 @@ int somagic_dev_video_set_input(struct usb_somagic *somagic, unsigned int input)
 
 void somagic_dev_video_set_brightness(struct usb_somagic *somagic, s32 value)
 {
-	if (value > 127 || value < -128) {
+	if (value < 0 || value > (u8)0xff) {
 		return;
 	}
 	saa_write(somagic, 0x0a, value);

@@ -334,7 +334,9 @@ static int vidioc_queryctrl(struct file *file, void *priv,
 	
 	if (ctrl->id == V4L2_CID_BRIGHTNESS) {
 		strlcpy(ctrl->name, "Brightness", sizeof(ctrl->name));
-		ctrl->default_value = (s8)SOMAGIC_DEFAULT_BRIGHTNESS;
+		ctrl->default_value = (u8)SOMAGIC_DEFAULT_BRIGHTNESS;
+		ctrl->minimum = (u8)0;
+		ctrl->maximum = (u8)0xff;
 	} else if (ctrl->id == V4L2_CID_CONTRAST) {
 		strlcpy(ctrl->name, "Contrast", sizeof(ctrl->name));
 		ctrl->default_value = (s8)SOMAGIC_DEFAULT_CONTRAST;
