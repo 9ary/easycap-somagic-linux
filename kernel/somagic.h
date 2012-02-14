@@ -49,6 +49,7 @@
 #include <linux/types.h>
 
 #include <media/v4l2-device.h>
+#include <media/v4l2-ioctl.h>
 
 #define SOMAGIC_USB_VENDOR_ID 0x1c88
 #define SOMAGIC_USB_BOOTLOADER_PRODUCT_ID 0x0007
@@ -65,10 +66,10 @@
 #define SOMAGIC_DATAPART_HEADER_SIZE 2
 #define SOMAGIC_DATAPART_SIZE 64
 
-#define SOMAGIC_SAA_0A_DEFAULT 0x80
-#define SOMAGIC_SAA_0B_DEFAULT 0x40
-#define SOMAGIC_SAA_0C_DEFAULT 0x40
-#define SOMAGIC_SAA_0D_DEFAULT 0x00
+#define SOMAGIC_DEFAULT_BRIGHTNESS 0x80 // -128
+#define SOMAGIC_DEFAULT_CONTRAST 0x40   // 64
+#define SOMAGIC_DEFAULT_SATURATION 0x40 // 64
+#define SOMAGIC_DEFAULT_HUE 0x00        // 0
 
 #define SOMAGIC_URB_STD_TIMEOUT 1000
 #define SOMAGIC_URB_STD_REQUEST 0x01
@@ -83,11 +84,22 @@
 
 #define SOMAGIC_ACK_READY_FOR_FIRMWARE 0x0701
 
-#define SOMAGIC_NORMS (V4L2_STD_PAL | V4L2_STD_NTSC | V4L2_STD_SECAM | V4L2_STD_PAL_M)
+#define SOMAGIC_NORMS (V4L2_STD_PAL | V4L2_STD_NTSC) // | V4L2_STD_SECAM | V4L2_STD_PAL_M)
 #define SOMAGIC_NUM_FRAMES 4 // Maximum number of frames an application can get
 
+#ifdef SOMAGIC_DEFAULT_PAL
+#define SOMAGIC_DEFAULT_STD V4L2_STD_PAL
+#else
+#define SOMAGIC_DEFAULT_STD V4L2_STD_NTSC
+#endif
+
+#define SOMAGIC_LINE_WIDTH 720
+#define SOMAGIC_STD_FIELD_LINES_PAL 288
+#define SOMAGIC_STD_FIELD_LINES_NTSC 240
+#define SOMAGIC_BYTES_PER_LINE 1440
+
 /* V4L2 Device Inputs */
-enum inputs {
+enum somagic_inputs {
 	INPUT_CVBS,
 	INPUT_SVIDEO,
 	INPUT_MANY
@@ -188,6 +200,19 @@ struct somagic_video {
 	// Debug - Info that can be retrieved from by sysfs calls!
 	int received_urbs;
 
+	// PAL/NTSC toggle handling
+	v4l2_std_id cur_std;								// Current Video standard NTSC/PAL
+	u16 field_lines;											// Lines per field NTSC:240 PAL:288
+	int frame_size;											// Size of one completed frame
+
+	// Input selection
+	enum somagic_inputs cur_input;
+
+	// Controls
+	s8 cur_brightness;
+	s8 cur_contrast;
+	s8 cur_saturation;
+	s8 cur_hue;
 };
 
 struct usb_somagic {
@@ -217,11 +242,17 @@ void somagic_dev_video_free_frames(struct usb_somagic *somagic);
 void somagic_dev_video_empty_framequeues(struct usb_somagic *somagic);
 
 // Send saa7113 Setup code to device
-int somagic_dev_init_video(struct usb_somagic *somagic, v4l2_std_id std);
+int somagic_dev_init_video(struct usb_somagic *somagic, v4l2_std_id id);
+
+int somagic_dev_video_set_std(struct usb_somagic *somagic, v4l2_std_id id);
+int somagic_dev_video_set_input(struct usb_somagic *somagic, unsigned int input);
 
 int somagic_dev_video_start_stream(struct usb_somagic *somagic);
 void somagic_dev_video_stop_stream(struct usb_somagic *somagic);
 
-
+void somagic_dev_video_set_brightness(struct usb_somagic *somagic, s32 value);
+void somagic_dev_video_set_contrast(struct usb_somagic *somagic, s32 value);
+void somagic_dev_video_set_saturation(struct usb_somagic *somagic, s32 value);
+void somagic_dev_video_set_hue(struct usb_somagic *somagic, s32 value);
 #endif /* SOMAGIC_H */
 

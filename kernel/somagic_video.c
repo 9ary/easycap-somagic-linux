@@ -135,8 +135,9 @@ int __devinit somagic_connect_video(struct usb_somagic *somagic)
 	}
 
 	// Send SAA7113 - Setup
-	somagic_dev_init_video(somagic, V4L2_STD_PAL);
-
+	// TODO: Change this to take TV-Norm value from a module argument!
+	somagic_dev_init_video(somagic, SOMAGIC_DEFAULT_STD);
+	
 	// Allocate scratch - ring buffer
 	somagic_dev_video_alloc_scratch(somagic);
 
@@ -223,7 +224,6 @@ static int vidioc_querycap(struct file *file, void *priv,
 static int vidioc_enum_input(struct file *file, void *priv,
 							struct v4l2_input *vi)
 {
-	printk(KERN_ERR "somagic:: %s Called\n", __func__);
 	switch(vi->index) {
 		case INPUT_CVBS : {
 			strcpy(vi->name, "CVBS");
@@ -240,7 +240,7 @@ static int vidioc_enum_input(struct file *file, void *priv,
 	vi->type = V4L2_INPUT_TYPE_CAMERA;
 	vi->audioset = 0;
 	vi->tuner = 0;
-	vi->std = V4L2_STD_PAL;
+	vi->std = SOMAGIC_NORMS;
 	vi->status = 0x00;
 	vi->capabilities = V4L2_CAP_VIDEO_CAPTURE | V4L2_CAP_STREAMING;
 	return 0;	
@@ -253,8 +253,9 @@ static int vidioc_enum_input(struct file *file, void *priv,
  */
 static int vidioc_g_input(struct file *file, void *priv, unsigned int *input)
 {
-	printk(KERN_ERR "somagic:: %s Called\n", __func__);
-	*input = (unsigned int)INPUT_CVBS;
+	struct usb_somagic *somagic = video_drvdata(file);
+
+	*input = (unsigned int)somagic->video.cur_input;
 	return 0;
 }
 
@@ -265,24 +266,33 @@ static int vidioc_g_input(struct file *file, void *priv, unsigned int *input)
  */
 static int vidioc_s_input(struct file *file, void *priv, unsigned int input)
 {
-	printk(KERN_ERR "somagic:: %s Called\n", __func__);
-	if (input >= INPUT_MANY) {
-		return -EINVAL;
-	}
+	struct usb_somagic *somagic = video_drvdata(file);
+	return somagic_dev_video_set_input(somagic, input);
+}
 
+static int vidioc_g_std(struct file *file, void *priv, v4l2_std_id *id)
+{
+	struct usb_somagic *somagic = video_drvdata(file);
+	*id = somagic->video.cur_std;
 	return 0;
 }
 
 static int vidioc_s_std(struct file *file, void *priv, v4l2_std_id *id)
 {
-	printk(KERN_ERR "somagic:: %s Called\n", __func__);
-	return 0;
+	struct usb_somagic *somagic = video_drvdata(file);
+	return somagic_dev_video_set_std(somagic, *id);
 }
 
+/*
+ * vidioc_querystd()
+ *
+ * A request to the device to check what TV-Norm it's sensing on it's input.
+ * I'm not sure how to implement this,
+ * so we just return the list of supported norms.
+ */
 static int vidioc_querystd(struct file *file, void *priv, v4l2_std_id *a)
 {
-	printk(KERN_ERR "somagic:: %s Called\n", __func__);
-	*a = V4L2_STD_PAL;
+	*a = SOMAGIC_NORMS;
 	return 0;
 }
 
@@ -305,22 +315,77 @@ static int vidioc_s_audio(struct file *file, void *priv, struct v4l2_audio *a)
 static int vidioc_queryctrl(struct file *file, void *priv,
 							struct v4l2_queryctrl *ctrl)
 {
-	printk(KERN_ERR "somagic:: %s Called\n", __func__);
-	return -EINVAL;
+	
+	u32 id = ctrl->id;
+	
+	if (ctrl->id & V4L2_CTRL_FLAG_NEXT_CTRL) {
+		printk(KERN_INFO "somagic::%s: V4L2_CTRL_FLAG_NEXT_CTRL "\
+                     "not implemented yet!\n", __func__);
+		return -EINVAL;
+	}
+
+	memset(ctrl, 0, sizeof(ctrl));
+	ctrl->id = id;
+	ctrl->type = V4L2_CTRL_TYPE_INTEGER;
+	// ctrl->flags = V4L2_CTRL_FLAG_SLIDER;
+	ctrl->minimum = (s8)-128;
+	ctrl->maximum = (s8)127;
+	ctrl->step = 1;
+	
+	if (ctrl->id == V4L2_CID_BRIGHTNESS) {
+		strlcpy(ctrl->name, "Brightness", sizeof(ctrl->name));
+		ctrl->default_value = (s8)SOMAGIC_DEFAULT_BRIGHTNESS;
+	} else if (ctrl->id == V4L2_CID_CONTRAST) {
+		strlcpy(ctrl->name, "Contrast", sizeof(ctrl->name));
+		ctrl->default_value = (s8)SOMAGIC_DEFAULT_CONTRAST;
+	} else if (ctrl->id == V4L2_CID_SATURATION) {
+		strlcpy(ctrl->name, "Saturation", sizeof(ctrl->name));
+		ctrl->default_value = (s8)SOMAGIC_DEFAULT_SATURATION;
+	} else if (ctrl->id == V4L2_CID_HUE) {
+		strlcpy(ctrl->name, "Hue",  sizeof(ctrl->name));
+		ctrl->default_value = (s8)SOMAGIC_DEFAULT_HUE;
+	} else {
+		return -EINVAL;
+	}
+	return 0;
 }
 
 static int vidioc_g_ctrl(struct file *file, void *priv,
 							struct v4l2_control *ctrl)
 {
-	printk(KERN_ERR "somagic:: %s Called\n", __func__);
-	return -EINVAL;
+	struct usb_somagic *somagic = video_drvdata(file);
+
+	if (ctrl->id == V4L2_CID_BRIGHTNESS) {
+		ctrl->value = somagic->video.cur_brightness;
+	} else if (ctrl->id == V4L2_CID_CONTRAST) {
+		ctrl->value = somagic->video.cur_contrast;
+	} else if (ctrl->id == V4L2_CID_SATURATION) {
+		ctrl->value = somagic->video.cur_saturation;
+	} else if (ctrl->id == V4L2_CID_HUE) {
+		ctrl->value = somagic->video.cur_hue;
+	} else {
+		return -EINVAL;
+	}
+	return 0;
 }
 
 static int vidioc_s_ctrl(struct file *file, void *priv,
 							struct v4l2_control *ctrl)
 {
-	printk(KERN_ERR "somagic:: %s Called\n", __func__);
-	return -EINVAL;
+	struct usb_somagic *somagic = video_drvdata(file);
+
+	if (ctrl->id == V4L2_CID_BRIGHTNESS) {
+		somagic_dev_video_set_brightness(somagic, ctrl->value);
+	} else if (ctrl->id == V4L2_CID_CONTRAST) {
+		somagic_dev_video_set_contrast(somagic, ctrl->value);
+	} else if (ctrl->id == V4L2_CID_SATURATION) {
+		somagic_dev_video_set_saturation(somagic, ctrl->value);
+	} else if (ctrl->id == V4L2_CID_HUE) {
+		somagic_dev_video_set_hue(somagic, ctrl->value);
+	} else {
+		return -EINVAL;
+	}
+	return 0;
 }
 
 // Initialize buffers
@@ -505,16 +570,17 @@ static int vidioc_enum_fmt_vid_cap(struct file *file, void *priv,
 static int vidioc_g_fmt_vid_cap(struct file *file, void *priv,
 							struct v4l2_format *vf)
 {
+	struct usb_somagic *somagic = video_drvdata(file);
 	struct v4l2_pix_format *pix = &vf->fmt.pix;
 
 	printk(KERN_ERR "somagic:: %s Called\n", __func__);
 
-	pix->width = 720; 
-	pix->height = 2 * 288;
+	pix->width = SOMAGIC_LINE_WIDTH; 
+	pix->height = 2 * somagic->video.field_lines;
 	pix->pixelformat = V4L2_PIX_FMT_UYVY;
 	pix->field = V4L2_FIELD_INTERLACED;
-	pix->bytesperline = 2 * 720; 
-	pix->sizeimage = 2 * 720 * 2 * 288;
+	pix->bytesperline = SOMAGIC_BYTES_PER_LINE;
+	pix->sizeimage = somagic->video.frame_size;
 	pix->colorspace = V4L2_COLORSPACE_SMPTE170M;
 	return 0;
 }
@@ -782,7 +848,8 @@ static const struct v4l2_ioctl_ops somagic_ioctl_ops = {
 	.vidioc_querybuf      = vidioc_querybuf,							//
 	.vidioc_qbuf          = vidioc_qbuf,									// Put a Video Buffer into incomming queue // LWN v4l2 arictle part6b
 	.vidioc_dqbuf         = vidioc_dqbuf,									// Get a Video Buffer from the outgoing queue // LWN v4l2 arictle part6b
-	.vidioc_s_std         = vidioc_s_std,									// Set TV Standard
+	.vidioc_g_std         = vidioc_g_std,									// Get Current TV Standard
+	.vidioc_s_std         = vidioc_s_std,									// Set Current TV Standard
 	.vidioc_querystd      = vidioc_querystd,							// What standard the device believe it's receiving
 	.vidioc_enum_input    = vidioc_enum_input,						// List of videoinputs on card // LWN v4l2 article part4
 	.vidioc_g_input       = vidioc_g_input,								// Get Current Video Input
@@ -812,8 +879,8 @@ static struct video_device somagic_video_template = {
 	.ioctl_ops = &somagic_ioctl_ops,
 	.name = SOMAGIC_DRIVER_NAME,														// V4L2 Driver Name
 	.release = video_device_release,
-	.tvnorms = V4L2_STD_PAL,				 //SOMAGIC_NORMS,   // Supported TV Standards
-	.current_norm = V4L2_STD_PAL,												// Current TV Standard on startup
+	.tvnorms = SOMAGIC_NORMS,   														// Supported TV Standards
+	.current_norm = SOMAGIC_DEFAULT_STD,										// Current TV Standard on startup
 	.vfl_type = VFL_TYPE_GRABBER
 };
 

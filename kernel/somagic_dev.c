@@ -277,7 +277,7 @@ void somagic_dev_video_empty_framequeues(struct usb_somagic *somagic)
 static const struct saa_setup {
 	int reg;
 	int val;
-} saa_setupPAL[256] = {
+} saa_setupNTSC[256] = {
 	{0x01, 0x08},
 	{0x02, 0xc0}, // FUSE0 + FUSE1 -- MODE0 (CVBS - Input)
 	{0x03, 0x33}, // WHITEPEAK OFF | LONG V-BLANK -- AGC ON | AUTOMATIC GAIN MODE0-3 | GAI18 = 1 | GAI28 = 1
@@ -287,10 +287,70 @@ static const struct saa_setup {
 	{0x07, 0x0d}, // Horizontal-Sync End (13)
 	{0x08, 0x98}, // Sync CTRL (Automatic field detection (PAL / NTSC))
 	{0x09, 0x01},	// Luminance CTRL (Aperture factor 0.25)
-	{0x0a, 0x80}, // Luminance Brightness
-	{0x0b, 0x40}, // Luminance Contrast
-	{0x0c, 0x40}, // Chrominance Saturation
-	{0x0d, 0x00}, // Chrominance Hue
+	{0x0a, SOMAGIC_DEFAULT_BRIGHTNESS}, // Luminance Brightness
+	{0x0b, SOMAGIC_DEFAULT_CONTRAST}, // Luminance Contrast
+	{0x0c, SOMAGIC_DEFAULT_SATURATION}, // Chrominance Saturation
+	{0x0d, SOMAGIC_DEFAULT_HUE}, // Chrominance Hue
+	{0x0e, 0x01}, // Chrominance CTRL // Chrominance Bandwidth = 800kHz - Colorstandard selection NTSC M/PAL BGHIN
+	{0x0f, 0x2a}, // Chrominance gain control
+	{0x10, 0x40}, // Format/Delay CTRL //pm
+	{0x11, 0x0c}, // Output CTRL #1
+	{0x12, 0x01}, // RTS0/RTS1 Output CTRL
+	{0x13, 0x80}, // Output CTRL #2 //pm
+	{0x14, 0x00}, // -- RESERVED
+	{0x15, 0x00}, // VGATE Start
+	{0x16, 0x00}, // VGATE Stop
+	{0x17, 0x00}, // VGATE MSB
+	// 0x18 - 0x3f   -- RESERVED
+	{0x40, 0x82}, // Slicer CTRL //pm
+	{0x41, 0x77}, // Line Control Register2
+	{0x42, 0x77}, // Line Control Register3
+	{0x43, 0x77}, // Line Control Register4
+	{0x44, 0x77}, // Line Control Register5
+	{0x45, 0x77}, // Line Control Register6
+	{0x46, 0x77}, // Line Control Register7
+	{0x47, 0x77}, // Line Control Register8
+	{0x48, 0x77}, // Line Control Register9
+	{0x49, 0x77}, // Line Control Register10
+	{0x4a, 0x77}, // Line Control Register11
+	{0x4b, 0x77}, // Line Control Register12
+	{0x4c, 0x77}, // Line Control Register13
+	{0x4d, 0x77}, // Line Control Register14
+	{0x4e, 0x77}, // Line Control Register15
+	{0x4f, 0x77}, // Line Control Register16
+	{0x50, 0x77}, // Line Control Register17
+	{0x51, 0x77}, // Line Control Register18
+	{0x52, 0x77}, // Line Control Register19
+	{0x53, 0x77}, // Line Control Register20
+	{0x54, 0x77}, // Line Control Register21
+	{0x55, 0xFF}, // Line Control Register22
+	{0x56, 0xFF}, // Line Control Register23
+	{0x57, 0xFF}, // Line Control Register24
+	{0x58, 0x00}, // Programmable framing code
+	{0x59, 0x54}, // Horiz. offset
+	{0x5a, 0x0A}, // Vert. offset //pm
+	{0x5b, 0x83}, // Field offset
+	{0x5c, 0x00}, // -- RESERVED
+	{0x5d, 0x00}, // -- RESERVED
+	{0x5e, 0x00}, // Sliced data id code
+	
+	{0xff, 0xff} // END MARKER
+};
+
+struct saa_setup saa_setupPAL[256] = {
+	{0x01, 0x08},
+	{0x02, 0xc0}, // FUSE0 + FUSE1 -- MODE0 (CVBS - Input)
+	{0x03, 0x33}, // WHITEPEAK OFF | LONG V-BLANK -- AGC ON | AUTOMATIC GAIN MODE0-3 | GAI18 = 1 | GAI28 = 1
+	{0x04, 0x00}, // GAI10-GAI17 Gain-control Input 1
+	{0x05, 0x00}, // GAI20-GAI27 Gain-control Input 2
+	{0x06, 0xe9}, // Horizontal-Sync Begin (-23)
+	{0x07, 0x0d}, // Horizontal-Sync End (13)
+	{0x08, 0x98}, // Sync CTRL (Automatic field detection (PAL / NTSC))
+	{0x09, 0x01},	// Luminance CTRL (Aperture factor 0.25)
+	{0x0a, SOMAGIC_DEFAULT_BRIGHTNESS}, // Luminance Brightness
+	{0x0b, SOMAGIC_DEFAULT_CONTRAST}, // Luminance Contrast
+	{0x0c, SOMAGIC_DEFAULT_SATURATION}, // Chrominance Saturation
+	{0x0d, SOMAGIC_DEFAULT_HUE}, // Chrominance Hue
 	{0x0e, 0x01}, // Chrominance CTRL // Chrominance Bandwidth = 800kHz - Colorstandard selection NTSC M/PAL BGHIN
 	{0x0f, 0x2a}, // Chrominance gain control
 	{0x10, 0x00}, // Format/Delay CTRL
@@ -431,10 +491,11 @@ static int reg_write(struct usb_somagic *somagic, u16 reg, u8 val)
  *
  * Send the SAA7113 Setup commands to the device!
  */
-int somagic_dev_init_video(struct usb_somagic *somagic, v4l2_std_id std)
+int somagic_dev_init_video(struct usb_somagic *somagic, v4l2_std_id tvnorm)
 {
 	int i,rc;
 	u8 buf[2];
+	const struct saa_setup *setup;
 
 	// No need to send this more than once?	
 	if (somagic->video.setup_sent) {
@@ -461,9 +522,27 @@ int somagic_dev_init_video(struct usb_somagic *somagic, v4l2_std_id std)
 		return -1;
 	}
 
+	somagic->video.cur_input = INPUT_CVBS;
+	somagic->video.cur_std = tvnorm;
+	somagic->video.cur_brightness = SOMAGIC_DEFAULT_BRIGHTNESS;
+	somagic->video.cur_contrast = SOMAGIC_DEFAULT_CONTRAST;
+	somagic->video.cur_saturation = SOMAGIC_DEFAULT_SATURATION;
+	somagic->video.cur_hue = SOMAGIC_DEFAULT_HUE;
 
-	for(i=0; saa_setupPAL[i].reg != 0xff; i++) {
-		rc = saa_write(somagic, saa_setupPAL[i].reg, saa_setupPAL[i].val);
+	if (tvnorm == V4L2_STD_PAL) {
+		setup = saa_setupPAL;
+		somagic->video.field_lines = SOMAGIC_STD_FIELD_LINES_PAL;
+		printk("somagic::%s: Setup PAL!\n", __func__);
+	} else {
+		setup = saa_setupNTSC;
+		somagic->video.field_lines = SOMAGIC_STD_FIELD_LINES_NTSC;
+		printk("somagic::%s: Setup NTSC!\n", __func__);
+	}
+
+	somagic->video.frame_size = somagic->video.field_lines * 2 * SOMAGIC_BYTES_PER_LINE;
+
+	for(i=0; setup[i].reg != 0xff; i++) {
+		rc = saa_write(somagic, setup[i].reg, setup[i].val);
 		if (rc < 0) {
 			return -1;
 		}
@@ -712,7 +791,7 @@ static enum parse_state parse_data(struct usb_somagic *somagic)
 						/* We Should have a full frame by now.
  						 * If we don't; reset this frame and try again
  						 */
-						if (frame->scanlength < (288 * 2 * 720 * 2)) {
+						  if (frame->scanlength < somagic->video.frame_size) {
 							frame->scanlength = 0;
 							frame->line = 0;
 							frame->col = 0;
@@ -801,8 +880,9 @@ static void somagic_dev_isoc_video_irq(struct urb *urb)
 		state = parse_data(somagic);
 
 		if (state == PARSE_STATE_NEXT_FRAME) {
-			if ((*f)->scanlength > 720 * 2 * 288 * 2) { // 288 PAL || 240 NTSC
-				(*f)->scanlength = 720 * 2 * 288 * 2;
+			// This should never occur, don't know if we need to check this here?
+			if ((*f)->scanlength > somagic->video.frame_size) {
+				(*f)->scanlength = somagic->video.frame_size;
 			}
 
 			(*f)->grabstate = FRAME_STATE_DONE;
@@ -839,6 +919,189 @@ static void somagic_dev_isoc_video_irq(struct urb *urb)
 	}
 
 	return;
+}
+
+// Set video standard NTSC | PAL
+int somagic_dev_video_set_std(struct usb_somagic *somagic, v4l2_std_id id)
+{
+	int i, rc;
+	static const struct v_std {
+		int reg;
+		int val;
+	}	ntsc[] = {
+		{0x10, 0x40}, // Format/Delay CTRL
+		{0x13, 0x80}, // Output CTRL #2
+		{0x40, 0x82}, // Slicer CTRL
+		{0x41, 0x77}, // Line Control Register2
+		{0x42, 0x77}, // Line Control Register3
+		{0x43, 0x77}, // Line Control Register4
+		{0x44, 0x77}, // Line Control Register5
+		{0x45, 0x77}, // Line Control Register6
+		{0x46, 0x77}, // Line Control Register7
+		{0x47, 0x77}, // Line Control Register8
+		{0x48, 0x77}, // Line Control Register9
+		{0x49, 0x77}, // Line Control Register10
+		{0x4a, 0x77}, // Line Control Register11
+		{0x4b, 0x77}, // Line Control Register12
+		{0x4c, 0x77}, // Line Control Register13
+		{0x4d, 0x77}, // Line Control Register14
+		{0x4e, 0x77}, // Line Control Register15
+		{0x4f, 0x77}, // Line Control Register16
+		{0x50, 0x77}, // Line Control Register17
+		{0x51, 0x77}, // Line Control Register18
+		{0x52, 0x77}, // Line Control Register19
+		{0x53, 0x77}, // Line Control Register20
+		{0x54, 0x77}, // Line Control Register21
+		{0x5a, 0x0A}, // Vert. offset
+		{0xff, 0xff} // END MARKER
+	};
+
+	static const struct v_std pal[] = {
+		{0x10, 0x00}, // Format/Delay CTRL
+		{0x13, 0x00}, // Output CTRL #2
+		{0x40, 0x02}, // Slicer CTRL
+		{0x41, 0xFF}, // Line Control Register2
+		{0x42, 0xFF}, // Line Control Register3
+		{0x43, 0xFF}, // Line Control Register4
+		{0x44, 0xFF}, // Line Control Register5
+		{0x45, 0xFF}, // Line Control Register6
+		{0x46, 0xFF}, // Line Control Register7
+		{0x47, 0xFF}, // Line Control Register8
+		{0x48, 0xFF}, // Line Control Register9
+		{0x49, 0xFF}, // Line Control Register10
+		{0x4a, 0xFF}, // Line Control Register11
+		{0x4b, 0xFF}, // Line Control Register12
+		{0x4c, 0xFF}, // Line Control Register13
+		{0x4d, 0xFF}, // Line Control Register14
+		{0x4e, 0xFF}, // Line Control Register15
+		{0x4f, 0xFF}, // Line Control Register16
+		{0x50, 0xFF}, // Line Control Register17
+		{0x51, 0xFF}, // Line Control Register18
+		{0x52, 0xFF}, // Line Control Register19
+		{0x53, 0xFF}, // Line Control Register20
+		{0x54, 0xFF}, // Line Control Register21
+		{0x5a, 0x07}, // Vert. offset
+		{0xff, 0xff} // END MARKER
+	};
+
+	const struct v_std *std;
+
+	printk(KERN_INFO "somagic::%s: Cur std is %s, User requests standard %s\n",
+         __func__,
+         v4l2_norm_to_name(somagic->video.cur_std),
+         v4l2_norm_to_name(id));
+
+	if ((somagic->video.cur_std & id) == id) {
+		return 0;
+	}
+
+	// Not sure what will happen if we change this while we are streaming!
+	// Could probably be tested!
+	if (somagic->video.streaming == 1) {
+		printk(KERN_INFO "somagic::%s: Warning: application is trying to "\
+                     "change tv-standard while streaming!\n", __func__);	
+		return -EAGAIN;
+	}
+
+/*
+	printk(KERN_INFO "somagic::%s: User requests standard 0x%08X%08X\n", __func__,
+				 (int)((id & (((v4l2_std_id)0xFFFFFFFF) << 32 )) >> 32),
+				 (int)(id & ((v4l2_std_id)0xFFFFFFFF)));	
+*/
+
+
+	if ((id & V4L2_STD_NTSC) == id) {
+		printk(KERN_INFO "somagic::%s: Set device to NTSC!\n", __func__);
+		std = ntsc;
+		somagic->video.cur_std = V4L2_STD_NTSC;
+		somagic->video.field_lines = SOMAGIC_STD_FIELD_LINES_NTSC;
+	} else if ((id & V4L2_STD_PAL) == id) {
+		printk(KERN_INFO "somagic::%s: Set device to PAL!\n", __func__);
+		std = pal;
+		somagic->video.cur_std = V4L2_STD_PAL;
+		somagic->video.field_lines = SOMAGIC_STD_FIELD_LINES_PAL;
+	} else {
+		printk(KERN_INFO "somagic::%s: Warning: "\
+                     "Application tries to set unsupported tv-standard!\n",
+           __func__);	
+		return -EINVAL;
+	}
+
+	somagic->video.frame_size = somagic->video.field_lines * 2 * SOMAGIC_BYTES_PER_LINE;
+
+	for(i=0; std[i].reg != 0xff; i++) {
+		rc = saa_write(somagic, std[i].reg, std[i].val);
+		if (rc < 0) {
+			return -EAGAIN;
+		}
+	}
+
+	return 0;
+}
+
+int somagic_dev_video_set_input(struct usb_somagic *somagic, unsigned int input)
+{
+	enum somagic_inputs new_input = (enum somagic_inputs)input;
+	if (new_input == somagic->video.cur_input) {
+		return 0;
+	}
+	if (new_input >= INPUT_MANY) {
+		return -EINVAL;
+	}
+	/* FIXME:
+	 * Register 0x09 Contains the current luminance settings,
+	 * this will discard any luminance changes made by the user!
+	 */
+
+	if (new_input == INPUT_CVBS) {
+		saa_write(somagic, 0x02, 0xC0);
+		saa_write(somagic, 0x03, 0x33);
+		saa_write(somagic, 0x09, 0x01);
+		saa_write(somagic, 0x13, 0x80);
+	} else if (new_input == INPUT_SVIDEO) {
+		saa_write(somagic, 0x02, 0xC7);
+		saa_write(somagic, 0x03, 0x31);
+		saa_write(somagic, 0x09, 0x81);
+		saa_write(somagic, 0x13, 0x00);
+	}
+	somagic->video.cur_input = new_input;
+	return 0;
+}
+
+void somagic_dev_video_set_brightness(struct usb_somagic *somagic, s32 value)
+{
+	if (value > 127 || value < -128) {
+		return;
+	}
+	saa_write(somagic, 0x0a, value);
+	somagic->video.cur_brightness = value;
+}
+
+void somagic_dev_video_set_contrast(struct usb_somagic *somagic, s32 value)
+{
+	if (value > 127 || value < -128) {
+		return;
+	}
+	saa_write(somagic, 0x0b, value);
+	somagic->video.cur_contrast = value;
+}
+
+void somagic_dev_video_set_saturation(struct usb_somagic *somagic, s32 value)
+{
+	if (value > 127 || value < -128) {
+		return;
+	}
+	saa_write(somagic, 0x0c, value);
+	somagic->video.cur_saturation = value;
+}
+
+void somagic_dev_video_set_hue(struct usb_somagic *somagic, s32 value)
+{
+	if (value > 127 || value < -128) {
+		return;
+	}
+	saa_write(somagic, 0x0d, value);
+	somagic->video.cur_hue = value;
 }
 
 int somagic_dev_video_start_stream(struct usb_somagic *somagic)
@@ -913,7 +1176,36 @@ int somagic_dev_video_start_stream(struct usb_somagic *somagic)
 
 void somagic_dev_video_stop_stream(struct usb_somagic *somagic)
 {
+	int rc;
+	u8 data[2];
+
 	somagic->video.streaming = 0;
+
+	data[0] = 0x01;
+	data[1] = 0x03;
+
+	rc = usb_control_msg(somagic->dev,
+											 usb_sndctrlpipe(somagic->dev, 0x00),
+											 SOMAGIC_USB_STD_REQUEST,
+											 USB_DIR_OUT | USB_TYPE_VENDOR | USB_RECIP_DEVICE,
+											 0x01, // VALUE
+											 0x00, // INDEX
+											 (void *)&data,
+											 sizeof(data),
+											 1000);
+	if (rc < 0) {
+		printk(KERN_ERR "somagic:%s:: error while trying to set device" \
+                    "to idle mode: %d\n",
+										__func__, rc);
+	}
+
+	rc = usb_set_interface(somagic->dev, 0, 0);
+	if (rc < 0) {
+		printk(KERN_ERR "somagic:%s:: error while trying to set" \
+                    "alt interface to 0: %d\n",
+										__func__, rc);
+	}
+
 }
 
 int somagic_dev_video_alloc_isoc(struct usb_somagic *somagic)
