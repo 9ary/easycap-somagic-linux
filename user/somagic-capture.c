@@ -763,7 +763,7 @@ void usage()
 	fprintf(stderr, "                             Value  Algorithm\n");
 	fprintf(stderr, "                                 1  TB\n");
 	fprintf(stderr, "                                 2  MD (default)\n");
-	fprintf(stderr, "      --vo=FILENAME          Raw video output file (or pipe) filename\n");
+	fprintf(stderr, "      --vo=FILENAME          Raw UYVY video output file (or pipe) filename\n");
 	fprintf(stderr, "                             (default is standard output)\n");
 	fprintf(stderr, "      --help                 Display usage\n");
 	fprintf(stderr, "      --version              Display version information\n");
