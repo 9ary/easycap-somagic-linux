@@ -41,6 +41,9 @@
 #include <unistd.h>
 #include <getopt.h>
 #include <errno.h>
+       #include <sys/types.h>
+       #include <sys/stat.h>
+       #include <fcntl.h>
 
 #define PROGRAM_NAME "somagic-capture"
 #define VERSION "1.0"
@@ -108,6 +111,9 @@ int luminance_aperture = 1;
 
 /* Video sync and processing algorithm: 1 (Tony Brown), 2 (Michal Demin) */ 
 int sync_algorithm = 2;
+
+/* Video output file descriptor: 1 = stdout (default) */
+int video_fd = 1; 
 
 void release_usb_device(int ret)
 {
@@ -338,7 +344,7 @@ void alg1_process(struct alg1_video_state_t *vs, unsigned char *buffer, int leng
 						if (vs->active_line_count > (lines_per_field - 8)) {
 							if (vs->field == 0) {
 								if (frames_generated < frame_count || frame_count == -1) {
-									write(1, vs->frame, 720 * 2 * lines_per_field * 2);
+									write(video_fd, vs->frame, 720 * 2 * lines_per_field * 2);
 									frames_generated++;
 								}
 								if (frames_generated >= frame_count && frame_count != -1) {
@@ -509,7 +515,7 @@ static void alg2_process(struct alg2_video_state_t *vs, uint8_t c)
 
 			if (vs->field == 0 && field_edge) {
 				if (frames_generated < frame_count || frame_count == -1) {
-					write(1, vs->frame, 720 * 2 * lines_per_field * 2);
+					write(video_fd, vs->frame, 720 * 2 * lines_per_field * 2);
 					frames_generated++;
 				}
 				
@@ -570,7 +576,7 @@ void gotdata(struct libusb_transfer *tfr)
 
 	if (!stop_sending_requests) {
 		ret = libusb_submit_transfer(tfr);
-		if (ret != 0) {
+		if (ret) {
 			fprintf(stderr, "libusb_submit_transfer failed with error %d\n", ret);
 			exit(1);
 		}
@@ -757,18 +763,20 @@ void usage()
 	fprintf(stderr, "                             Value  Algorithm\n");
 	fprintf(stderr, "                                 1  TB\n");
 	fprintf(stderr, "                                 2  MD (default)\n");
+	fprintf(stderr, "      --vo=FILENAME          Raw video output file (or pipe) filename\n");
+	fprintf(stderr, "                             (default is standard output)\n");
 	fprintf(stderr, "      --help                 Display usage\n");
 	fprintf(stderr, "      --version              Display version information\n");
 	fprintf(stderr, "\n");
 	fprintf(stderr, "Examples (run as root):\n");
 	fprintf(stderr, "# PAL, CVBS/composite:\n");
-	fprintf(stderr, PROGRAM_NAME" 2> /dev/null | mplayer - -vf yadif,screenshot -demuxer rawvideo -rawvideo \"pal:format=uyvy:fps=25\" -aspect 4:3\n");
+	fprintf(stderr, PROGRAM_NAME" 2>/dev/null | mplayer -vf yadif,screenshot -demuxer rawvideo -rawvideo \"pal:format=uyvy:fps=25\" -aspect 4:3 -\n");
 	fprintf(stderr, "\n");
 	fprintf(stderr, "# NTSC, S-VIDEO\n");
-	fprintf(stderr, PROGRAM_NAME" -n -s 2> /dev/null | mplayer - -vf yadif,screenshot -demuxer rawvideo -rawvideo \"ntsc:format=uyvy:fps=30000/1001\" -aspect 4:3\n");
+	fprintf(stderr, PROGRAM_NAME" -n -s 2>/dev/null | mplayer -vf yadif,screenshot -demuxer rawvideo -rawvideo \"ntsc:format=uyvy:fps=30000/1001\" -aspect 4:3 -\n");
 	fprintf(stderr, "\n");
 	fprintf(stderr, "# NTSC, CVBS/composite, increased sharpness:\n");
-	fprintf(stderr, PROGRAM_NAME" -n --luminance=2 --lum-aperture=3 2> /dev/null | mplayer - -vf yadif,screenshot -demuxer rawvideo -rawvideo \"ntsc:format=uyvy:fps=30000/1001\" -aspect 4:3\n");
+	fprintf(stderr, PROGRAM_NAME" -n --luminance=2 --lum-aperture=3 2>/dev/null | mplayer -vf yadif,screenshot -demuxer rawvideo -rawvideo \"ntsc:format=uyvy:fps=30000/1001\" -aspect 4:3 -\n");
 }
 
 int main(int argc, char **argv)
@@ -785,7 +793,7 @@ int main(int argc, char **argv)
 	/* buffers and transfer pointers for isochronous data */
 	struct libusb_transfer *tfr[NUM_ISO_TRANSFERS];
 	unsigned char isobuf[NUM_ISO_TRANSFERS][64 * 3072];
-
+	
 	/* parsing */
 	int c;
 	int option_index = 0;
@@ -803,6 +811,7 @@ int main(int argc, char **argv)
 		{"pal-combination-n", 0, 0, 0}, /* index 10 */
 		{"secam", 0, 0, 0},             /* index 11 */
 		{"sync", 1, 0, 0},              /* index 12 */
+		{"vo", 1, 0, 0},                /* index 13 */
 		{"brightness", 1, 0, 'B'},
 		{"cvbs", 0, 0, 'c'},
 		{"contrast", 1, 0, 'C'},
@@ -872,6 +881,13 @@ int main(int argc, char **argv)
 				sync_algorithm = atoi(optarg);
 				if (sync_algorithm < 1 || sync_algorithm > 2) {
 					fprintf(stderr, "Invalid sync algorithm '%i', must be from 1 to 2\n", sync_algorithm);
+					return 1;
+				}
+				break;
+			case 13: /* --vo */
+				video_fd = open(optarg, O_CREAT | O_WRONLY | O_TRUNC, S_IRUSR | S_IWUSR | S_IRGRP | S_IROTH);
+				if (video_fd == -1) {
+					fprintf(stderr, "%s: Error opening video output file '%s': %s\n", argv[0], optarg, strerror(errno));
 					return 1;
 				}
 				break;
@@ -959,13 +975,13 @@ int main(int argc, char **argv)
 	
 	signal(SIGTERM, release_usb_device);
 	ret = libusb_claim_interface(devh, 0);
-	if (ret != 0) {
+	if (ret) {
 		fprintf(stderr, "claim failed with error %d\n", ret);
 		return 1;
 	}
 	
 	ret = libusb_set_interface_alt_setting(devh, 0, 0);
-	if (ret != 0) {
+	if (ret) {
 		perror("Failed to set active alternate setting for interface");
 		return 1;
 	}
@@ -984,22 +1000,22 @@ int main(int argc, char **argv)
 	fprintf(stderr, "\n");
 
 	ret = libusb_release_interface(devh, 0);
-	if (ret != 0) {
+	if (ret) {
 		perror("Failed to release interface (before set_configuration)");
 		return 1;
 	}
 	ret = libusb_set_configuration(devh, 0x0000001);
-	if (ret != 0) {
+	if (ret) {
 		perror("Failed to set active device configuration");
 		return 1;
 	}
 	ret = libusb_claim_interface(devh, 0);
-	if (ret != 0) {
+	if (ret) {
 		perror("Failed to claim device interface (after set_configuration)");
 		return 1;
 	}
 	ret = libusb_set_interface_alt_setting(devh, 0, 0);
-	if (ret != 0) {
+	if (ret) {
 		perror("Failed to set active alternate setting for interface (after set_configuration)");
 		return 1;
 	}
@@ -1327,7 +1343,7 @@ int main(int argc, char **argv)
 	pending_requests = NUM_ISO_TRANSFERS;
 	for (i = 0; i < NUM_ISO_TRANSFERS; i++) {
 		ret = libusb_submit_transfer(tfr[i]);
-		if (ret != 0) {
+		if (ret) {
 			fprintf(stderr, "%s: Error submitting request #%d for transfer: %s\n", argv[0], i, strerror(errno));
 			return 1;
 		}
@@ -1344,11 +1360,21 @@ int main(int argc, char **argv)
 	}
 
 	ret = libusb_release_interface(devh, 0);
-	if (ret != 0) {
+	if (ret) {
 		perror("Failed to release interface");
 		return 1;
 	}
 	libusb_close(devh);
 	libusb_exit(NULL);
+
+	/* Close video output file */
+	if (video_fd != 1) {
+		ret = close(video_fd);
+		if (ret) {
+			perror("Error closing video output file");
+			return 1;
+		}
+	}
+
 	return 0;
 }
