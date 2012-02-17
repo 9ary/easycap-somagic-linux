@@ -4,7 +4,8 @@
  * USB Driver for Somagic EasyCAP DC60                                         *
  * USB ID 1c88:0007                                                            *
  *                                                                             *
- * Initializes the Somagic EasyCAP DC60 registers and performs image capture.  *
+ * Initializes the Somagic EasyCAP DC60 registers and performs audio and video *
+ * capture.                                                                    *
  * *****************************************************************************
  *
  * Copyright 2011, 2012 Tony Brown, Michal Demin, Jeffry Johnston, Jon Arne Jørgensen
@@ -29,30 +30,25 @@
 
 /* This file was originally generated with usbsnoop2libusb.pl from a usbsnoop log file. */
 /* Latest version of the script should be in http://iki.fi/lindi/usb/usbsnoop2libusb.pl */
-#include <stdio.h>
-#include <stdlib.h>
-#include <string.h>
-#include <signal.h>
 #include <ctype.h>
-#include <libusb-1.0/libusb.h>
 #ifdef DEBUG
 #include <execinfo.h>
 #endif
-#include <unistd.h>
-#include <getopt.h>
 #include <errno.h>
-       #include <sys/types.h>
-       #include <sys/stat.h>
-       #include <fcntl.h>
+#include <fcntl.h>
+#include <getopt.h>
+#include <libusb-1.0/libusb.h>
+#include <signal.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include <unistd.h>
 
 #define PROGRAM_NAME "somagic-capture"
 #define VERSION "1.0"
 #define VENDOR 0x1c88
 #define PRODUCT 0x003c
 #define MIN(a, b) (((a) < (b)) ? (a) : (b))
-
-/* Control the number of concurrent ISO transfers we have running */
-static const int NUM_ISO_TRANSFERS = 4;
 
 int frames_generated = 0;
 int stop_sending_requests = 0;
@@ -115,6 +111,9 @@ int sync_algorithm = 2;
 /* Video output file descriptor: 1 = stdout (default) */
 int video_fd = 1; 
 
+/* Control the number of concurrent ISO transfers we have running */
+int num_iso_transfers = 4;
+
 void release_usb_device(int ret)
 {
 	fprintf(stderr, "Emergency exit\n");
@@ -173,7 +172,6 @@ void print_bytes_only(char *bytes, int len)
 				fprintf(stderr, "\n%04x\t ", i);
 			}
 			fprintf(stderr, "%02x ", (int)((unsigned char)bytes[i]));
-			/* if ((i + 1) % 16 == 0) {	 fprintf(stderr, "\n"); } */
 		}
 	}
 }
@@ -308,7 +306,6 @@ void alg1_process(struct alg1_video_state_t *vs, unsigned char *buffer, int leng
 				 * Found 0xff 0x00 0x00, now expecting SAV or EAV. Might
 				 * also be the SDID (sliced data ID), 0x00.
 				 */
-				/* fprintf(stderr,"%02x", nc); */
 				if (nc == (unsigned char)0x00) {
 					/*
 					 * SDID detected, so we still haven't found the
@@ -353,7 +350,6 @@ void alg1_process(struct alg1_video_state_t *vs, unsigned char *buffer, int leng
 								
 							}
 							vs->vblank_found = 0;
-							/* fprintf(stderr, "lines: %d\n", vs->active_line_count); */
 						}
 						vs->active_line_count = 0;
 					} else {
@@ -367,27 +363,21 @@ void alg1_process(struct alg1_video_state_t *vs, unsigned char *buffer, int leng
 			case VBLANK:
 			case VACTIVE:
 			case REMAINDER:
-				/* fprintf(stderr,"line %d, rem=%d ,next=%08x, end=%08x ", active_line_count, line_remaining, next, end); */
 				if (vs->state == VBLANK || vs->vblank_found < 20) {
 					skip = MIN(vs->line_remaining, (end - next));
-					/* fprintf(stderr,"skipped: %d\n", skip); */
 					vs->line_remaining -= skip;
 					next += skip ;
-					/* fprintf(stderr, "vblank_found=%d\n", vblank_found); */
 				} else {
 					wrote = write_buffer(next, end, vs->line_remaining, vs->frame, vs->active_line_count, vs->field);
-					/* fprintf(stderr,"wrote: %d\n", wrote); */
 					vs->line_remaining -= wrote;
 					next += wrote;
 					if (vs->line_remaining <= 0) {
 						vs->active_line_count++;
 					}
 				}
-				/* fprintf(stderr, "vblank_found: %d, line remaining: %d, line_count: %d\n", vblank_found, line_remaining, active_line_count); */
 				if (vs->line_remaining <= 0) {
 					vs->state = HSYNC;
 				} else {
-					/* fprintf(stderr, "\nOn line %d, line_remaining: %d(%04x). bp=%04x/%04x\n", active_line_count, line_remaining, line_remaining, buffer_pos, buffer_size); */
 					vs->state = REMAINDER;
 					/* no more data in this buffer. exit loop */
 					next = end;
@@ -551,12 +541,12 @@ void gotdata(struct libusb_transfer *tfr)
 
 		while (pos < length) {
 			/*
-			 * Within each packet of the transfer, the data is divided into blocks of 0x400 bytes
-			 * beginning with [0xaa 0xaa 0x00 0x00].
+			 * Within each packet of the transfer, the video data is divided 
+			 * into blocks of 0x400 bytes beginning with [0xaa 0xaa 0x00 0x00].
 			 * Check for this signature and process each block of data individually.
 			 */
 			if (data[pos] == 0xaa && data[pos + 1] == 0xaa && data[pos + 2] == 0x00 && data[pos + 3] == 0x00) {
-				/* process the received data, excluding the 4 marker bytes */
+				/* Process received video data, excluding the 4 marker bytes */
 				switch (sync_algorithm) {
 				case 1:
 					alg1_process(&alg1_vs, data + 4 + pos, 0x400 - 4);
@@ -584,32 +574,6 @@ void gotdata(struct libusb_transfer *tfr)
 	}
 }
 
-uint8_t somagic_read_reg(uint16_t reg)
-{
-	int ret;
-	uint8_t buf[13];
-	memcpy(buf, "\x0b\x00\x20\x82\x01\x30\x80\xFF", 8);
-
-	buf[5] = reg >> 8;
-	buf[6] = reg & 0xff;
-
-	ret = libusb_control_transfer(devh, LIBUSB_REQUEST_TYPE_VENDOR + LIBUSB_RECIPIENT_DEVICE, 0x0000001, 0x000000b, 0x0000000, buf, 8, 1000);
-	if (ret != 8) {
-		fprintf(stderr, "read_reg msg returned %d, bytes: ", ret);
-		print_bytes(buf, ret);
-		fprintf(stderr, "\n");
-	}
-
-	ret = libusb_control_transfer(devh, LIBUSB_REQUEST_TYPE_VENDOR + LIBUSB_RECIPIENT_DEVICE + LIBUSB_ENDPOINT_IN, 0x0000001, 0x000000b, 0x0000000, buf, 13, 1000);
-	if (ret != 13) {
-		fprintf(stderr, "read_reg control msg returned %d, bytes: ", ret);
-		print_bytes(buf, ret);
-		fprintf(stderr, "\n");
-	}
-
-	return buf[7];
-}
-
 static int somagic_write_reg(uint16_t reg, uint8_t val)
 {
 	int ret;
@@ -628,41 +592,6 @@ static int somagic_write_reg(uint16_t reg, uint8_t val)
 	}
 
 	return ret;
-}
-
-static uint8_t somagic_read_i2c(uint8_t dev_addr, uint8_t reg)
-{
-	int ret;
-	uint8_t buf[13];
-
-	memcpy(buf, "\x0b\x4a\x84\x00\x01\x10\x00\x00\x00\x00\x00\x00\x00", 13);
-
-	buf[1] = dev_addr;
-	buf[5] = reg;
-
-	ret = libusb_control_transfer(devh, LIBUSB_REQUEST_TYPE_VENDOR + LIBUSB_RECIPIENT_DEVICE, 0x0000001, 0x000000b, 0x0000000, buf, 13, 1000);
-	fprintf(stderr, "-> i2c_read msg returned %d, bytes: ", ret);
-	print_bytes(buf, ret);
-	fprintf(stderr, "\n");
-	usleep(18 * 1000);
-
-	memcpy(buf, "\x0b\x4a\xa0\x00\x01\x00\xff\xff\xff\xff\xff\xff\xff", 13);
-
-	buf[1] = dev_addr;
-
-	ret = libusb_control_transfer(devh, LIBUSB_REQUEST_TYPE_VENDOR + LIBUSB_RECIPIENT_DEVICE, 0x0000001, 0x000000b, 0x0000000, buf, 13, 1000);
-	fprintf(stderr, "-> i2c_read msg returned %d, bytes: ", ret);
-	print_bytes(buf, ret);
-	fprintf(stderr, "\n");
-
-	memset(buf, 0xff, 0x000000d);
-	ret = libusb_control_transfer(devh, LIBUSB_REQUEST_TYPE_VENDOR + LIBUSB_RECIPIENT_DEVICE + LIBUSB_ENDPOINT_IN, 0x0000001, 0x000000b, 0x0000000, buf, 13, 1000);
-	fprintf(stderr, "<- i2c_read msg returned %d, bytes: ", ret);
-	print_bytes(buf, ret);
-	fprintf(stderr, "\n");
-	usleep(11 * 1000);
-
-	return buf[5];
 }
 
 static int somagic_write_i2c(uint8_t dev_addr, uint8_t reg, uint8_t val)
@@ -699,7 +628,6 @@ void version()
 void usage()
 {
 	fprintf(stderr, "Usage: "PROGRAM_NAME" [options]\n");
-	fprintf(stderr, "  -c, --cvbs                 Use CVBS (composite) input (default)\n");
 	fprintf(stderr, "  -B, --brightness=VALUE     Luminance brightness control,\n");
 	fprintf(stderr, "                             0 to 255 (default: 128)\n");
 	fprintf(stderr, "                             Value  Brightness\n");
@@ -718,6 +646,7 @@ void usage()
 	fprintf(stderr, "                                 0   0.000000 (luminance off)\n");
 	fprintf(stderr, "                               -64  -1.000000 (inverse)\n");
 	fprintf(stderr, "                              -128  -2.000000 (inverse)\n");
+	fprintf(stderr, "  -c, --cvbs                 Use CVBS (composite) input (default)\n");
 	fprintf(stderr, "  -f, --frames=COUNT         Number of frames to generate,\n");
 	fprintf(stderr, "                             -1 for unlimited (default: -1)\n");
 	fprintf(stderr, "  -H, --hue=VALUE            Hue phase in degrees, -128 to 127 (default: 0),\n");
@@ -726,12 +655,7 @@ void usage()
 	fprintf(stderr, "                                 0     0.00000\n");
 	fprintf(stderr, "                                 1     1.40635\n");
 	fprintf(stderr, "                               127   178.59375\n");
-	fprintf(stderr, "      --luminance=MODE       CVBS luminance mode (default: 0)\n");
-	fprintf(stderr, "                             Mode  Center Frequency\n");
-	fprintf(stderr, "                                0  4.1 MHz (default)\n");
-	fprintf(stderr, "                                1  3.8 MHz\n");
-	fprintf(stderr, "                                2  2.6 MHz\n");
-	fprintf(stderr, "                                3  2.9 MHz\n");
+	fprintf(stderr, "      --iso-transfers=COUNT  Number of concurrent iso transfers (default: 4)\n");
 	fprintf(stderr, "      --lum-aperture=MODE    Luminance aperture factor (default: 1)\n");
 	fprintf(stderr, "                             Mode  Aperture Factor\n");
 	fprintf(stderr, "                                0  0.00\n");
@@ -739,6 +663,12 @@ void usage()
 	fprintf(stderr, "                                2  0.50\n");
 	fprintf(stderr, "                                3  1.00\n");
 	fprintf(stderr, "      --lum-prefilter        Activate luminance prefilter (default: bypassed)\n");
+	fprintf(stderr, "      --luminance=MODE       CVBS luminance mode (default: 0)\n");
+	fprintf(stderr, "                             Mode  Center Frequency\n");
+	fprintf(stderr, "                                0  4.1 MHz (default)\n");
+	fprintf(stderr, "                                1  3.8 MHz\n");
+	fprintf(stderr, "                                2  2.6 MHz\n");
+	fprintf(stderr, "                                3  2.9 MHz\n");
 	fprintf(stderr, "  -n, --ntsc                 NTSC-M (North America) / NTSC-J (Japan)\n");
 	fprintf(stderr, "                                               [525 lines, 29.97 Hz]\n");
 	fprintf(stderr, "      --ntsc-4.43-50         NTSC-4.43 50Hz    [525 lines, 25 Hz]\n");
@@ -770,20 +700,19 @@ void usage()
 	fprintf(stderr, "\n");
 	fprintf(stderr, "Examples (run as root):\n");
 	fprintf(stderr, "# PAL, CVBS/composite:\n");
-	fprintf(stderr, PROGRAM_NAME" 2>/dev/null | mplayer -vf yadif,screenshot -demuxer rawvideo -rawvideo \"pal:format=uyvy:fps=25\" -aspect 4:3 -\n");
+	fprintf(stderr, PROGRAM_NAME" | mplayer -vf yadif,screenshot -demuxer rawvideo -rawvideo \"pal:format=uyvy:fps=25\" -aspect 4:3 -\n");
 	fprintf(stderr, "\n");
 	fprintf(stderr, "# NTSC, S-VIDEO\n");
-	fprintf(stderr, PROGRAM_NAME" -n -s 2>/dev/null | mplayer -vf yadif,screenshot -demuxer rawvideo -rawvideo \"ntsc:format=uyvy:fps=30000/1001\" -aspect 4:3 -\n");
+	fprintf(stderr, PROGRAM_NAME" -n -s | mplayer -vf yadif,screenshot -demuxer rawvideo -rawvideo \"ntsc:format=uyvy:fps=30000/1001\" -aspect 4:3 -\n");
 	fprintf(stderr, "\n");
 	fprintf(stderr, "# NTSC, CVBS/composite, increased sharpness:\n");
-	fprintf(stderr, PROGRAM_NAME" -n --luminance=2 --lum-aperture=3 2>/dev/null | mplayer -vf yadif,screenshot -demuxer rawvideo -rawvideo \"ntsc:format=uyvy:fps=30000/1001\" -aspect 4:3 -\n");
+	fprintf(stderr, PROGRAM_NAME" -n --luminance=2 --lum-aperture=3 | mplayer -vf yadif,screenshot -demuxer rawvideo -rawvideo \"ntsc:format=uyvy:fps=30000/1001\" -aspect 4:3 -\n");
 }
 
 int main(int argc, char **argv)
 {
 	int ret;
 	int i = 0;
-	uint8_t status;
 	uint8_t work; 
 	struct libusb_device *dev;
 
@@ -791,27 +720,28 @@ int main(int argc, char **argv)
 	unsigned char buf[65535];
 	
 	/* buffers and transfer pointers for isochronous data */
-	struct libusb_transfer *tfr[NUM_ISO_TRANSFERS];
-	unsigned char isobuf[NUM_ISO_TRANSFERS][64 * 3072];
+	struct libusb_transfer **tfr;
+	unsigned char (*isobuf)[64 * 3072];
 	
 	/* parsing */
 	int c;
 	int option_index = 0;
 	static struct option long_options[] = {
-		{"help", 0, 0, 0},              /* index 0 */
-		{"version", 0, 0, 0},           /* index 1 */
-		{"luminance", 1, 0, 0},         /* index 2 */
-		{"lum-aperture", 1, 0, 0},      /* index 3 */
-		{"lum-prefilter", 0, 0, 0},     /* index 4 */
-		{"ntsc-4.43-50", 0, 0, 0},      /* index 5 */
-		{"ntsc-4.43-60", 0, 0, 0},      /* index 6 */
-		{"ntsc-n", 0, 0, 0},            /* index 7 */
-		{"pal-4.43", 0, 0, 0},          /* index 8 */
-		{"pal-m", 0, 0, 0},             /* index 9 */
+		{"help", 0, 0, 0},              /* index 0  */
+		{"iso-transfers", 1, 0, 0},     /* index 1  */
+		{"lum-aperture", 1, 0, 0},      /* index 2  */
+		{"lum-prefilter", 0, 0, 0},     /* index 3  */
+		{"luminance", 1, 0, 0},         /* index 4  */
+		{"ntsc-4.43-50", 0, 0, 0},      /* index 5  */
+		{"ntsc-4.43-60", 0, 0, 0},      /* index 6  */
+		{"ntsc-n", 0, 0, 0},            /* index 7  */
+		{"pal-4.43", 0, 0, 0},          /* index 8  */
+		{"pal-m", 0, 0, 0},             /* index 9  */
 		{"pal-combination-n", 0, 0, 0}, /* index 10 */
 		{"secam", 0, 0, 0},             /* index 11 */
 		{"sync", 1, 0, 0},              /* index 12 */
-		{"vo", 1, 0, 0},                /* index 13 */
+		{"version", 0, 0, 0},           /* index 13 */
+		{"vo", 1, 0, 0},                /* index 14 */
 		{"brightness", 1, 0, 'B'},
 		{"cvbs", 0, 0, 'c'},
 		{"contrast", 1, 0, 'C'},
@@ -836,25 +766,29 @@ int main(int argc, char **argv)
 			case 0: /* --help */
 				usage();
 				return 0;
-			case 1: /* --version */
-				version();
-				return 0;
-			case 2: /* --luminance */
-				luminance_mode = atoi(optarg);
-				if (luminance_mode < 0 || luminance_mode > 3) {
-					fprintf(stderr, "Invalid luminance mode '%i', must be from 0 to 3\n", luminance_mode);
+			case 1: /* --iso-transfers */
+				num_iso_transfers = atoi(optarg);
+				if (num_iso_transfers < 1) {
+					fprintf(stderr, "Invalid iso transfers count '%i', must be at least 1\n", num_iso_transfers);
 					return 1;
 				}
 				break;
-			case 3: /* --lum-aperture */
+			case 2: /* --lum-aperture */
 				luminance_aperture = atoi(optarg);
 				if (luminance_aperture < 0 || luminance_aperture > 3) {
 					fprintf(stderr, "Invalid luminance aperture '%i', must be from 0 to 3\n", luminance_mode);
 					return 1;
 				}
 				break;
-			case 4: /* --lum-prefilter */
+			case 3: /* --lum-prefilter */
 				luminance_prefilter = 1;
+				break;
+			case 4: /* --luminance */
+				luminance_mode = atoi(optarg);
+				if (luminance_mode < 0 || luminance_mode > 3) {
+					fprintf(stderr, "Invalid luminance mode '%i', must be from 0 to 3\n", luminance_mode);
+					return 1;
+				}
 				break;
 			case 5: /* --ntsc-4.43-50 */
 				tv_standard = NTSC_50;
@@ -884,7 +818,10 @@ int main(int argc, char **argv)
 					return 1;
 				}
 				break;
-			case 13: /* --vo */
+			case 13: /* --version */
+				version();
+				return 0;
+			case 14: /* --vo */
 				video_fd = open(optarg, O_CREAT | O_WRONLY | O_TRUNC, S_IRUSR | S_IWUSR | S_IRGRP | S_IROTH);
 				if (video_fd == -1) {
 					fprintf(stderr, "%s: Error opening video output file '%s': %s\n", argv[0], optarg, strerror(errno));
@@ -976,7 +913,7 @@ int main(int argc, char **argv)
 	signal(SIGTERM, release_usb_device);
 	ret = libusb_claim_interface(devh, 0);
 	if (ret) {
-		fprintf(stderr, "claim failed with error %d\n", ret);
+		fprintf(stderr, "Claim failed with error %d\n", ret);
 		return 1;
 	}
 	
@@ -986,18 +923,24 @@ int main(int argc, char **argv)
 		return 1;
 	}
 
-	ret = libusb_get_descriptor(devh, 0x0000001, 0x0000000, buf, 0x0000012);
-	fprintf(stderr, "1 get descriptor returned %d, bytes: ", ret);
-	print_bytes(buf, ret);
-	fprintf(stderr, "\n");
-	ret = libusb_get_descriptor(devh, 0x0000002, 0x0000000, buf, 0x0000009);
-	fprintf(stderr, "2 get descriptor returned %d, bytes: ", ret);
-	print_bytes(buf, ret);
-	fprintf(stderr, "\n");
-	ret = libusb_get_descriptor(devh, 0x0000002, 0x0000000, buf, 0x0000042);
+	ret = libusb_get_descriptor(devh, 0x0000001, 0x0000000, buf, 18);
+	if (ret != 18) {
+		fprintf(stderr, "1 get descriptor returned %d, bytes: ", ret);
+		print_bytes(buf, ret);
+		fprintf(stderr, "\n");
+	}
+	ret = libusb_get_descriptor(devh, 0x0000002, 0x0000000, buf, 9);
+	if (ret != 9) {
+		fprintf(stderr, "2 get descriptor returned %d, bytes: ", ret);
+		print_bytes(buf, ret);
+		fprintf(stderr, "\n");
+	}
+	ret = libusb_get_descriptor(devh, 0x0000002, 0x0000000, buf, 66);
+	/*
 	fprintf(stderr, "3 get descriptor returned %d, bytes: ", ret);
 	print_bytes(buf, ret);
 	fprintf(stderr, "\n");
+	*/
 
 	ret = libusb_release_interface(devh, 0);
 	if (ret) {
@@ -1020,9 +963,11 @@ int main(int argc, char **argv)
 		return 1;
 	}
 	ret = libusb_control_transfer(devh, LIBUSB_REQUEST_TYPE_VENDOR + LIBUSB_RECIPIENT_DEVICE + LIBUSB_ENDPOINT_IN, 0x0000001, 0x0000001, 0x0000000, buf, 2, 1000);
-	fprintf(stderr, "5 control msg returned %d, bytes: ", ret);
-	print_bytes(buf, ret);
-	fprintf(stderr, "\n");
+	if (ret != 2) {
+		fprintf(stderr, "5 control msg returned %d, bytes: ", ret);
+		print_bytes(buf, ret);
+		fprintf(stderr, "\n");
+	}
 
 	somagic_write_reg(0x3a, 0x80);
 	somagic_write_reg(0x3b, 0x00);
@@ -1030,9 +975,6 @@ int main(int argc, char **argv)
 	/* Reset audio chip? */
 	somagic_write_reg(0x34, 0x01);
 	somagic_write_reg(0x35, 0x00);
-
-	status = somagic_read_reg(0x3080);
-	fprintf(stderr, "status is %02x\n", status);
 
 	/* Reset audio chip? */
 	somagic_write_reg(0x34, 0x11);
@@ -1116,7 +1058,6 @@ int main(int argc, char **argv)
 		/* Chrominance trap bypass (BYPS) = Chrominance trap bypassed; default for S-video mode */
 		work |= 0x80;
 	}
-	fprintf(stderr, "Subaddress 0x09 set to %02x\n", work); 
 	somagic_write_i2c(0x4a, 0x09, work);
 
 	/* Subaddress 0x0a, Luminance brightness control */
@@ -1172,13 +1113,6 @@ int main(int argc, char **argv)
 	/* VREF pulse position and length (VRLN) = see Table 46 in SAA7113H documentation */
 	/* Luminance delay compensation (steps in 2/LLC) = 0 */
 	somagic_write_i2c(0x4a, 0x10, 0x40);
-	/*
-	if (input_type == CVBS) {
-		somagic_write_i2c(0x4a, 0x10, 0x40);
-	} else {
-		somagic_write_i2c(0x4a, 0x10, 0x00);
-	}
-	*/
 
 	/* Subaddress 0x11, Output control 1 */
 	/* General purpose switch [available on pin RTS1, if control bits RTSE13 to RTSE10 (subaddress 0x12) is set to 0010] = LOW */
@@ -1296,41 +1230,52 @@ int main(int argc, char **argv)
 	/* Slicer set, SDID codes = SDID5 to SDID0 = 0x00 (default) */
 	somagic_write_i2c(0x4a, 0x5e, 0x00);
 
-	status = somagic_read_i2c(0x4a, 0x10);
-	fprintf(stderr,"i2c_read(0x10) = %02x\n", status);
-
-	status = somagic_read_i2c(0x4a, 0x02);
-	fprintf(stderr,"i2c_stat(0x02) = %02x\n", status);
-
 	somagic_write_reg(0x1740, 0x40);
-
-	status = somagic_read_reg(0x3080);
-	fprintf(stderr, "status is %02x\n", status);
 
 	somagic_write_reg(0x1740, 0x00);
 	usleep(250 * 1000);
 	somagic_write_reg(0x1740, 0x00);
 
-	status = somagic_read_reg(0x3080);
-	fprintf(stderr, "status is %02x\n", status);
-
 	memcpy(buf, "\x01\x05", 2);
 	ret = libusb_control_transfer(devh, LIBUSB_REQUEST_TYPE_VENDOR + LIBUSB_RECIPIENT_DEVICE, 0x0000001, 0x0000001, 0x0000000, buf, 2, 1000);
-	fprintf(stderr, "190 control msg returned %d, bytes: ", ret);
-	print_bytes(buf, ret);
-	fprintf(stderr, "\n");
-	ret = libusb_get_descriptor(devh, 0x0000002, 0x0000000, buf, 0x0000109);
+	if (ret != 2) {
+		fprintf(stderr, "190 control msg returned %d, bytes: ", ret);
+		print_bytes(buf, ret);
+		fprintf(stderr, "\n");
+	}
+	ret = libusb_get_descriptor(devh, 0x0000002, 0x0000000, buf, 265);
+	/*
 	fprintf(stderr, "191 get descriptor returned %d, bytes: ", ret);
 	print_bytes(buf, ret);
 	fprintf(stderr, "\n");
+	*/
+
 	ret = libusb_set_interface_alt_setting(devh, 0, 2);
-	fprintf(stderr, "192 set alternate setting returned %d\n", ret);
+	if (ret != 0) {
+		fprintf(stderr, "192 set alternate setting returned %d\n", ret);
+	}
 
 	/* Disable sound - If this line is removed, we start to receive data with the header [0xaa 0xaa 0x00 0x01] */
 	somagic_write_reg(0x1740, 0x00);
 	usleep(30 * 1000);
+
+	//struct libusb_transfer *tfr[NUM_ISO_TRANSFERS];
+	//unsigned char isobuf[NUM_ISO_TRANSFERS][64 * 3072];
+	/* Allocate memory for tfr and isobuf */
+	//struct libusb_transfer **tfr;
+	//unsigned char **isobuf;
+	tfr = malloc(num_iso_transfers * sizeof *tfr);
+	if (tfr == NULL) {
+		perror("Error allocating memory for tfr");
+		return 1;
+	}
+	isobuf = malloc(num_iso_transfers * sizeof *isobuf);
+	if (isobuf == NULL) {
+		perror("Error allocating memory for isobuf");
+		return 1;
+	}
 	
-	for (i = 0; i < NUM_ISO_TRANSFERS; i++)	{
+	for (i = 0; i < num_iso_transfers; i++)	{
 		tfr[i] = libusb_alloc_transfer(64);
 		if (tfr[i] == NULL) {
 			fprintf(stderr, "%s: Error allocating USB transfer #%d: %s\n", argv[0], i, strerror(errno));
@@ -1340,8 +1285,8 @@ int main(int argc, char **argv)
 		libusb_set_iso_packet_lengths(tfr[i], 3072);
 	}
 	
-	pending_requests = NUM_ISO_TRANSFERS;
-	for (i = 0; i < NUM_ISO_TRANSFERS; i++) {
+	pending_requests = num_iso_transfers;
+	for (i = 0; i < num_iso_transfers; i++) {
 		ret = libusb_submit_transfer(tfr[i]);
 		if (ret) {
 			fprintf(stderr, "%s: Error submitting request #%d for transfer: %s\n", argv[0], i, strerror(errno));
@@ -1355,7 +1300,7 @@ int main(int argc, char **argv)
 		libusb_handle_events(NULL);
 	}
 	
-	for (i = 0; i < NUM_ISO_TRANSFERS; i++) {
+	for (i = 0; i < num_iso_transfers; i++) {
 		libusb_free_transfer(tfr[i]);
 	}
 

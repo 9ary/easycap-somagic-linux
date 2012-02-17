@@ -30,14 +30,14 @@
 
 /* This file was originally generated with usbsnoop2libusb.pl from a usbsnoop log file. */
 /* Latest version of the script should be in http://iki.fi/lindi/usb/usbsnoop2libusb.pl */
+#include <ctype.h>
+#include <errno.h>
+#include <getopt.h>
+#include <libusb-1.0/libusb.h>
+#include <signal.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include <signal.h>
-#include <ctype.h>
-#include <libusb-1.0/libusb.h>
-#include <getopt.h>
-#include <errno.h>
 #include <unistd.h>
 
 #define PROGRAM_NAME "somagic-init"
