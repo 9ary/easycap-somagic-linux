@@ -1,5 +1,5 @@
 /*******************************************************************************
- * capture.c                                                                   *
+ * somagic-capture.c                                                           *
  *                                                                             *
  * USB Driver for Somagic EasyCAP DC60                                         *
  * USB ID 1c88:0007                                                            *

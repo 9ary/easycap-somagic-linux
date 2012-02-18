@@ -23,7 +23,7 @@
 # along with this program; if not, see <http://www.gnu.org/licenses/>.
 
 BINDIR=/usr/local/bin
-PROGRAMS=somagic-init somagic-capture audio-capture both
+PROGRAMS=somagic-init somagic-capture somagic-audio-capture somagic-both
 LFLAGS=-lusb-1.0
 CC=gcc
 CFLAGS=-W -Wall
@@ -41,4 +41,3 @@ clean:
 	-rm -f $(PROGRAMS)
 
 .PHONY: all install clean
-

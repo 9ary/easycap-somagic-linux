@@ -1,10 +1,11 @@
 /*******************************************************************************
- * both.c                                                                   *
+ * somagic-both.c                                                              *
  *                                                                             *
  * USB Driver for Somagic EasyCAP DC60                                         *
  * USB ID 1c88:0007                                                            *
  *                                                                             *
- * Initializes the Somagic EasyCAP DC60 registers and performs image AND AUDIO capture.  *
+ * Initializes the Somagic EasyCAP DC60 registers and performs audio and video *
+ * capture.                                                                    *
  * *****************************************************************************
  *
  * Copyright 2011, 2012 Tony Brown, Michal Demin, Jeffry Johnston, Jon Arne Jørgensen
