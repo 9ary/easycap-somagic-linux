@@ -75,29 +75,39 @@ static int scratch_put(struct usb_somagic *somagic,
 	return len;
 }
 
-static int scratch_get(struct usb_somagic *somagic,
-											 unsigned char *data, int len)
+static int scratch_get_custom(struct usb_somagic *somagic, int *ptr,
+                       unsigned char *data, int len)
 {
 	int len_part;
 
-	if (somagic->video.scratch_read_ptr + len < scratch_buf_size) {
-		memcpy(data, somagic->video.scratch + somagic->video.scratch_read_ptr,
-						len);
-		somagic->video.scratch_read_ptr += len;
+	if (*ptr + len < scratch_buf_size) {
+		memcpy(data, somagic->video.scratch + *ptr, len);
+	  *ptr += len;
 	} else {
-		len_part = scratch_buf_size - somagic->video.scratch_read_ptr;
-		memcpy(data, somagic->video.scratch + somagic->video.scratch_read_ptr,
-						len_part);
+		len_part = scratch_buf_size - *ptr;
+		memcpy(data, somagic->video.scratch + *ptr, len_part);
 
 		if (len == len_part) {
-			somagic->video.scratch_read_ptr = 0;
+			*ptr = 0;
 		} else {
 			memcpy(data + len_part, somagic->video.scratch, len - len_part);
-			somagic->video.scratch_read_ptr = len - len_part;
+			*ptr = len - len_part;
 		}
 	}
 
 	return len;
+}
+
+static inline void scratch_create_custom_pointer(struct usb_somagic *somagic, int *ptr, int offset)
+{
+	*ptr = (somagic->video.scratch_read_ptr + offset) % scratch_buf_size;
+} 
+
+// TODO: This could probably be made into a simple define
+static inline int scratch_get(struct usb_somagic *somagic,
+											 unsigned char *data, int len)
+{
+	return scratch_get_custom(somagic, &(somagic->video.scratch_read_ptr), data, len);
 }
 
 static void scratch_reset(struct usb_somagic *somagic)
@@ -766,7 +776,96 @@ static enum parse_state parse_data(struct usb_somagic *somagic)
 	frame = somagic->video.cur_frame;
 
 	while(scratch_len(somagic)) {
+		if (frame->col == 0 && scratch_len(somagic) >= 1448) {
+			int look_ahead;
+			u8 check[8];
+			scratch_create_custom_pointer(somagic, &look_ahead, 1440);
+			scratch_get_custom(somagic, &look_ahead, check, 8);
+			if (check[0] == 0xff && check[1] == 0x00 && check[2] == 0x00) {
+				int line_pos = (2 * frame->line + frame->field) * (720 * 2) + frame->col;
+				scratch_get(somagic, frame->data + line_pos, 1440);
+				frame->scanlength += 1440;
+
+				/*
+         * Just grab the TRC including EAV of this line, and handle it here!
+         * check is already holding this info when we reach this part.
+         * But we need to increment the regular scratch_read_ptr,
+         * so we just grab the code again.
+         *
+         * Notice: We only read 4 bytes,
+         * the last 4 bytes of check is containing data from the last call
+         * to scratch_get_custom
+				 */
+				scratch_get(somagic, check, 4);
+				if ((check[3] & 0x10) == 0x10)	{ // Double check that this actually is EAV
+					frame->line++;
+					frame->col = 0;
+					if (frame->line > 313) {
+						printk(KERN_WARNING "somagic::%s: SYNC Error, got line number %d\n", __func__, frame->line);						
+						frame->line = 313;
+					}
+
+					// Now we check that the scratch containes the SAV of the next line
+					if (check[4] == 0xff && check[5] == 0x00 && check[6] == 0x00) {
+						/* SAV
+ 						 * 
+ 						 * F (Field bit) = Bit 6 (mask 0x40)
+ 						 * 0: Odd Field;
+ 						 * 1: Even Field;
+ 						 *
+ 						 * V (Vertical blanking bit) = Bit 5 (mask 0x20)
+ 						 * 0: in VBI
+ 						 * 1: in Active video
+ 						 */
+						int field_edge;
+						int blank_edge;
+
+						// Again, we do this to increment the scratch_read_ptr!
+						scratch_get(somagic, check + 4, 4);
+						c = check[7];
+
+						field_edge = frame->field;
+						blank_edge = frame->blank;
+
+						frame->field = (c & 0x40) ? 1 : 0;
+						frame->blank = (c & 0x20) ? 1 : 0; // 0 = In VBI!
+
+						field_edge = frame->field ^ field_edge;
+						blank_edge = frame->blank ^ blank_edge;
+
+						if (frame->field == 0 && field_edge) {
+							/* We Should have a full frame by now.
+ 						 	 * If we don't; reset this frame and try again
+ 						 	 */
+							if (frame->scanlength < somagic->video.frame_size) {
+								printk(KERN_INFO "somagic::%s: Dropping a frame!\n", __func__);
+								frame->scanlength = 0;
+								frame->line = 0;
+								frame->col = 0;
+								continue;
+							}
+							return PARSE_STATE_NEXT_FRAME;
+						}
+
+						if (frame->blank == 0 && blank_edge) {
+							frame->line = 0;
+							frame->col = 0;
+						}
+						// We have sync, so we try to read next line!
+						continue;	
+					}
+				}
+			}
+		}
+		
+		/*
+     * This part of the function should only run when we loose sync
+     */
+
+		//printk(KERN_INFO "somagic::%s: Looking for SYNC!\n", __func__);
+		
 		scratch_get(somagic, &c, 1);
+		
 
 		if (frame->scanlength > (720 * 2 * 627 * 2)) {
 			frame->scanlength = 0;
@@ -844,7 +943,7 @@ static enum parse_state parse_data(struct usb_somagic *somagic)
 						/* We Should have a full frame by now.
  						 * If we don't; reset this frame and try again
  						 */
-						  if (frame->scanlength < somagic->video.frame_size) {
+						if (frame->scanlength < somagic->video.frame_size) {
 							frame->scanlength = 0;
 							frame->line = 0;
 							frame->col = 0;
@@ -1176,6 +1275,8 @@ int somagic_dev_video_start_stream(struct usb_somagic *somagic)
 			dev_err(&somagic->dev->dev,
 							"%s: usb_submit_urb(%d) failed: error %d\n",
 							__func__, buf_idx, rc);
+			printk(KERN_INFO "somagic:%s:: Failed to send ISOC requests!\n", __func__);
+			return -1;
 		}
 	}
 
