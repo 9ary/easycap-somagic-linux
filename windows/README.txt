@@ -11,15 +11,16 @@ Instructions:
     Link: http://www.cygwin.com/install.html
  4. In the installer, choose the default options, until the "Select Packages"
     dialog. In that dialog, expand the "Devel" category and select the following 
-    packages for installation: gcc, git, libusb-win32, make. Then expand the 
-    "Interpreters" category and select python for installation. Accept 
-    installation of any dependencies.
+    packages for installation: gcc, git, libusb-win32, libgcrypt-devel, make. 
+    Accept installation of any dependencies.
  5. Launch the Cygwin Terminal. Create a symbolic link to mplayer in 
     /usr/local/bin. Then, enter the following commands at the terminal:
 	cd /usr/src
 	git clone https://code.google.com/p/easycap-somagic-linux/
 	mkdir /lib/firmware
-	/usr/src/easycap-somagic-linux/tools/extract_somagic_firmware/extract_somagic_firmware /cygdrive/c/Program\ Files/Common\ Files/Somagic/SmiUsbGrabber3C/xp/SmiUsbGrabber3C.sys /lib/firmware
+        cd /usr/src/easycap-somagic-linux/tools/extract-somagic-firmware
+	make
+	./extract-somagic-firmware /cygdrive/c/Program\ Files/Common\ Files/Somagic/SmiUsbGrabber3C/xp/SmiUsbGrabber3C.sys
 	cd /usr/src/easycap-somagic-linux/windows/user
 	make
 	make install
