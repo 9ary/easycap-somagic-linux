@@ -23,7 +23,9 @@
 # along with this program; if not, see <http://www.gnu.org/licenses/>.
 
 BINDIR=/usr/local/bin
+MANDIR=/usr/local/share/man/man1
 PROGRAMS=somagic-init somagic-capture somagic-audio-capture somagic-both
+MANUALS=man/somagic-init.1 man/somagic-capture.1
 LFLAGS=-lusb-1.0
 CC=gcc
 CFLAGS=-W -Wall
@@ -36,6 +38,7 @@ all: $(PROGRAMS)
 
 install:
 	$(INSTALL) $(PROGRAMS) $(BINDIR)/
+	$(INSTALL) $(MANUALS) $(MANDIR)/
 
 clean:
 	-rm -f $(PROGRAMS)
