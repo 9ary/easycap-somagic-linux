@@ -1,15 +1,15 @@
 /*******************************************************************************
  * somagic-capture.c                                                           *
  *                                                                             *
- * USB Driver for Somagic EasyCAP DC60                                         *
- * USB ID 1c88:0007                                                            *
+ * USB Driver for Somagic EasyCAP DC60 and Somagic EasyCAP 002                 *
+ * USB ID 1c88:003c or 1c88:003e                                               *
  *                                                                             *
- * Initializes the Somagic EasyCAP DC60 registers and performs video capture.  *
+ * Initializes the Somagic EasyCAP registers and performs video capture.       *
  * *****************************************************************************
  *
  * Copyright 2011, 2012 Tony Brown, Michal Demin, Jeffry Johnston, Jon Arne Jørgensen
  *
- * This file is part of somagic_dc60
+ * This file is part of somagic_easycap
  * http://code.google.com/p/easycap-somagic-linux/
  *
  * This program is free software: you can redistribute it and/or modify
@@ -46,7 +46,10 @@
 #define PROGRAM_NAME "somagic-capture"
 #define VERSION "1.0"
 #define VENDOR 0x1c88
-#define PRODUCT 0x003c
+static const int PRODUCT[2] = {
+	0x003c,
+	0x003e
+};
 #define MIN(a, b) (((a) < (b)) ? (a) : (b))
 
 int frames_generated = 0;
@@ -752,6 +755,7 @@ int main(int argc, char **argv)
 		{"saturation", 1, 0, 'S'},
 		{0, 0, 0, 0}
 	};
+	int p;
 
 	/* parse command line arguments */
 	while (1) {
@@ -896,9 +900,17 @@ int main(int argc, char **argv)
 	libusb_init(NULL);
 	libusb_set_debug(NULL, 0);
 
-	dev = find_device(VENDOR, PRODUCT);
-	if (!dev) {
-		fprintf(stderr, "USB device %04x:%04x was not found. Has device initialization been performed?\n", VENDOR, PRODUCT);
+	for (p = 0; p < 2; p++) {
+		dev = find_device(VENDOR, PRODUCT[p]);
+		if (dev) {
+			break;
+		}
+	}	
+	if (p >= 2) {
+		for (p = 0; p < 2; p++) {
+			fprintf(stderr, "USB device %04x:%04x was not found.\n", VENDOR, PRODUCT[p]);
+		}	
+		fprintf(stderr, "Has device initialization been performed?\n");
 		return 1;
 	}
 

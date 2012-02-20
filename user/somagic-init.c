@@ -1,16 +1,16 @@
 /*******************************************************************************
  * somagic-init.c                                                              *
  *                                                                             *
- * USB Driver for Somagic EasyCAP DC60                                         *
+ * USB Driver for Somagic EasyCAP DC60 and Somagic EasyCAP 002                 *
  * USB ID 1c88:0007                                                            *
  *                                                                             *
- * This user space program will only upload the firmware for the Somagic chip, *
- * and reconnect the USB dongle with new product id: 1c88:003c.                *
+ * This user space program will upload the firmware for the Somagic chip, and  *
+ * reconnect the USB dongle with new product id: 1c88:003c or 1c88:003e.       *
  * *****************************************************************************
  *
  * Copyright 2011, 2012 Tony Brown, Jeffry Johnston
  *
- * This file is part of somagic_dc60
+ * This file is part of somagic_easycap
  * http://code.google.com/p/easycap-somagic-linux/
  *
  * This program is free software: you can redistribute it and/or modify
@@ -32,6 +32,7 @@
 /* Latest version of the script should be in http://iki.fi/lindi/usb/usbsnoop2libusb.pl */
 #include <ctype.h>
 #include <errno.h>
+#include <gcrypt.h>
 #include <getopt.h>
 #include <libusb-1.0/libusb.h>
 #include <signal.h>
@@ -43,10 +44,16 @@
 #define PROGRAM_NAME "somagic-init"
 #define VERSION "1.0"
 #define SOMAGIC_FIRMWARE_PATH "/lib/firmware/somagic_firmware.bin"
-#define SOMAGIC_FIRMWARE_LENGTH 7502
+static const unsigned char SOMAGIC_FIRMWARE_CRC32[2][4] = {
+	{'\x34', '\x89', '\xf7', '\x7b'}, 
+	{'\x9d', '\x91', '\x8a', '\x92'}
+};
 #define VENDOR 0x1c88
 #define ORIGINAL_PRODUCT 0x0007
-#define NEW_PRODUCT 0x003c
+static const int NEW_PRODUCT[2] = {
+	0x003c,
+	0x003e
+};
 
 struct libusb_device_handle *devh;
 
@@ -144,7 +151,7 @@ int main(int argc, char **argv)
 	int ret;
 	struct libusb_device *dev;
 	unsigned char buf[65535];
-	char firmware[SOMAGIC_FIRMWARE_LENGTH];
+	char *firmware;
 	FILE *infile;
 	int i;
 	#ifdef DEBUG
@@ -161,6 +168,9 @@ int main(int argc, char **argv)
 		{"firmware", 1, 0, 'f'},
 		{0, 0, 0, 0}
 	};
+	int firmware_length;
+	unsigned char digest[4];
+	int p;
 
 	/* Parse command line arguments */
 	while (1) {
@@ -205,24 +215,34 @@ int main(int argc, char **argv)
 		fprintf(stderr, "%s: Error determining firmware file '%s' size: %s\n", argv[0], firmware_path, strerror(errno));
 		return 1;
 	}
-	if (ftell(infile) != SOMAGIC_FIRMWARE_LENGTH) {
-		fprintf(stderr, "Firmware file '%s' was not the expected size of %i bytes\n", firmware_path, SOMAGIC_FIRMWARE_LENGTH);
+	firmware_length = ftell(infile);
+	firmware = malloc(firmware_length);
+	if (firmware == NULL) {
+		fprintf(stderr, "%s: Error allocating '%i' bytes of memory for firmware file '%s': %s\n", argv[0], firmware_length, firmware_path, strerror(errno));
 		return 1;
 	}
 	if ((fseek(infile, 0, SEEK_SET) == -1)) {
-		fprintf(stderr, "%s: Error determining firmware file '%s' size: %s\n", argv[0], firmware_path, strerror(errno));
+		fprintf(stderr, "%s: Error seeking firmware file '%s': %s\n", argv[0], firmware_path, strerror(errno));
 		return 1;
 	}
-	if (fread(&firmware, 1, SOMAGIC_FIRMWARE_LENGTH, infile) < SOMAGIC_FIRMWARE_LENGTH) {
-		if (ferror(infile)) {
-			fprintf(stderr, "%s: Error reading firmware file '%s': %s\n", argv[0], firmware_path, strerror(errno));
-			return 1;
-		}
-		fprintf(stderr, "Firmware file '%s' was not the expected size of %i bytes\n", firmware_path, SOMAGIC_FIRMWARE_LENGTH);
+	if (fread(firmware, 1, firmware_length, infile) < (unsigned)firmware_length) {
+		fprintf(stderr, "%s: Error reading firmware file '%s': %s\n", argv[0], firmware_path, strerror(errno));
 		return 1;
 	}
 	if (fclose(infile) != 0) {
 		fprintf(stderr, "%s: Error closing firmware file '%s': %s\n", argv[0], firmware_path, strerror(errno));
+		return 1;
+	}
+
+	/* Identify firmware */
+	gcry_md_hash_buffer(GCRY_MD_CRC32, digest, firmware, firmware_length);
+	for (p = 0; p < 2; p++) {
+		if (memcmp(digest, SOMAGIC_FIRMWARE_CRC32[p], 4) == 0) {
+			break;
+		}
+	}
+	if (p >= 2) {
+		fprintf(stderr, "Firmware file '%s' was not recognized\n", firmware_path);
 		return 1;
 	}
 
@@ -236,9 +256,9 @@ int main(int argc, char **argv)
 
 	dev = find_device(VENDOR, ORIGINAL_PRODUCT);
 	if (!dev) {
-		dev = find_device(VENDOR, NEW_PRODUCT);
+		dev = find_device(VENDOR, NEW_PRODUCT[p]);
 		if (dev) {
-	                fprintf(stderr, "USB device already initialized.\n");
+	                fprintf(stderr, "USB device already initialized\n");
 		} else {
 	                fprintf(stderr, "USB device %04x:%04x was not found. Is the device attached?\n", VENDOR, ORIGINAL_PRODUCT);
 		}
@@ -313,9 +333,9 @@ int main(int argc, char **argv)
 	#endif
 
 	#ifdef DEBUG
-	for (i = 0, j = 6; i < SOMAGIC_FIRMWARE_LENGTH; i += 62, ++j) {
+	for (i = 0, j = 6; i < firmware_length; i += 62, ++j) {
 	#else
-	for (i = 0; i < SOMAGIC_FIRMWARE_LENGTH; i += 62) {
+	for (i = 0; i < firmware_length; i += 62) {
 	#endif
 		memcpy(buf, "\x05\xff", 2);
 		memcpy(buf + 2, firmware + i, 62);

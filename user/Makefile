@@ -1,12 +1,13 @@
 ################################################################################
 # Makefile                                                                     #
 #                                                                              #
-# Makefile for userspace capture program for Somagic EasyCAP DC60              #
+# Makefile for user space initialization and capture programs for              # 
+# Somagic EasyCAP DC60 and Somagic EasyCAP 002                                 #
 # ##############################################################################
 #
 # Copyright 2011, 2012 Jeffry Johnston 
 # 
-# This file is part of somagic_dc60
+# This file is part of somagic_easycap
 # http://code.google.com/p/easycap-somagic-linux/
 #
 # This program is free software: you can redistribute it and/or modify
@@ -26,7 +27,7 @@ BINDIR=/usr/local/bin
 MANDIR=/usr/local/share/man/man1
 PROGRAMS=somagic-init somagic-capture somagic-audio-capture somagic-both
 MANUALS=man/somagic-init.1 man/somagic-capture.1
-LFLAGS=-lusb-1.0
+LFLAGS=-lusb-1.0 -lgcrypt
 CC=gcc
 CFLAGS=-W -Wall
 INSTALL=install -D
@@ -44,3 +45,4 @@ clean:
 	-rm -f $(PROGRAMS)
 
 .PHONY: all install clean
+

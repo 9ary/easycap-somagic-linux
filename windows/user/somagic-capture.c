@@ -9,7 +9,7 @@
  *
  * Copyright 2011, 2012 Tony Brown, Michal Demin, Jeffry Johnston, Jon Arne Jørgensen
  *
- * This file is part of somagic_dc60
+ * This file is part of somagic_easycap
  * http://code.google.com/p/easycap-somagic-linux/
  *
  * This program is free software: you can redistribute it and/or modify

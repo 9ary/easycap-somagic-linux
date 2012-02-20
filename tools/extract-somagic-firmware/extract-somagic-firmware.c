@@ -6,7 +6,7 @@
  *
  * Copyright 2011, 2012 Jeffry Johnston
  *
- * This file is part of somagic_dc60
+ * This file is part of somagic_easycap
  * http://code.google.com/p/easycap-somagic-linux/
  *
  * This program is free software: you can redistribute it and/or modify
@@ -34,9 +34,25 @@
 #define PROGRAM_NAME "extract-somagic-firmware"
 #define VERSION "1.0"
 #define SOMAGIC_FIRMWARE_PATH "/lib/firmware/somagic_firmware.bin"
-#define SOMAGIC_FIRMWARE_LENGTH 7502
-static const unsigned char SOMAGIC_FIRMWARE_MAGIC[4] = {'\x0c', '\x94', '\xce', '\x00'};
-static const unsigned char SOMAGIC_FIRMWARE_CRC32[4] = {'\x34', '\x89', '\xf7', '\x7b'};
+
+/* 
+ * Index  Firmware 
+ * -----  --------                               
+ *     0  SmiUsbGrabber3C.sys, EasyCAP DC60   
+ *     1  SmiUsbGrabber3E.sys, EasyCAP 002    
+ */
+static const int SOMAGIC_FIRMWARE_LENGTH[2] = {
+	7502, 
+	6634
+};
+static const unsigned char SOMAGIC_FIRMWARE_MAGIC[2][4] = {
+	{'\x0c', '\x94', '\xce', '\x00'}, 
+	{'\x0c', '\x94', '\xcc', '\x00'}
+};
+static const unsigned char SOMAGIC_FIRMWARE_CRC32[2][4] = {
+	{'\x34', '\x89', '\xf7', '\x7b'}, 
+	{'\x9d', '\x91', '\x8a', '\x92'}
+};
 
 void version()
 {
@@ -67,9 +83,10 @@ int main(int argc, char **argv)
 	unsigned char last4[4] = {'\0', '\0', '\0', '\0'};
 	int firmware_found = 0;
 	long pos;
-	char firmware[SOMAGIC_FIRMWARE_LENGTH];
+	char firmware[SOMAGIC_FIRMWARE_LENGTH[0]];
 	unsigned char digest[4];
 	FILE *outfile;
+	int i;
 
 	/* Parsing */
 	int c;
@@ -138,47 +155,52 @@ int main(int argc, char **argv)
 		last4[3] = c;
 
 		/* Check firmware magic */
-		if (memcmp(last4, SOMAGIC_FIRMWARE_MAGIC, 4) == 0) {
-			/* Found, save file position */
-			pos = ftell(infile);
+		for (i = 0; i < 2; i++) {
+			if (memcmp(last4, SOMAGIC_FIRMWARE_MAGIC[i], 4) == 0) {
+				/* Found, save file position */
+				pos = ftell(infile);
 
-			/* Read rest of firmware */
-			memcpy(firmware, last4, 4);
-			ret = fread(firmware + 4, 1, SOMAGIC_FIRMWARE_LENGTH - 4, infile);
-			if (ret != SOMAGIC_FIRMWARE_LENGTH - 4) {
-				perror("Error reading driver file");
-				return 1;
-			}
-
-			/* Check CRC32 */
-			gcry_md_hash_buffer(GCRY_MD_CRC32, digest, firmware, SOMAGIC_FIRMWARE_LENGTH);
-			if (memcmp(digest, SOMAGIC_FIRMWARE_CRC32, 4) == 0) {
-				/* CRC32 matched */
-				firmware_found = 1;
-
-				/* Write firmware file */
-				outfile = fopen(firmware_path, "w+");
-				if (outfile == NULL) {
-					fprintf(stderr, "%s: Error opening firmware file '%s': %s\n", argv[0], firmware_path, strerror(errno));
+				/* Read rest of firmware */
+				memcpy(firmware, last4, 4);
+				ret = fread(firmware + 4, 1, SOMAGIC_FIRMWARE_LENGTH[i] - 4, infile);
+				if (ret != SOMAGIC_FIRMWARE_LENGTH[i] - 4) {
+					perror("Error reading driver file");
 					return 1;
 				}
-				ret = fwrite(firmware, 1, SOMAGIC_FIRMWARE_LENGTH, outfile);
-				if (ret != SOMAGIC_FIRMWARE_LENGTH) {
-					perror("Error writing firmware file");
-					return 1;
-				}
-				ret = fclose(outfile);
-				if (ret) {
-					perror("Error closing firmware file");
-					return 1;
-				}
-		  		fprintf(stderr, "Firmware written to '%s'.\n", firmware_path);
-			} else {
-				/* False positive, return to previous file position and keep looking */
-				ret = fseek(infile, pos, SEEK_SET);
-				if (ret) {
-					perror("Error seeking driver file");
-					return 1;
+
+				/* Check CRC32 */
+				gcry_md_hash_buffer(GCRY_MD_CRC32, digest, firmware, SOMAGIC_FIRMWARE_LENGTH[i]);
+				#ifdef DEBUG
+				fprintf(stderr, "{'\\x%02x', '\\x%02x', '\\x%02x', '\\x%02x'}\n", digest[0], digest[1], digest[2], digest[3]);
+				#endif 
+				if (memcmp(digest, SOMAGIC_FIRMWARE_CRC32[i], 4) == 0) {
+					/* CRC32 matched */
+					firmware_found = 1;
+
+					/* Write firmware file */
+					outfile = fopen(firmware_path, "w+");
+					if (outfile == NULL) {
+						fprintf(stderr, "%s: Error opening firmware file '%s': %s\n", argv[0], firmware_path, strerror(errno));
+						return 1;
+					}
+					ret = fwrite(firmware, 1, SOMAGIC_FIRMWARE_LENGTH[i], outfile);
+					if (ret != SOMAGIC_FIRMWARE_LENGTH[i]) {
+						perror("Error writing firmware file");
+						return 1;
+					}
+					ret = fclose(outfile);
+					if (ret) {
+						perror("Error closing firmware file");
+						return 1;
+					}
+			  		fprintf(stderr, "Firmware written to '%s'.\n", firmware_path);
+				} else {
+					/* False positive, return to previous file position and keep looking */
+					ret = fseek(infile, pos, SEEK_SET);
+					if (ret) {
+						perror("Error seeking driver file");
+						return 1;
+					}
 				}
 			}
 		}
