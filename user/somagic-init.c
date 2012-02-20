@@ -1,7 +1,7 @@
 /*******************************************************************************
  * somagic-init.c                                                              *
  *                                                                             *
- * USB Driver for Somagic EasyCAP DC60 and Somagic EasyCAP 002                 *
+ * USB Driver for Somagic EasyCAP DC60 and Somagic EasyCAP002                  *
  * USB ID 1c88:0007                                                            *
  *                                                                             *
  * This user space program will upload the firmware for the Somagic chip, and  *

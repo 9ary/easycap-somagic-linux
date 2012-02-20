@@ -1,7 +1,7 @@
 /*******************************************************************************
  * somagic-capture.c                                                           *
  *                                                                             *
- * USB Driver for Somagic EasyCAP DC60 and Somagic EasyCAP 002                 *
+ * USB Driver for Somagic EasyCAP DC60 and Somagic EasyCAP002                  *
  * USB ID 1c88:003c or 1c88:003e                                               *
  *                                                                             *
  * Initializes the Somagic EasyCAP registers and performs video capture.       *
@@ -71,10 +71,9 @@ enum tv_standards {
 	SECAM,        /* 625/50 */
 };
 
-enum input_types {
-	CVBS,         /* CVBS (composite) */
-	SVIDEO        /* S-VIDEO          */
-};
+/* Input types */
+#define	CVBS   0      /* DC60: "CVBS", 002: "1" */
+#define	SVIDEO 7      /* DC60: "S-VIDEO" */
 
 /* Options */
 /* Control the number of frames to generate: -1 = unlimited (default) */
@@ -83,7 +82,7 @@ int frame_count = -1;
 /* Television standard (see tv_standards) */
 int tv_standard = PAL;
 
-/* Input select (see input_types) */
+/* Input select (see Input types) */
 int input_type = CVBS;
 
 /* Luminance mode (CVBS only): 0 = 4.1 MHz, 1 = 3.8 MHz, 2 = 2.6 MHz, 3 = 2.9 MHz */
@@ -648,7 +647,10 @@ void usage()
 	fprintf(stderr, "                                 0   0.000000 (luminance off)\n");
 	fprintf(stderr, "                               -64  -1.000000 (inverse)\n");
 	fprintf(stderr, "                              -128  -2.000000 (inverse)\n");
-	fprintf(stderr, "  -c, --cvbs                 Use CVBS (composite) input (default)\n");
+	fprintf(stderr, "  -c, --cvbs                 Use CVBS (composite) input, EasyCAP DC60 only\n");
+	fprintf(stderr, "                             (default)\n");
+	fprintf(stderr, "  -i, --cvbs-input=VALUE     Select which CVBS (composite) input to use, 1 to 4,\n");
+	fprintf(stderr, "                             EasyCAP002 only (default: 1)\n");
 	fprintf(stderr, "  -f, --frames=COUNT         Number of frames to generate,\n");
 	fprintf(stderr, "                             -1 for unlimited (default: -1)\n");
 	fprintf(stderr, "  -H, --hue=VALUE            Hue phase in degrees, -128 to 127 (default: 0),\n");
@@ -689,7 +691,7 @@ void usage()
 	fprintf(stderr, "                                 0   0.000000 (color off)\n");
 	fprintf(stderr, "                               -64  -1.000000 (inverse)\n");
 	fprintf(stderr, "                              -128  -2.000000 (inverse)\n");
-	fprintf(stderr, "  -s, --s-video              Use S-VIDEO input\n");
+	fprintf(stderr, "  -s, --s-video              Select the S-VIDEO input, EasyCAP DC60 only\n");
 	fprintf(stderr, "      --secam                SECAM             [625 lines, 25 Hz]\n");
 	fprintf(stderr, "      --sync=VALUE           Sync algorithm (default: 2)\n");
 	fprintf(stderr, "                             Value  Algorithm\n");
@@ -701,14 +703,17 @@ void usage()
 	fprintf(stderr, "      --version              Display version information\n");
 	fprintf(stderr, "\n");
 	fprintf(stderr, "Examples (run as root):\n");
-	fprintf(stderr, "# PAL, CVBS/composite:\n");
+	fprintf(stderr, "# EasyCAP DC60: PAL, CVBS/composite:\n");
 	fprintf(stderr, PROGRAM_NAME" | mplayer -vf yadif,screenshot -demuxer rawvideo -rawvideo \"pal:format=uyvy:fps=25\" -aspect 4:3 -\n");
 	fprintf(stderr, "\n");
-	fprintf(stderr, "# NTSC, S-VIDEO\n");
+	fprintf(stderr, "# EasyCAP DC60: NTSC, S-VIDEO\n");
 	fprintf(stderr, PROGRAM_NAME" -n -s | mplayer -vf yadif,screenshot -demuxer rawvideo -rawvideo \"ntsc:format=uyvy:fps=30000/1001\" -aspect 4:3 -\n");
 	fprintf(stderr, "\n");
-	fprintf(stderr, "# NTSC, CVBS/composite, increased sharpness:\n");
+	fprintf(stderr, "# EasyCAP DC60: NTSC, CVBS/composite, increased sharpness:\n");
 	fprintf(stderr, PROGRAM_NAME" -n --luminance=2 --lum-aperture=3 | mplayer -vf yadif,screenshot -demuxer rawvideo -rawvideo \"ntsc:format=uyvy:fps=30000/1001\" -aspect 4:3 -\n");
+	fprintf(stderr, "\n");
+	fprintf(stderr, "# EasyCAP002: NTSC, input 3:\n");
+	fprintf(stderr, PROGRAM_NAME" -n -i 3 | mplayer -vf yadif,screenshot -demuxer rawvideo -rawvideo \"ntsc:format=uyvy:fps=30000/1001\" -aspect 4:3 -\n");
 }
 
 int main(int argc, char **argv)
@@ -759,7 +764,7 @@ int main(int argc, char **argv)
 
 	/* parse command line arguments */
 	while (1) {
-		c = getopt_long(argc, argv, "B:cC:f:H:npsS:", long_options, &option_index);
+		c = getopt_long(argc, argv, "B:cC:f:H:i:npsS:", long_options, &option_index);
 		if (c == -1) {
 			break;
 		}
@@ -865,6 +870,14 @@ int main(int argc, char **argv)
 				return 1;
 			}
 			hue = (int8_t)i;
+			break;
+		case 'i':
+			i = atoi(optarg);
+			if (i < 1 || i > 4) {
+				fprintf(stderr, "Invalid CVBS input '%i', must be from 1 to 4\n", i);
+				return 1;
+			}
+			input_type = (int8_t)i - 1;
 			break;
 		case 'n':
 			tv_standard = NTSC;
@@ -1002,20 +1015,13 @@ int main(int argc, char **argv)
 	somagic_write_i2c(0x4a, 0x01, 0x08);
 
 	/* Subaddress 0x02, Analog input control 1 */
-	if (input_type == CVBS) {
-		/* Analog function select FUSE = Amplifier plus anti-alias filter bypassed */
-		/* Update hysteresis for 9-bit gain = Off */
-		/* Mode = 0, CVBS (automatic gain) from AI11 (pin 4) */
-		somagic_write_i2c(0x4a, 0x02, 0xc0);
-	} else {
-		/* Analog function select FUSE = Amplifier plus anti-alias filter bypassed */
-		/* Update hysteresis for 9-bit gain = Off */
-		/* Mode = 7, Y (automatic gain) from AI12 (pin 7) + C (gain adjustable via GAI28 to GAI20) from AI22 (pin 1) */
-		somagic_write_i2c(0x4a, 0x02, 0xc7);
-	}
+	/* Analog function select FUSE = Amplifier plus anti-alias filter bypassed */
+	/* Update hysteresis for 9-bit gain = Off */
+	work = 0xc0 | input_type;
+	somagic_write_i2c(0x4a, 0x02, work);
 
 	/* Subaddress 0x03, Analog input control 2 */ 
-	if (input_type == CVBS) {
+	if (input_type != SVIDEO) {
 		/* Static gain control channel 1 (GAI18), sign bit of gain control = 1 */
 		/* Static gain control channel 2 (GAI28), sign bit of gain control = 1 */
 		/* Gain control fix (GAFIX) = Automatic gain controlled by MODE3 to MODE0 */
@@ -1142,7 +1148,7 @@ int main(int argc, char **argv)
 	somagic_write_i2c(0x4a, 0x12, 0x01);
 
 	/* Subaddress 0x13, Output control 3 */
-	if (input_type == CVBS) {
+	if (input_type != SVIDEO) {
 		/* Analog-to-digital converter output bits on VPO7 to VPO0 in bypass mode (VIPB = 1, used for test purposes) (ADLSB) = AD7 to AD0 (LSBs) on VPO7 to VPO0 */
 		/* Selection bit for status byte functionality (OLDSB) = Default status information */
 		/* Field ID polarity if selected on RTS1 or RTS0 outputs if RTSE1 and RTSE0 (subaddress 0x12) are set to 1111 = Default */
@@ -1188,7 +1194,7 @@ int main(int argc, char **argv)
 		somagic_write_i2c(0x4a, 0x40, 0x02);
 	}
 
-	if (input_type == CVBS) {
+	if (input_type != SVIDEO) {
 		/* LCR register 2 to 24 = Intercast, oversampled CVBS data */
 		somagic_write_i2c(0x4a, 0x41, 0x77);
 		somagic_write_i2c(0x4a, 0x42, 0x77);
