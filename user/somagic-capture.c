@@ -649,7 +649,7 @@ void usage()
 	fprintf(stderr, "                              -128  -2.000000 (inverse)\n");
 	fprintf(stderr, "  -c, --cvbs                 Use CVBS (composite) input, EasyCAP DC60 only\n");
 	fprintf(stderr, "                             (default)\n");
-	fprintf(stderr, "  -i, --cvbs-input=VALUE     Select which CVBS (composite) input to use, 1 to 4,\n");
+	fprintf(stderr, "  -i, --cvbs-input=VALUE     Select CVBS (composite) input to use, 1 to 4,\n");
 	fprintf(stderr, "                             EasyCAP002 only (default: 1)\n");
 	fprintf(stderr, "  -f, --frames=COUNT         Number of frames to generate,\n");
 	fprintf(stderr, "                             -1 for unlimited (default: -1)\n");
@@ -691,7 +691,7 @@ void usage()
 	fprintf(stderr, "                                 0   0.000000 (color off)\n");
 	fprintf(stderr, "                               -64  -1.000000 (inverse)\n");
 	fprintf(stderr, "                              -128  -2.000000 (inverse)\n");
-	fprintf(stderr, "  -s, --s-video              Select the S-VIDEO input, EasyCAP DC60 only\n");
+	fprintf(stderr, "  -s, --s-video              Use S-VIDEO input, EasyCAP DC60 only\n");
 	fprintf(stderr, "      --secam                SECAM             [625 lines, 25 Hz]\n");
 	fprintf(stderr, "      --sync=VALUE           Sync algorithm (default: 2)\n");
 	fprintf(stderr, "                             Value  Algorithm\n");
@@ -873,8 +873,8 @@ int main(int argc, char **argv)
 			break;
 		case 'i':
 			i = atoi(optarg);
-			if (i < 1 || i > 4) {
-				fprintf(stderr, "Invalid CVBS input '%i', must be from 1 to 4\n", i);
+			if (i < 1 || i > 16) {
+				fprintf(stderr, "Invalid CVBS input '%i', must be from 1 to 16\n", i);
 				return 1;
 			}
 			input_type = (int8_t)i - 1;
