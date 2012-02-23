@@ -127,6 +127,12 @@ enum line_sync_state {
 	SYNCAV
 };
 
+enum sync_state {
+	SYNC_STATE_SEARCHING,
+	SYNC_STATE_UNSTABLE,
+	SYNC_STATE_STABLE
+};
+
 /* USB - Isochronous Buffer */
 struct somagic_sbuf {
 	char *data;
@@ -173,6 +179,9 @@ struct somagic_video {
 	u8 setup_sent;
 	u8 streaming;
 
+	volatile enum sync_state cur_sync_state;
+	volatile u8 prev_field;	
+
 	int max_frame_size;
 	int num_frames;	
 	int fbuf_size;
@@ -195,7 +204,7 @@ struct somagic_video {
 
 	struct somagic_sbuf sbuf[2];				// SOMAGIC_NUM_S_BUF
 
-	int frame_num;											// For sequencing of frames sent to userspace
+	int framecounter;										// For sequencing of frames sent to userspace
 
 	// Debug - Info that can be retrieved from by sysfs calls!
 	int received_urbs;
