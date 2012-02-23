@@ -52,10 +52,14 @@ static void somagic_usb_disconnect(struct usb_interface *intf);
 /*                                                                           */
 /*****************************************************************************/
 // Set this to false, if you want to use the userspace tools!
+bool somagic_default_ntsc = false;
 bool somagic_register_capture_device = true;
+
 module_param_named(register_capture_device,
                    somagic_register_capture_device, bool, 0);
-
+module_param_named(default_ntsc,
+                   somagic_default_ntsc, bool, 0);
+MODULE_PARM_DESC(default_ntsc, " Set the device to initialize in NTSC mode. Default: 0 (PAL)");
 
 struct usb_device_id somagic_usb_device_id_table[] = {
 	{ USB_DEVICE(SOMAGIC_USB_VENDOR_ID, SOMAGIC_USB_BOOTLOADER_PRODUCT_ID) },
@@ -119,7 +123,7 @@ static int __devinit somagic_usb_probe(struct usb_interface *intf,
 	// Store a pointer to this driver in the interface
 	usb_set_intfdata(intf, somagic);
 
-	rc = somagic_connect_video(somagic);
+	rc = somagic_connect_video(somagic, somagic_default_ntsc);
 	if (rc != 0) {
 		somagic->dev = NULL;
 		kfree(somagic);

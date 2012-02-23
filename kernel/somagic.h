@@ -87,12 +87,6 @@
 #define SOMAGIC_NORMS (V4L2_STD_PAL | V4L2_STD_NTSC) // | V4L2_STD_SECAM | V4L2_STD_PAL_M)
 #define SOMAGIC_NUM_FRAMES 4 // Maximum number of frames an application can get
 
-#ifdef SOMAGIC_DEFAULT_PAL
-#define SOMAGIC_DEFAULT_STD V4L2_STD_PAL
-#else
-#define SOMAGIC_DEFAULT_STD V4L2_STD_NTSC
-#endif
-
 #define SOMAGIC_LINE_WIDTH 720
 #define SOMAGIC_STD_FIELD_LINES_PAL 288
 #define SOMAGIC_STD_FIELD_LINES_NTSC 240
@@ -233,7 +227,7 @@ struct usb_somagic {
 };
 
 // Function declarations for somagic_video.c
-int somagic_connect_video(struct usb_somagic *somagic);
+int somagic_connect_video(struct usb_somagic *somagic, bool default_ntsc);
 void somagic_disconnect_video(struct usb_somagic *somagic);
 
 //

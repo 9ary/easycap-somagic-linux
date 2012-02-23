@@ -48,9 +48,9 @@ static inline struct usb_somagic *to_somagic(struct v4l2_device *v4l2_dev)
 }
 */
 
-static struct video_device *somagic_vdev_init(
-																struct usb_somagic *somagic,
-        									      struct video_device *vdev_template, char *name);
+static struct video_device *somagic_vdev_init(struct usb_somagic *somagic,
+        									             struct video_device *vdev_template,
+                                       char *name, v4l2_std_id norm);
 
 /*****************************************************************************/
 /*                                                                           */
@@ -122,21 +122,23 @@ static void somagic_video_remove_sysfs(struct video_device *vdev)
 /*                                                                           */
 /*****************************************************************************/
 
-int __devinit somagic_connect_video(struct usb_somagic *somagic)
+int __devinit somagic_connect_video(struct usb_somagic *somagic, bool default_ntsc)
 {
+	v4l2_std_id default_norm = (default_ntsc) ? V4L2_STD_NTSC : V4L2_STD_PAL;
+
   if (v4l2_device_register(&somagic->dev->dev, &somagic->video.v4l2_dev)) {
     goto err_exit;
   }
 	mutex_init(&somagic->video.v4l2_lock);
 
-  somagic->video.vdev = somagic_vdev_init(somagic, &somagic_video_template, SOMAGIC_DRIVER_NAME);
+  somagic->video.vdev = somagic_vdev_init(somagic, &somagic_video_template,
+                                          SOMAGIC_DRIVER_NAME, default_norm);
 	if (somagic->video.vdev == NULL) {
 		goto err_exit;
 	}
 
 	// Send SAA7113 - Setup
-	// TODO: Change this to take TV-Norm value from a module argument!
-	somagic_dev_init_video(somagic, SOMAGIC_DEFAULT_STD);
+	somagic_dev_init_video(somagic, default_norm);
 	
 	// Allocate scratch - ring buffer
 	somagic_dev_video_alloc_scratch(somagic);
@@ -882,13 +884,12 @@ static struct video_device somagic_video_template = {
 	.name = SOMAGIC_DRIVER_NAME,														// V4L2 Driver Name
 	.release = video_device_release,
 	.tvnorms = SOMAGIC_NORMS,   														// Supported TV Standards
-	.current_norm = SOMAGIC_DEFAULT_STD,										// Current TV Standard on startup
 	.vfl_type = VFL_TYPE_GRABBER
 };
 
-static struct video_device *somagic_vdev_init(
-																struct usb_somagic *somagic,
-        									      struct video_device *vdev_template, char *name)
+static struct video_device *somagic_vdev_init(struct usb_somagic *somagic,
+        									             struct video_device *vdev_template,
+                                       char *name, v4l2_std_id norm)
 {
   struct usb_device *usb_dev = somagic->dev;
   struct video_device *vdev;
@@ -907,6 +908,7 @@ static struct video_device *somagic_vdev_init(
 	vdev->v4l2_dev = &somagic->video.v4l2_dev;
 	snprintf(vdev->name, sizeof(vdev->name), "%s", name);
 	video_set_drvdata(vdev, somagic);
+	vdev->current_norm = norm;
 	return vdev;
 }
 
