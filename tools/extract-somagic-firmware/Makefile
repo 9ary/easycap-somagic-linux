@@ -1,7 +1,7 @@
 ################################################################################
 # Makefile                                                                     #
 #                                                                              #
-# Makefile for userspace capture program for Somagic EasyCAP DC60              #
+# Makefile for extract_somagic_firmware program                                #
 # ##############################################################################
 #
 # Copyright 2011, 2012 Jeffry Johnston 
@@ -23,8 +23,10 @@
 # along with this program; if not, see <http://www.gnu.org/licenses/>.
 
 BINDIR=/usr/local/bin
-PROGRAMS=somagic-init somagic-capture
-LFLAGS=-lusb
+#MANDIR=/usr/local/share/man/man1
+PROGRAMS=extract-somagic-firmware
+#MANUALS=man/extract-somagic-firmware.1
+LFLAGS=-lgcrypt
 CC=gcc
 CFLAGS=-W -Wall
 INSTALL=install -D
@@ -36,9 +38,9 @@ all: $(PROGRAMS)
 
 install:
 	$(INSTALL) $(PROGRAMS) $(BINDIR)/
+	#$(INSTALL) $(MANUALS) $(MANDIR)/
 
 clean:
 	-rm -f $(PROGRAMS)
 
 .PHONY: all install clean
-

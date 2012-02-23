@@ -1,15 +1,15 @@
 /*******************************************************************************
- * capture.c                                                                   *
+ * somagic-capture.c                                                           *
  *                                                                             *
- * USB Driver for Somagic EasyCAP DC60                                         *
- * USB ID 1c88:0007                                                            *
+ * USB Driver for Somagic EasyCAP DC60 and Somagic EasyCAP002                  *
+ * USB ID 1c88:003c or 1c88:003e                                               *
  *                                                                             *
- * Initializes the Somagic EasyCAP DC60 registers and performs video capture.  *
+ * Initializes the Somagic EasyCAP registers and performs video capture.       *
  * *****************************************************************************
  *
  * Copyright 2011, 2012 Tony Brown, Michal Demin, Jeffry Johnston, Jon Arne Jørgensen
  *
- * This file is part of somagic_dc60
+ * This file is part of somagic_easycap
  * http://code.google.com/p/easycap-somagic-linux/
  *
  * This program is free software: you can redistribute it and/or modify
@@ -46,7 +46,10 @@
 #define PROGRAM_NAME "somagic-capture"
 #define VERSION "1.0"
 #define VENDOR 0x1c88
-#define PRODUCT 0x003c
+static const int PRODUCT[2] = {
+	0x003c,
+	0x003e
+};
 #define MIN(a, b) (((a) < (b)) ? (a) : (b))
 
 int frames_generated = 0;
@@ -68,10 +71,9 @@ enum tv_standards {
 	SECAM,        /* 625/50 */
 };
 
-enum input_types {
-	CVBS,         /* CVBS (composite) */
-	SVIDEO        /* S-VIDEO          */
-};
+/* Input types */
+#define	CVBS   0      /* DC60: "CVBS", 002: "2" */
+#define	SVIDEO 7      /* DC60: "S-VIDEO" */
 
 /* Options */
 /* Control the number of frames to generate: -1 = unlimited (default) */
@@ -80,7 +82,7 @@ int frame_count = -1;
 /* Television standard (see tv_standards) */
 int tv_standard = PAL;
 
-/* Input select (see input_types) */
+/* Input select (see Input types) */
 int input_type = CVBS;
 
 /* Luminance mode (CVBS only): 0 = 4.1 MHz, 1 = 3.8 MHz, 2 = 2.6 MHz, 3 = 2.9 MHz */
@@ -645,7 +647,8 @@ void usage()
 	fprintf(stderr, "                                 0   0.000000 (luminance off)\n");
 	fprintf(stderr, "                               -64  -1.000000 (inverse)\n");
 	fprintf(stderr, "                              -128  -2.000000 (inverse)\n");
-	fprintf(stderr, "  -c, --cvbs                 Use CVBS (composite) input (default)\n");
+	fprintf(stderr, "  -c, --cvbs                 Use CVBS (composite) input on the EasyCAP DC60,\n");
+	fprintf(stderr, "                             input \"2\" on the EasyCAP002 (default)\n");
 	fprintf(stderr, "  -f, --frames=COUNT         Number of frames to generate,\n");
 	fprintf(stderr, "                             -1 for unlimited (default: -1)\n");
 	fprintf(stderr, "  -H, --hue=VALUE            Hue phase in degrees, -128 to 127 (default: 0),\n");
@@ -686,7 +689,7 @@ void usage()
 	fprintf(stderr, "                                 0   0.000000 (color off)\n");
 	fprintf(stderr, "                               -64  -1.000000 (inverse)\n");
 	fprintf(stderr, "                              -128  -2.000000 (inverse)\n");
-	fprintf(stderr, "  -s, --s-video              Use S-VIDEO input\n");
+	fprintf(stderr, "  -s, --s-video              Use S-VIDEO input, EasyCAP DC60 only\n");
 	fprintf(stderr, "      --secam                SECAM             [625 lines, 25 Hz]\n");
 	fprintf(stderr, "      --sync=VALUE           Sync algorithm (default: 2)\n");
 	fprintf(stderr, "                             Value  Algorithm\n");
@@ -752,6 +755,7 @@ int main(int argc, char **argv)
 		{"saturation", 1, 0, 'S'},
 		{0, 0, 0, 0}
 	};
+	int p;
 
 	/* parse command line arguments */
 	while (1) {
@@ -896,9 +900,17 @@ int main(int argc, char **argv)
 	libusb_init(NULL);
 	libusb_set_debug(NULL, 0);
 
-	dev = find_device(VENDOR, PRODUCT);
-	if (!dev) {
-		fprintf(stderr, "USB device %04x:%04x was not found. Has device initialization been performed?\n", VENDOR, PRODUCT);
+	for (p = 0; p < 2; p++) {
+		dev = find_device(VENDOR, PRODUCT[p]);
+		if (dev) {
+			break;
+		}
+	}	
+	if (p >= 2) {
+		for (p = 0; p < 2; p++) {
+			fprintf(stderr, "USB device %04x:%04x was not found.\n", VENDOR, PRODUCT[p]);
+		}	
+		fprintf(stderr, "Has device initialization been performed?\n");
 		return 1;
 	}
 
@@ -990,20 +1002,13 @@ int main(int argc, char **argv)
 	somagic_write_i2c(0x4a, 0x01, 0x08);
 
 	/* Subaddress 0x02, Analog input control 1 */
-	if (input_type == CVBS) {
-		/* Analog function select FUSE = Amplifier plus anti-alias filter bypassed */
-		/* Update hysteresis for 9-bit gain = Off */
-		/* Mode = 0, CVBS (automatic gain) from AI11 (pin 4) */
-		somagic_write_i2c(0x4a, 0x02, 0xc0);
-	} else {
-		/* Analog function select FUSE = Amplifier plus anti-alias filter bypassed */
-		/* Update hysteresis for 9-bit gain = Off */
-		/* Mode = 7, Y (automatic gain) from AI12 (pin 7) + C (gain adjustable via GAI28 to GAI20) from AI22 (pin 1) */
-		somagic_write_i2c(0x4a, 0x02, 0xc7);
-	}
+	/* Analog function select FUSE = Amplifier plus anti-alias filter bypassed */
+	/* Update hysteresis for 9-bit gain = Off */
+	work = 0xc0 | input_type;
+	somagic_write_i2c(0x4a, 0x02, work);
 
 	/* Subaddress 0x03, Analog input control 2 */ 
-	if (input_type == CVBS) {
+	if (input_type != SVIDEO) {
 		/* Static gain control channel 1 (GAI18), sign bit of gain control = 1 */
 		/* Static gain control channel 2 (GAI28), sign bit of gain control = 1 */
 		/* Gain control fix (GAFIX) = Automatic gain controlled by MODE3 to MODE0 */
@@ -1130,7 +1135,7 @@ int main(int argc, char **argv)
 	somagic_write_i2c(0x4a, 0x12, 0x01);
 
 	/* Subaddress 0x13, Output control 3 */
-	if (input_type == CVBS) {
+	if (input_type != SVIDEO) {
 		/* Analog-to-digital converter output bits on VPO7 to VPO0 in bypass mode (VIPB = 1, used for test purposes) (ADLSB) = AD7 to AD0 (LSBs) on VPO7 to VPO0 */
 		/* Selection bit for status byte functionality (OLDSB) = Default status information */
 		/* Field ID polarity if selected on RTS1 or RTS0 outputs if RTSE1 and RTSE0 (subaddress 0x12) are set to 1111 = Default */
@@ -1176,7 +1181,7 @@ int main(int argc, char **argv)
 		somagic_write_i2c(0x4a, 0x40, 0x02);
 	}
 
-	if (input_type == CVBS) {
+	if (input_type != SVIDEO) {
 		/* LCR register 2 to 24 = Intercast, oversampled CVBS data */
 		somagic_write_i2c(0x4a, 0x41, 0x77);
 		somagic_write_i2c(0x4a, 0x42, 0x77);
