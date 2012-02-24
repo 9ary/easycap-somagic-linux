@@ -164,6 +164,10 @@ struct somagic_frame {
 
 struct somagic_audio {
 	struct snd_card *card;
+
+	struct snd_pcm_substream *pcm_substream;
+	int users; // Open counter
+	
 };
 
 struct somagic_video {

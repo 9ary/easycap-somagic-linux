@@ -1,6 +1,6 @@
 #include "somagic.h"
 
-static const struct snd_pcm_hardware audio_hardware = {
+static const struct snd_pcm_hardware pcm_hardware = {
 	.info = SNDRV_PCM_INFO_BLOCK_TRANSFER |
 					SNDRV_PCM_INFO_MMAP |
 					SNDRV_PCM_INFO_INTERLEAVED |
@@ -20,28 +20,83 @@ static const struct snd_pcm_hardware audio_hardware = {
 
 static int somagic_pcm_open(struct snd_pcm_substream *substream)
 {
-	return -ENODEV;
+	struct usb_somagic *somagic = snd_pcm_substream_chip(substream);
+	if (!somagic) {
+		return -ENODEV;
+	}
+
+	printk(KERN_INFO "somagic::%s Called!, %d users\n", __func__,
+				 somagic->audio.users);
+
+	somagic->audio.users++;
+	somagic->audio.pcm_substream = substream;
+	substream->runtime->private_data = somagic;
+	substream->runtime->hw = pcm_hardware;
+
+	snd_pcm_hw_constraint_integer(substream->runtime,
+																SNDRV_PCM_HW_PARAM_PERIODS);
+
+	return 0;
 }
 
 static int somagic_pcm_close(struct snd_pcm_substream *substream)
 {
-	return -ENODEV;
+	struct usb_somagic *somagic = snd_pcm_substream_chip(substream);
+
+	printk(KERN_INFO "somagic::%s Called!, %d users\n", __func__,
+				 somagic->audio.users);
+
+	somagic->audio.users--;
+
+	return 0;
 }
 
 static int somagic_pcm_hw_params(struct snd_pcm_substream *substream,
 																 struct snd_pcm_hw_params *hw_params)
 {
-	return -ENODEV;
+	return snd_pcm_lib_malloc_pages(substream, params_buffer_bytes(hw_params));
+/*
+	unsigned int size = params_buffer_bytes(hw_params);
+	if (substream->runtime->dma_area) {
+		if (substream->runtime->dma_bytes > size) {
+			return 0;
+		}
+		vfree(substream->runtime->dma_area);
+	}
+
+	substream->runtime->dma_area = vmalloc(size);
+	if (!substream->runtime->dma_area) {
+		printk(KERN_INFO "somagic::%s: Could not allocate %d bytes!\n",
+					 __func__, size);
+		return -ENOMEM;
+	}
+
+	substream->runtime->dma_bytes = size;
+	printk(KERN_INFO "somagic::%s: Successfully allocated %d bytes!\n",
+				 __func__, size);
+*/
 }
 
 static int somagic_pcm_hw_free(struct snd_pcm_substream *substream)
 {
-	return -ENODEV;
+	return snd_pcm_lib_free_pages(substream);
 }
 
 static int somagic_pcm_prepare(struct snd_pcm_substream *substream)
 {
-	return -ENODEV;
+	return 0;
+}
+
+static int somagic_pcm_trigger(struct snd_pcm_substream *substream, int cmd)
+{
+	return 0;
+}
+
+static snd_pcm_uframes_t somagic_pcm_pointer(
+																					struct snd_pcm_substream *substream)
+{
+	printk(KERN_INFO "somagic::%s called", __func__);
+	return 0;
 }
 
 static struct snd_pcm_ops somagic_audio_ops = {
@@ -50,12 +105,9 @@ static struct snd_pcm_ops somagic_audio_ops = {
 	.ioctl = snd_pcm_lib_ioctl,
 	.hw_params = somagic_pcm_hw_params,
 	.hw_free = somagic_pcm_hw_free,
-	.prepare = somagic_pcm_prepare
-/*
-	.ack
-	.pointer
-	.page
-*/
+	.prepare = somagic_pcm_prepare,
+	.trigger = somagic_pcm_trigger,
+	.pointer = somagic_pcm_pointer,
 };
 
 int __devinit somagic_connect_audio(struct usb_somagic *somagic)
@@ -64,7 +116,7 @@ int __devinit somagic_connect_audio(struct usb_somagic *somagic)
 	struct snd_card *sound_card;
 	struct snd_pcm *sound_pcm;
 
-	rc = snd_card_create(SNDRV_DEFAULT_IDX1, "somagic_alsa",
+	rc = snd_card_create(SNDRV_DEFAULT_IDX1, "Somagic",
 											THIS_MODULE, 0, &sound_card);
 	if (rc != 0) {
 		printk(KERN_ERR "somagic::%s: Could not do ALSA snd_card_create()\n",
@@ -72,11 +124,15 @@ int __devinit somagic_connect_audio(struct usb_somagic *somagic)
 		return rc;
 	}
 
-	rc = snd_pcm_new(sound_card, "somagic audio", 0, 0, 1, &sound_pcm);
+	rc = snd_pcm_new(sound_card, "Somagic PCM", 0, 0, 1, &sound_pcm);
 	snd_pcm_set_ops(sound_pcm, SNDRV_PCM_STREAM_CAPTURE, &somagic_audio_ops);
 	sound_pcm->info_flags = 0;
 	sound_pcm->private_data = somagic;
-	strcpy(sound_pcm->name, "somagic audio capture");
+	strcpy(sound_pcm->name, "Somagic PCM");
+
+	snd_pcm_lib_preallocate_pages_for_all(sound_pcm, SNDRV_DMA_TYPE_CONTINUOUS,
+																				snd_dma_continuous_data(GFP_KERNEL),
+																				0, 64*1024);
 	
 	strcpy(sound_card->driver, "ALSA driver");
 	strcpy(sound_card->shortname, "somagic audio");
