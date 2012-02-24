@@ -51,6 +51,13 @@
 #include <media/v4l2-device.h>
 #include <media/v4l2-ioctl.h>
 
+#include <sound/core.h>
+#include <sound/pcm.h>
+#include <sound/pcm_params.h>
+#include <sound/info.h>
+#include <sound/initval.h>
+#include <sound/control.h>
+
 #define SOMAGIC_USB_VENDOR_ID 0x1c88
 #define SOMAGIC_USB_BOOTLOADER_PRODUCT_ID 0x0007
 #define SOMAGIC_USB_PRODUCT_ID 0x003c
@@ -156,6 +163,7 @@ struct somagic_frame {
 };
 
 struct somagic_audio {
+	struct snd_card *card;
 };
 
 struct somagic_video {
@@ -225,6 +233,10 @@ struct usb_somagic {
 	struct somagic_audio audio;
 	struct somagic_video video;
 };
+
+// Function declarations for somagic_audio.c
+int somagic_connect_audio(struct usb_somagic *somagic);
+void somagic_disconnect_audio(struct usb_somagic *somagic);
 
 // Function declarations for somagic_video.c
 int somagic_connect_video(struct usb_somagic *somagic, bool default_ntsc);
