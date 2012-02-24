@@ -212,7 +212,7 @@ struct somagic_video {
 	enum somagic_inputs cur_input;
 
 	// Controls
-	s8 cur_brightness;
+	u8 cur_brightness;
 	s8 cur_contrast;
 	s8 cur_saturation;
 	s8 cur_hue;
