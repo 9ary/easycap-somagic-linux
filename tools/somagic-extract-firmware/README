@@ -16,7 +16,7 @@ To build and run extract-somagic-firmware
 -----------------------------------------
 make
 cp ~/.wine/drive_c/Program\ Files/Common\ Files/Somagic/SmiUsbGrabber3C/xp/SmiUsbGrabber3C.sys .
-sudo ./extract-somagic-firmware SmiUsbGrabber3C.sys
+sudo ./somagic-extract-firmware SmiUsbGrabber3C.sys
 
 
 To build Debian source and binary packages

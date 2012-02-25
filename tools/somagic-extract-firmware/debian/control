@@ -19,6 +19,6 @@ Description: Somagic EasyCAP tools
           "1c88:0007 Somagic, Inc.". Once initialized, it shows as 
           "1c88:003e Somagic, Inc".
 	. 
-	This package provides extract-somagic-firmware (to extract firmware from
+	This package provides somagic-extract-firmware (to extract firmware from
         a Windows driver).
 
