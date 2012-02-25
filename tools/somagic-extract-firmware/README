@@ -1,0 +1,29 @@
+This is a small tool to extract the EasyCAP Somagic firmware from a Windows 
+driver file. It searches the driver file for the firmware and verifies its CRC32
+signature before writing it to a file.
+
+
+Instructions
+------------
+Using Wine or Windows, run "Setup.exe", which should be found in the "Drivers"
+directory of the EasyCAP installation CD. This should create a driver file named 
+"SmiUsbGrabber3C.sys" or "SmiUsbGrabber3E.sys", located in the 
+"Program Files/Common Files/Somagic/SmiUsbGrabber3C/xp/" or
+"Program Files/Common Files/Somagic/SmiUsbGrabber3E/xp/" directory. 
+
+
+To build and run extract-somagic-firmware
+-----------------------------------------
+make
+cp ~/.wine/drive_c/Program\ Files/Common\ Files/Somagic/SmiUsbGrabber3C/xp/SmiUsbGrabber3C.sys .
+sudo ./extract-somagic-firmware SmiUsbGrabber3C.sys
+
+
+To build Debian source and binary packages
+------------------------------------------
+debuild -us -uc
+
+
+To clean debian directory
+-------------------------
+fakeroot debian/rules clean

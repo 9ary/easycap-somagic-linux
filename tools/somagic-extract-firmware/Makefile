@@ -1,7 +1,7 @@
 ################################################################################
 # Makefile                                                                     #
 #                                                                              #
-# Makefile for extract_somagic_firmware program                                #
+# Makefile for somagic-extract-firmware program                                #
 # ##############################################################################
 #
 # Copyright 2011, 2012 Jeffry Johnston 
@@ -22,25 +22,26 @@
 # You should have received a copy of the GNU General Public License
 # along with this program; if not, see <http://www.gnu.org/licenses/>.
 
-BINDIR=/usr/local/bin
-#MANDIR=/usr/local/share/man/man1
-PROGRAMS=extract-somagic-firmware
-#MANUALS=man/extract-somagic-firmware.1
+PREFIX=/usr/local
+BINDIR=$(PREFIX)/bin
+MANDIR=$(PREFIX)/share/man
+PROGRAMS=somagic-extract-firmware
+MANUALS=man/somagic-extract-firmware.1
+CFLAGS=-s -W -Wall
 LFLAGS=-lgcrypt
-CC=gcc
-CFLAGS=-W -Wall
-INSTALL=install -D
 
 all: $(PROGRAMS)
 
 .c:
-	-$(CC) $(CFLAGS) $< -o $@ $(LFLAGS)
+	$(CC) $(CFLAGS) $< -o $@ $(LFLAGS)
 
-install:
-	$(INSTALL) $(PROGRAMS) $(BINDIR)/
-	#$(INSTALL) $(MANUALS) $(MANDIR)/
+install: $(PROGRAMS) $(MANUALS)
+	mkdir -p $(BINDIR)
+	install $(PROGRAMS) $(BINDIR)/
+	mkdir -p $(MANDIR)/man1
+	install $(MANUALS) $(MANDIR)/man1/
 
 clean:
-	-rm -f $(PROGRAMS)
+	rm -f $(PROGRAMS)
 
 .PHONY: all install clean

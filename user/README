@@ -1,0 +1,8 @@
+To build Debian source and binary packages
+------------------------------------------
+debuild -us -uc
+
+To clean debian directory
+-------------------------
+fakeroot debian/rules clean
+

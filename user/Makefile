@@ -23,26 +23,33 @@
 # You should have received a copy of the GNU General Public License
 # along with this program; if not, see <http://www.gnu.org/licenses/>.
 
-BINDIR=/usr/local/bin
-MANDIR=/usr/local/share/man/man1
-PROGRAMS=somagic-init somagic-capture somagic-audio-capture somagic-both
+PREFIX=/usr/local
+BINDIR=$(PREFIX)/bin
+MANDIR=$(PREFIX)/share/man
+PROGRAMS=somagic-init somagic-capture
+BETA=somagic-audio-capture somagic-both
 MANUALS=man/somagic-init.1 man/somagic-capture.1
+CFLAGS=-s -W -Wall
 LFLAGS=-lusb-1.0 -lgcrypt
-CC=gcc
-CFLAGS=-W -Wall
-INSTALL=install -D
 
 all: $(PROGRAMS)
 
 .c:
-	-$(CC) $(CFLAGS) $< -o $@ $(LFLAGS)
+	$(CC) $(CFLAGS) $< -o $@ $(LFLAGS)
 
-install:
-	$(INSTALL) $(PROGRAMS) $(BINDIR)/
-	$(INSTALL) $(MANUALS) $(MANDIR)/
+beta: $(BETA)
+
+install: $(PROGRAMS) $(MANUALS)
+	mkdir -p $(BINDIR)
+	install $(PROGRAMS) $(BINDIR)/
+	mkdir -p $(MANDIR)/man1
+	install $(MANUALS) $(MANDIR)/man1/
+
+install-beta: $(BETA)
+	mkdir -p $(BINDIR)
+	install $(BETA) $(BINDIR)/
 
 clean:
-	-rm -f $(PROGRAMS)
+	rm -f $(PROGRAMS) $(BETA)
 
-.PHONY: all install clean
-
+.PHONY: all beta install install-beta clean
