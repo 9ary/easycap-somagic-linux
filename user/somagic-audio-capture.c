@@ -207,6 +207,7 @@ int main()
 	print_bytes(buf, ret);
 	fprintf(stderr, "\n");
 
+	// Need to set 0x3a => 0x80 for stereo audio output
 	memcpy(buf, "\x0b\x00\x00\x82\x01\x00\x3a\x80", 0x0000008);
 	ret = libusb_control_transfer(devh, LIBUSB_REQUEST_TYPE_VENDOR + LIBUSB_RECIPIENT_DEVICE, 0x0000001, 0x000000b, 0x0000000, buf, 0x0000008, 1000);
 	fprintf(stderr, "6 control msg returned %d, bytes: ", ret);
@@ -747,6 +748,9 @@ int main()
  	// Bit 0 & 2 Must be on for audio!
  	//
  	// 0001 1101 (0x1d) = 32Bit Little Endian @ 48,000 hZ 
+ 	// 0001 1111 (0x1f) = 32Bit Little Endian @ 48,000 hz - Need to remove the 2 first bytes to get any sensible playback!
+ 	// 0001 0101 (0x15) = 32Bit Little Endian @ 48,000 hz - Need to remove the 2 first bytes to get any sensible playback!
+ 	// 0000 1101 (0x0d) = 32Bit Little Endian @ 48,000 hz - Need to remove the 2 first bytes to get any sensible playback!
 	memcpy(buf, "\x0b\x00\x00\x82\x01\x17\x40\x1d", 0x0000008);
 	ret = libusb_control_transfer(devh, LIBUSB_REQUEST_TYPE_VENDOR + LIBUSB_RECIPIENT_DEVICE, 0x0000001, 0x000000b, 0x0000000, buf, 0x0000008, 1000);
 	fprintf(stderr, "193 control msg returned %d, bytes: ", ret);
