@@ -34,7 +34,7 @@
  * Usage:
  * init
  * audio-capture > output.raw &
- * mplayer output.raw -demuxer +rawaudio -rawaudio "channels=2:samplesize=2:rate=25000"
+ * mplayer output.raw -demuxer +rawaudio -rawaudio "channels=2:samplesize=4:rate=48000"
  *
  */
 
@@ -206,6 +206,7 @@ int main()
 	fprintf(stderr, "5 control msg returned %d, bytes: ", ret);
 	print_bytes(buf, ret);
 	fprintf(stderr, "\n");
+/*
 	memcpy(buf, "\x0b\x00\x00\x82\x01\x00\x3a\x80", 0x0000008);
 	ret = libusb_control_transfer(devh, LIBUSB_REQUEST_TYPE_VENDOR + LIBUSB_RECIPIENT_DEVICE, 0x0000001, 0x000000b, 0x0000000, buf, 0x0000008, 1000);
 	fprintf(stderr, "6 control msg returned %d, bytes: ", ret);
@@ -235,16 +236,20 @@ int main()
 	fprintf(stderr, "11 control msg returned %d, bytes: ", ret);
 	print_bytes(buf, ret);
 	fprintf(stderr, "\n");
-	memcpy(buf, "\x0b\x00\x00\x82\x01\x00\x34\x11", 0x0000008);
+*/
+/*
+	memcpy(buf, "\x0b\x00\x00\x82\x01\x00\x34\xff", 0x0000008);
 	ret = libusb_control_transfer(devh, LIBUSB_REQUEST_TYPE_VENDOR + LIBUSB_RECIPIENT_DEVICE, 0x0000001, 0x000000b, 0x0000000, buf, 0x0000008, 1000);
 	fprintf(stderr, "12 control msg returned %d, bytes: ", ret);
 	print_bytes(buf, ret);
 	fprintf(stderr, "\n");
-	memcpy(buf, "\x0b\x00\x00\x82\x01\x00\x35\x11", 0x0000008);
+	memcpy(buf, "\x0b\x00\x00\x82\x01\x00\x35\xff", 0x0000008);
 	ret = libusb_control_transfer(devh, LIBUSB_REQUEST_TYPE_VENDOR + LIBUSB_RECIPIENT_DEVICE, 0x0000001, 0x000000b, 0x0000000, buf, 0x0000008, 1000);
 	fprintf(stderr, "13 control msg returned %d, bytes: ", ret);
 	print_bytes(buf, ret);
 	fprintf(stderr, "\n");
+*/
+/*
 	memcpy(buf, "\x0b\x00\x00\x82\x01\x00\x3a\x80", 0x0000008);
 	ret = libusb_control_transfer(devh, LIBUSB_REQUEST_TYPE_VENDOR + LIBUSB_RECIPIENT_DEVICE, 0x0000001, 0x000000b, 0x0000000, buf, 0x0000008, 1000);
 	fprintf(stderr, "14 control msg returned %d, bytes: ", ret);
@@ -255,16 +260,60 @@ int main()
 	fprintf(stderr, "15 control msg returned %d, bytes: ", ret);
 	print_bytes(buf, ret);
 	fprintf(stderr, "\n");
-	memcpy(buf, "\x0b\x00\x00\x82\x01\x00\x3a\x80", 0x0000008);
+*/
+ // ff + ff = Noise!
+ // ff + 00 = 48000 hz Mono
+ // ff + f0 = Noise!
+ // ff + 80 = Noise!
+ //
+ /*
+	memcpy(buf, "\x0b\x00\x00\x82\x01\x00\x3a\xff", 0x0000008);
 	ret = libusb_control_transfer(devh, LIBUSB_REQUEST_TYPE_VENDOR + LIBUSB_RECIPIENT_DEVICE, 0x0000001, 0x000000b, 0x0000000, buf, 0x0000008, 1000);
 	fprintf(stderr, "16 control msg returned %d, bytes: ", ret);
 	print_bytes(buf, ret);
 	fprintf(stderr, "\n");
+	memcpy(buf, "\x0b\x00\x00\x82\x01\x00\x3b\x80", 0x0000008); // 1101
+	ret = libusb_control_transfer(devh, LIBUSB_REQUEST_TYPE_VENDOR + LIBUSB_RECIPIENT_DEVICE, 0x0000001, 0x000000b, 0x0000000, buf, 0x0000008, 1000);
+	fprintf(stderr, "17 control msg returned %d, bytes: ", ret);
+	print_bytes(buf, ret);
+	fprintf(stderr, "\n");
+
+	memcpy(buf, "\x0b\x00\x00\x82\x01\x00\x34\xff", 0x0000008);
+	ret = libusb_control_transfer(devh, LIBUSB_REQUEST_TYPE_VENDOR + LIBUSB_RECIPIENT_DEVICE, 0x0000001, 0x000000b, 0x0000000, buf, 0x0000008, 1000);
+	fprintf(stderr, "12 control msg returned %d, bytes: ", ret);
+	print_bytes(buf, ret);
+	fprintf(stderr, "\n");
+	memcpy(buf, "\x0b\x00\x00\x82\x01\x00\x35\x00", 0x0000008);
+	ret = libusb_control_transfer(devh, LIBUSB_REQUEST_TYPE_VENDOR + LIBUSB_RECIPIENT_DEVICE, 0x0000001, 0x000000b, 0x0000000, buf, 0x0000008, 1000);
+	fprintf(stderr, "13 control msg returned %d, bytes: ", ret);
+	print_bytes(buf, ret);
+	fprintf(stderr, "\n");
+
+	memcpy(buf, "\x0b\x00\x00\x82\x01\x00\x3b\x00", 0x0000008); // 0101
+	ret = libusb_control_transfer(devh, LIBUSB_REQUEST_TYPE_VENDOR + LIBUSB_RECIPIENT_DEVICE, 0x0000001, 0x000000b, 0x0000000, buf, 0x0000008, 1000);
+	fprintf(stderr, "17 control msg returned %d, bytes: ", ret);
+	print_bytes(buf, ret);
+	fprintf(stderr, "\n");
+*/
+/*
+	memcpy(buf, "\x0b\x00\x00\x82\x01\x00\x34\x11", 0x0000008);
+	ret = libusb_control_transfer(devh, LIBUSB_REQUEST_TYPE_VENDOR + LIBUSB_RECIPIENT_DEVICE, 0x0000001, 0x000000b, 0x0000000, buf, 0x0000008, 1000);
+	fprintf(stderr, "12 control msg returned %d, bytes: ", ret);
+	print_bytes(buf, ret);
+	fprintf(stderr, "\n");
+	memcpy(buf, "\x0b\x00\x00\x82\x01\x00\x35\xff", 0x0000008);
+	ret = libusb_control_transfer(devh, LIBUSB_REQUEST_TYPE_VENDOR + LIBUSB_RECIPIENT_DEVICE, 0x0000001, 0x000000b, 0x0000000, buf, 0x0000008, 1000);
+	fprintf(stderr, "13 control msg returned %d, bytes: ", ret);
+	print_bytes(buf, ret);
+	fprintf(stderr, "\n");
+
 	memcpy(buf, "\x0b\x00\x00\x82\x01\x00\x3b\x00", 0x0000008);
 	ret = libusb_control_transfer(devh, LIBUSB_REQUEST_TYPE_VENDOR + LIBUSB_RECIPIENT_DEVICE, 0x0000001, 0x000000b, 0x0000000, buf, 0x0000008, 1000);
 	fprintf(stderr, "17 control msg returned %d, bytes: ", ret);
 	print_bytes(buf, ret);
 	fprintf(stderr, "\n");
+*/
+
 /*
 	memcpy(buf, "\x0b\x4a\xc0\x01\x01\x01\x08\xf4", 0x0000008);
 	ret = libusb_control_transfer(devh, LIBUSB_REQUEST_TYPE_VENDOR + LIBUSB_RECIPIENT_DEVICE, 0x0000001, 0x000000b, 0x0000000, buf, 0x0000008, 1000);
@@ -728,14 +777,17 @@ int main()
 	ret = libusb_set_interface_alt_setting(devh, 0, 1);
 	fprintf(stderr, "192 set alternate setting returned %d\n", ret);
 
- 	// Disable this to enable audio!
- 	/*
-	memcpy(buf, "\x0b\x00\x00\x82\x01\x17\x40\x00", 0x0000008);
+ 	// 0x1740 Controls audio!
+ 	//
+ 	// Bit 1 Toggles left/right channel
+ 	// Bit 0 & 2 Must be on for audio!
+ 	//
+ 	// 0001 1101 (0x1d) = 32Bit Little Endian @ 48,000 hZ 
+	memcpy(buf, "\x0b\x00\x00\x82\x01\x17\x40\x1d", 0x0000008);
 	ret = libusb_control_transfer(devh, LIBUSB_REQUEST_TYPE_VENDOR + LIBUSB_RECIPIENT_DEVICE, 0x0000001, 0x000000b, 0x0000000, buf, 0x0000008, 1000);
 	fprintf(stderr, "193 control msg returned %d, bytes: ", ret);
 	print_bytes(buf, ret);
 	fprintf(stderr, "\n");
-*/
 
 	usleep(30 * 1000);
 
