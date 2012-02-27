@@ -1,5 +1,5 @@
 /*******************************************************************************
- * extract-somagic-firmware.c                                                  *
+ * somagic-extract-firmware.c                                                  *
  *                                                                             *
  * Extract the EasyCAP Somagic firmware from a Windows driver file.            *
  * *****************************************************************************
@@ -31,7 +31,7 @@
 #include <string.h>
 
 /* Constants */
-#define PROGRAM_NAME "extract-somagic-firmware"
+#define PROGRAM_NAME "somagic-extract-firmware"
 #define VERSION "1.0"
 #define SOMAGIC_FIRMWARE_PATH "/lib/firmware/somagic_firmware.bin"
 
