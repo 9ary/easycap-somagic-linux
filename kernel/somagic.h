@@ -38,10 +38,14 @@
 #include <linux/kref.h>
 #include <linux/usb.h>
 #include <linux/uaccess.h>
+#include <linux/sched.h>
 
 #include <linux/i2c.h>
 #include <linux/version.h>
+/* TODO: Do we need this include? */
 #include <linux/workqueue.h>
+
+#include <linux/interrupt.h>
 #include <linux/poll.h>
 #include <linux/mm.h>
 #include <linux/fs.h>
@@ -166,7 +170,14 @@ struct somagic_audio {
 	struct snd_card *card;
 
 	struct snd_pcm_substream *pcm_substream;
+	int dma_write_ptr;
+
+	struct tasklet_struct process_audio;
+
 	int users; // Open counter
+	u8 streaming;
+
+	unsigned long time;
 	
 };
 
@@ -197,6 +208,8 @@ struct somagic_video {
 	wait_queue_head_t wait_stream;			// Processes waiting
 
 	struct list_head inqueue, outqueue;	// Input/Output Frame queue
+
+	struct tasklet_struct process_video;
 
 	struct somagic_frame *cur_frame;		// Pointer to current frame
 	struct somagic_frame frame[SOMAGIC_NUM_FRAMES];	// Frame buffer

@@ -5,17 +5,17 @@ static const struct snd_pcm_hardware pcm_hardware = {
 					SNDRV_PCM_INFO_MMAP |
 					SNDRV_PCM_INFO_INTERLEAVED |
 					SNDRV_PCM_INFO_MMAP_VALID,
-	.formats = SNDRV_PCM_FMTBIT_S16_LE,
+	.formats = SNDRV_PCM_FMTBIT_S32_LE,
 	.rates = SNDRV_PCM_RATE_48000,
 	.rate_min = 48000,
 	.rate_max = 48000,
 	.channels_min = 2,
 	.channels_max = 2,
-	.buffer_bytes_max = 32768,
-	.period_bytes_min = 4096,
-	.period_bytes_max = 32768,
+	.buffer_bytes_max = 32640, // 1020 Bytes * 32 Usb packets!
+	.period_bytes_min = 3060,
+	.period_bytes_max = 32640,
 	.periods_min = 1,
-	.periods_max = 1024
+	.periods_max = 127
 };
 
 static int somagic_pcm_open(struct snd_pcm_substream *substream)
@@ -54,27 +54,9 @@ static int somagic_pcm_close(struct snd_pcm_substream *substream)
 static int somagic_pcm_hw_params(struct snd_pcm_substream *substream,
 																 struct snd_pcm_hw_params *hw_params)
 {
+	printk(KERN_INFO "somagic::%s: Allocating %d bytes buffer\n",
+				 __func__, params_buffer_bytes(hw_params));
 	return snd_pcm_lib_malloc_pages(substream, params_buffer_bytes(hw_params));
-/*
-	unsigned int size = params_buffer_bytes(hw_params);
-	if (substream->runtime->dma_area) {
-		if (substream->runtime->dma_bytes > size) {
-			return 0;
-		}
-		vfree(substream->runtime->dma_area);
-	}
-
-	substream->runtime->dma_area = vmalloc(size);
-	if (!substream->runtime->dma_area) {
-		printk(KERN_INFO "somagic::%s: Could not allocate %d bytes!\n",
-					 __func__, size);
-		return -ENOMEM;
-	}
-
-	substream->runtime->dma_bytes = size;
-	printk(KERN_INFO "somagic::%s: Successfully allocated %d bytes!\n",
-				 __func__, size);
-*/
 }
 
 static int somagic_pcm_hw_free(struct snd_pcm_substream *substream)
@@ -89,14 +71,28 @@ static int somagic_pcm_prepare(struct snd_pcm_substream *substream)
 
 static int somagic_pcm_trigger(struct snd_pcm_substream *substream, int cmd)
 {
-	return 0;
+	struct usb_somagic *somagic = snd_pcm_substream_chip(substream);
+	switch(cmd) {
+		case SNDRV_PCM_TRIGGER_START: {
+			somagic->audio.streaming = 1;
+			return 0;
+		}
+		case SNDRV_PCM_TRIGGER_STOP: {
+			somagic->audio.streaming = 0;
+			return 0;
+		}
+		default: {
+			return -EINVAL;
+		}
+	}
+	return -EINVAL;
 }
 
 static snd_pcm_uframes_t somagic_pcm_pointer(
 																					struct snd_pcm_substream *substream)
 {
-	printk(KERN_INFO "somagic::%s called", __func__);
-	return 0;
+	struct usb_somagic *somagic = snd_pcm_substream_chip(substream);
+	return somagic->audio.dma_write_ptr / 8; 
 }
 
 static struct snd_pcm_ops somagic_audio_ops = {
