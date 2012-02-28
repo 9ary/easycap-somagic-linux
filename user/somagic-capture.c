@@ -980,21 +980,39 @@ int main(int argc, char **argv)
 		fprintf(stderr, "\n");
 	}
 
+	/*
+   * AVR Documentation @ http://www.avr-asm-tutorial.net/avr_en/beginner/PDETAIL.html#IOPORTS
+   *
+ 	 * Reg 0x3a should be DDRA.
+ 	 * (DDRA = PortA Data Direction Register)
+ 	 * By setting this to 0x80, we set PIN7 to output.
+ 	 *
+ 	 * I assume that this PIN is connected to the RESET pin of the
+ 	 * SAA7XXX & CS5340.
+ 	 *
+ 	 * If we leave this PIN in HIGH, or don't set it to OUTPUT
+ 	 * we can not receive Stereo Audio from the CS5340.
+ 	 *
+ 	 * Reg 0x3b should be PORTA.
+ 	 * (PortA = PortA Data Register)
+ 	 * By setting this to 0x00, we pull Pin7 LOW
+ 	 */
 	somagic_write_reg(0x3a, 0x80);
 	somagic_write_reg(0x3b, 0x00);
 
-	/* Reset audio chip? */
+	/*
+ 	 * Reg 0x34 should be DDRC
+ 	 * Reg 0x35 should be PORTC.
+ 	 *
+ 	 * This PORT seems to only be used in the Model002!
+ 	 */
 	somagic_write_reg(0x34, 0x01);
 	somagic_write_reg(0x35, 0x00);
-
-	/* Reset audio chip? */
 	somagic_write_reg(0x34, 0x11);
 	somagic_write_reg(0x35, 0x11);
 
-	/* SAAxxx: toggle reset of SAAxxx */
+	/* SAAxxx: toggle RESET (PIN7) */
 	somagic_write_reg(0x3b, 0x80);
-
-	/* SAAxxx: bring from reset */
 	somagic_write_reg(0x3b, 0x00);
 
 	/* Subaddress 0x01, Horizontal Increment delay */
