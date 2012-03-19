@@ -8,7 +8,7 @@ This is a part of a USB driver implementation for the Easycap DC60
 video capture device with USB id 1c88:0007
 
 This driver is capable of uploading a firmware for the device using the kernel
-firmware API, and will register a V4L2 Driver that can talk to the device.
+firmware API, and will register a V4L2 Driver for the device.
 
 To use this driver you need a copy of the firmware file. Due to legal
 complications, the firmware cannot be distributed with this package, but it
@@ -45,23 +45,15 @@ The firmware should be named somagic_firmware.bin, and placed in
 
 USAGE:
 make
-sudo insmod somagic.ko [register_capture_device=0]
+sudo insmod somagic.ko
 
-If you set register_capture_device=0 (defaults to 1),
-the driver will only upload the firmware.
-Use this option if you want to use the capture that is part of this driver package.
-If you omit this option,
-the kernel will take hold of the usb device, and the userspace applications will not work!
+This driver has been tested and developed on an OpenSUSE 11.4 (Tumbleweed) box
+with at least the following kernels:
+* 3.1.0-46-desktop
+* 3.2.10-15-defaulti
 
-This has been tested, and is working on an OpenSUSE 11.4 (Tumbleweed) box,
-with kernel 3.1.0-46-desktop
 
-TODO:
-* Make a script to parse the firmware out of a Wireshark log.
-* Reverse-engeneer the firmware.
-
-This driver is based on the kernel USBVision driver:
-linux/drivers/media/video/usbvision
+The USBVision driver (linux/drivers/media/video/usbvision) is was used as a base in the initial development of this driver.
 
 Jon Arne Jørgensen <jonjon.arnearne@gmail.com>
 
