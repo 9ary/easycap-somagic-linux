@@ -123,6 +123,13 @@ static int __devinit somagic_usb_probe(struct usb_interface *intf,
 	// Store a pointer to this driver in the interface
 	usb_set_intfdata(intf, somagic);
 
+	rc = somagic_connect_audio(somagic);
+	if (rc != 0) {
+		somagic->dev = NULL;
+		kfree(somagic);
+		return -ENODEV;
+	}
+
 	rc = somagic_connect_video(somagic, somagic_default_ntsc);
 	if (rc != 0) {
 		somagic->dev = NULL;
@@ -153,6 +160,7 @@ static void __devexit somagic_usb_disconnect(struct usb_interface *intf)
 
 	somagic->initialized = 0;
 	somagic_disconnect_video(somagic);
+	somagic_disconnect_audio(somagic);
 
 	somagic->dev = NULL;
 	kfree(somagic);

@@ -38,10 +38,14 @@
 #include <linux/kref.h>
 #include <linux/usb.h>
 #include <linux/uaccess.h>
+#include <linux/sched.h>
 
 #include <linux/i2c.h>
 #include <linux/version.h>
+/* TODO: Do we need this include? */
 #include <linux/workqueue.h>
+
+#include <linux/interrupt.h>
 #include <linux/poll.h>
 #include <linux/mm.h>
 #include <linux/fs.h>
@@ -50,6 +54,13 @@
 
 #include <media/v4l2-device.h>
 #include <media/v4l2-ioctl.h>
+
+#include <sound/core.h>
+#include <sound/pcm.h>
+#include <sound/pcm_params.h>
+#include <sound/info.h>
+#include <sound/initval.h>
+#include <sound/control.h>
 
 #define SOMAGIC_USB_VENDOR_ID 0x1c88
 #define SOMAGIC_USB_BOOTLOADER_PRODUCT_ID 0x0007
@@ -156,6 +167,18 @@ struct somagic_frame {
 };
 
 struct somagic_audio {
+	struct snd_card *card;
+
+	struct snd_pcm_substream *pcm_substream;
+	int dma_write_ptr;
+
+	struct tasklet_struct process_audio;
+
+	int users; // Open counter
+	u8 streaming;
+
+	unsigned long time;
+	
 };
 
 struct somagic_video {
@@ -185,6 +208,8 @@ struct somagic_video {
 	wait_queue_head_t wait_stream;			// Processes waiting
 
 	struct list_head inqueue, outqueue;	// Input/Output Frame queue
+
+	struct tasklet_struct process_video;
 
 	struct somagic_frame *cur_frame;		// Pointer to current frame
 	struct somagic_frame frame[SOMAGIC_NUM_FRAMES];	// Frame buffer
@@ -225,6 +250,10 @@ struct usb_somagic {
 	struct somagic_audio audio;
 	struct somagic_video video;
 };
+
+// Function declarations for somagic_audio.c
+int somagic_connect_audio(struct usb_somagic *somagic);
+void somagic_disconnect_audio(struct usb_somagic *somagic);
 
 // Function declarations for somagic_video.c
 int somagic_connect_video(struct usb_somagic *somagic, bool default_ntsc);

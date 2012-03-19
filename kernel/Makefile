@@ -26,6 +26,7 @@ obj-m += somagic.o
 
 somagic-y += somagic_dev.o \
 						 somagic_video.o \
+						 somagic_audio.o \
              somagic_bootloader.o \
              somagic_main.o
 

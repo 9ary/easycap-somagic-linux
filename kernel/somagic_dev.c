@@ -525,6 +525,9 @@ static int reg_write(struct usb_somagic *somagic, u16 reg, u8 val)
 		.reserved1 = 0x00
 	};
 
+	/* FIXME: This is hardcoded for Little-Endian Systems.
+	 * will probably break on Big-Endian
+	 */
 	reg_write_data.regHi = reg >> 8;
 	reg_write_data.regLo = reg & 0xff;
 	reg_write_data.val = val;
@@ -540,12 +543,14 @@ static int reg_write(struct usb_somagic *somagic, u16 reg, u8 val)
 										 	 1000);
 
 	if (rc < 0) {
-		printk(KERN_ERR "somagic:%s:: error while trying to set " \
+		printk(KERN_ERR "somagic::%s: Error while trying to set " \
                     "register %04x to %02x; usb subsytem returned %d\n",
 										__func__, reg, val, rc);
 		return -1;
 	}
 
+	printk(KERN_INFO "somagic::%s: Set register 0x%04x to 0x%02x\n",
+				 __func__, reg, val);
 	return rc;
 }
 
@@ -584,6 +589,13 @@ int somagic_dev_init_video(struct usb_somagic *somagic, v4l2_std_id tvnorm)
 										__func__);
 		return -1;
 	}
+
+	/* Set DDRA = 0x80 */
+	reg_write(somagic, 0x003a, 0x80);
+
+	/* Toggle PORTA (RESET of SAA7xxx & Audiochip) */
+	reg_write(somagic, 0x003b, 0x80);
+	reg_write(somagic, 0x003b, 0x00);
 
 	somagic->video.cur_input = INPUT_CVBS;
 	somagic->video.cur_std = tvnorm;
@@ -805,58 +817,12 @@ static enum parse_state parse_data(struct usb_somagic *somagic)
 	return PARSE_STATE_CONTINUE;
 }
 
-static void somagic_dev_isoc_video_irq(struct urb *urb)
+static void process_video(unsigned long somagic_addr)
 {
-	unsigned long lock_flags;
-	int i,rc;
-	struct usb_somagic *somagic = urb->context;
-	struct somagic_frame **f;
 	enum parse_state state;
-
-	if (urb->status == -ENOENT) {
-		printk(KERN_INFO "somagic::%s: Recieved empty ISOC urb!\n", __func__);
-		return;
-	}
-
-	somagic->video.received_urbs++;
-
-
-	for (i = 0; i < urb->number_of_packets; i++) {
-		unsigned char *data = urb->transfer_buffer + urb->iso_frame_desc[i].offset;
-		int packet_len = urb->iso_frame_desc[i].actual_length;
-		int pos = 0;
-
-
-		if ((packet_len % 0x400) != 0) {
-				printk(KERN_INFO "somagic::%s: recieved ISOC packet with "\
-							           "unknown size! Size is %d\n",
-								__func__, packet_len);
-		}
-
-		while(pos < packet_len) {
-			/*
-			 * Within each packet of transfer, the data is divided into blocks of 0x400 (1024) bytes
-			 * beginning with [0xaa 0xaa 0x00 0x00],
-		 	 * Check for this signature, and pass each block to scratch buffer for further processing
-		 	 */
-
-			if (data[pos] == 0xaa && data[pos+1] == 0xaa &&
-					data[pos+2] == 0x00 && data[pos+3] == 0x00) {
-				// We have data, put it on scratch-buffer
-				scratch_put(somagic, &data[pos+4], 0x400 - 4);
-
-			} else {
-
-				printk(KERN_INFO "somagic::%s: Unexpected block, "\
-							 "expected [0xaa 0xaa 0x00 0x00], found [%02x %02x %02x %02x]\n",
-							 __func__, data[pos], data[pos+1], data[pos+2], data[pos+3]);
-			}
-
-			// Skip to next 0xaa 0xaa 0x00 0x00
-			pos += 0x400;
-		}
-	}
-
+	struct somagic_frame **f;
+	unsigned long lock_flags;
+	struct usb_somagic *somagic = (struct usb_somagic *)somagic_addr;
 
 	// We check if we have a v4l2_framebuffer to fill!
 	f = &somagic->video.cur_frame;
@@ -895,7 +861,90 @@ static void somagic_dev_isoc_video_irq(struct urb *urb)
 			}
 		}
 	}
+}
 
+static void process_audio(unsigned long somagic_addr)
+{
+	struct usb_somagic *somagic = (struct usb_somagic *)somagic_addr;
+	snd_pcm_period_elapsed(somagic->audio.pcm_substream);
+}
+
+static void somagic_dev_isoc_video_irq(struct urb *urb)
+{
+	u8 print = 0;
+	int i,rc,audio_wp;
+	struct usb_somagic *somagic = urb->context;
+
+	if (urb->status == -ENOENT) {
+		printk(KERN_INFO "somagic::%s: Recieved empty ISOC urb!\n", __func__);
+		return;
+	}
+
+	somagic->video.received_urbs++;
+	audio_wp = somagic->audio.dma_write_ptr;
+
+	for (i = 0; i < urb->number_of_packets; i++) {
+		unsigned char *data = urb->transfer_buffer + urb->iso_frame_desc[i].offset;
+		int packet_len = urb->iso_frame_desc[i].actual_length;
+		int pos = 0;
+
+
+		if ((packet_len % 0x400) != 0) {
+				printk(KERN_INFO "somagic::%s: recieved ISOC packet with "\
+							           "unknown size! Size is %d\n",
+								__func__, packet_len);
+		}
+
+		while(pos < packet_len) {
+			/*
+			 * Within each packet of transfer, the data is divided into blocks of 0x400 (1024) bytes
+			 * beginning with [0xaa 0xaa 0x00 0x00],
+		 	 * Check for this signature, and pass each block to scratch buffer for further processing
+		 	 */
+
+			if (data[pos] == 0xaa && data[pos+1] == 0xaa &&
+					data[pos+2] == 0x00 && data[pos+3] == 0x00) {
+				// We have data, put it on scratch-buffer
+				scratch_put(somagic, &data[pos+4], 0x400 - 4);
+
+			} else if (data[pos] == 0xaa && data[pos+1] == 0xaa &&
+								 data[pos+2] == 0x00 && data[pos+3] == 0x01) {
+/*
+				unsigned long delta,cur_t = jiffies;
+				if (print == 0 && somagic->audio.time != 0 && printk_ratelimit()) {
+					delta = cur_t - somagic->audio.time;
+					printk(KERN_INFO "somagic::%s: Sound-part recieved, delta = %ld\n",
+								 __func__, delta * 1000 / HZ);
+					print = 1;
+				}
+				somagic->audio.time = cur_t;
+*/
+				if (somagic->audio.streaming) {
+					struct snd_pcm_runtime *runtime = somagic->audio.pcm_substream->runtime;
+					memcpy(runtime->dma_area + somagic->audio.dma_write_ptr,
+								 data + 4, (0x400 - 4));
+
+					somagic->audio.dma_write_ptr += (0x400 - 4);
+					if (somagic->audio.dma_write_ptr >= runtime->dma_bytes) {
+						somagic->audio.dma_write_ptr = 0;
+					}
+				}
+			} else if (printk_ratelimit()) {
+				printk(KERN_INFO "somagic::%s: Unexpected block, "\
+							 "expected [aa aa 00 00], found [%02x %02x %02x %02x]\n",
+							 __func__, data[pos], data[pos+1], data[pos+2], data[pos+3]);
+			}
+
+			// Skip to next 0xaa 0xaa 0x00 0x00
+			pos += 0x400;
+		}
+	}
+
+	if (audio_wp != somagic->audio.dma_write_ptr) {
+		tasklet_hi_schedule(&(somagic->audio.process_audio));
+	}
+
+	tasklet_hi_schedule(&(somagic->video.process_video));
 
 	for (i = 0; i < 32; i++) { // 32 = NUM_URB_FRAMES	
 		urb->iso_frame_desc[i].status = 0;
@@ -953,13 +1002,6 @@ int somagic_dev_video_set_std(struct usb_somagic *somagic, v4l2_std_id id)
                      "change tv-standard while streaming!\n", __func__);	
 		return -EAGAIN;
 	}
-
-/*
-	printk(KERN_INFO "somagic::%s: User requests standard 0x%08X%08X\n", __func__,
-				 (int)((id & (((v4l2_std_id)0xFFFFFFFF) << 32 )) >> 32),
-				 (int)(id & ((v4l2_std_id)0xFFFFFFFF)));	
-*/
-
 
 	if ((id & V4L2_STD_NTSC) == id) {
 		printk(KERN_INFO "somagic::%s: Set device to NTSC!\n", __func__);
@@ -1074,6 +1116,7 @@ int somagic_dev_video_start_stream(struct usb_somagic *somagic)
 	somagic->video.cur_frame = NULL;
 	scratch_reset(somagic);
 
+
 	rc = usb_control_msg(somagic->dev,
 											 usb_sndctrlpipe(somagic->dev, 0x00),
 											 SOMAGIC_USB_STD_REQUEST,
@@ -1100,14 +1143,11 @@ int somagic_dev_video_start_stream(struct usb_somagic *somagic)
 	printk(KERN_INFO "somagic:%s:: Changed to alternate setting 2 on interface 0\n",
 										__func__);
 
-	rc = reg_write(somagic, 0x1740, 0x00);
+	/* 0x1d = 0001 1101 */
+	rc = reg_write(somagic, 0x1740, 0x1d);
 	if (rc < 0) {
-		printk(KERN_ERR "somagic:%s:: Failed to set 0x1740 to 0x00\n",
-										__func__);
 		return -1;
-		
 	}
-	printk(KERN_INFO "somagic:%s:: Set reg 0x1740 to 0x00\n", __func__);
 
 	// Submit urbs
 	for (buf_idx = 0; buf_idx < 2; buf_idx++) { // 2 = NUM_SBUF
@@ -1203,6 +1243,9 @@ int somagic_dev_video_alloc_isoc(struct usb_somagic *somagic)
 
 	printk(KERN_INFO "somagic::%s: Allocated ISOC urbs!\n", __func__);
 
+	tasklet_init(&(somagic->video.process_video), process_video, (unsigned long)somagic);
+	tasklet_init(&(somagic->audio.process_audio), process_audio, (unsigned long)somagic);
+
 	return 0;
 }
 
@@ -1224,6 +1267,9 @@ void somagic_dev_video_free_isoc(struct usb_somagic *somagic)
 		usb_free_urb(somagic->video.sbuf[buf_idx].urb);
 		somagic->video.sbuf[buf_idx].urb = NULL;
 	}
+
+	tasklet_kill(&(somagic->video.process_video));
+	tasklet_kill(&(somagic->audio.process_audio));
 
 	printk(KERN_INFO "somagic::%s: Freed ISOC urbs!\n", __func__);
 }
