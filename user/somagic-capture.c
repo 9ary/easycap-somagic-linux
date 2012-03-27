@@ -41,6 +41,8 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <sys/stat.h>
+#include <sys/types.h>
 #include <unistd.h>
 
 #define PROGRAM_NAME "somagic-capture"
@@ -259,7 +261,7 @@ void alg1_process(struct alg1_video_state_t *vs, unsigned char *buffer, int leng
 				if (nc == (unsigned char)0xff) {
 					vs->state = SYNCZ1;
 					if (bs == 1) {
-						fprintf(stderr, "resync after %d @%ld(%04lx)\n", hs, next - buffer, next - buffer);
+						fprintf(stderr, "resync after %d @%td(%04tx)\n", hs, next - buffer, next - buffer);
 					}
 					bs = 0;
 				} else if (bs != 1) {
@@ -269,7 +271,7 @@ void alg1_process(struct alg1_video_state_t *vs, unsigned char *buffer, int leng
 					 * yet been regained. Sync is regained by
 					 * ignoring bytes until the next 0xff.
 					 */
-					fprintf(stderr, "bad sync on line %d @%ld (%04lx)\n", vs->active_line_count, next - buffer, next - buffer);
+					fprintf(stderr, "bad sync on line %d @%td (%04tx)\n", vs->active_line_count, next - buffer, next - buffer);
 					/*
 					 *				print_bytes_only(pbuffer, buffer_pos + 64);
 					 *				print_bytes(pbuffer + buffer_pos, 8);
