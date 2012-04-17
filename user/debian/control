@@ -11,14 +11,16 @@ Architecture: any
 Depends: ${shlibs:Depends}, ${misc:Depends}
 Description: Somagic EasyCAP video capture
 	Linux capture program for the Somagic variants of the EasyCAP:
-	* EasyCAP Model DC60, with CVBS, S-VIDEO, AUDIO(L), and AUDIO(R) inputs.
-          The uninitialized device shows in lsusb as "1c88:0007 Somagic, Inc.".
-          Once initialized, it shows as "1c88:003c Somagic, Inc".
-	* EasyCAP Model 002 (or EasyCAP002), with 1, 2, 3, 4, and unlabeled 
-          microphone inputs. The uninitialized device shows in lsusb as 
+	* EasyCAP Model DC60, with CVBS, S-VIDEO, AUDIO(L), and AUDIO(R)
+          inputs. The uninitialized device shows in lsusb as
           "1c88:0007 Somagic, Inc.". Once initialized, it shows as 
-          "1c88:003e Somagic, Inc".
+          "1c88:003c Somagic, Inc".
+	* EasyCAP Model 002 (or EasyCAP002), with 1, 2, 3, 4, and 
+          unlabeled microphone inputs. The uninitialized device shows in
+          lsusb as "1c88:0007 Somagic, Inc.". Once initialized, it shows
+          as "1c88:003e Somagic, Inc".
 	. 
-	This package provides somagic-init (to upload firmware to the device), 
-	and somagic-capture (performs video capture).	
+	This package provides somagic-init (performs user space firmware
+        upload to the device), and somagic-capture (performs user space
+        video capture).	
 
