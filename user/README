@@ -1,6 +1,26 @@
+Description
+-----------
+somagic-init uploads the firmware for the Somagic chip, and reconnects 
+the USB dongle with a new product ID. 
+
+somagic-capture initializes the Somagic EasyCAP DC60 or Somagic 
+EasyCAP002 registers and performs video capture.
+
+
+Examples
+--------
+For examples, use the --help option, or consult the program's man page.
+
+
+To build from sources
+---------------------
+make && sudo make install
+
+
 To build Debian source and binary packages
 ------------------------------------------
 debuild -us -uc
+
 
 To clean debian directory
 -------------------------
