@@ -70,12 +70,14 @@ build_package () {
     exit 1
   fi  
   debuild -us -uc
+  mkdir -p "$ROOTDIR/$PKGDIR"
+  mv -i ../"$1"\_"$VERSION".tar.gz "$ROOTDIR/$PKGDIR"
+  mv -i ../"$1"\_"$VERSION"\_"$ARCH".deb "$ROOTDIR/$PKGDIR"
+  rm ../"$1"\_"$VERSION".dsc
+  rm ../"$1"\_"$VERSION".tar.gz
   rm ../"$1"\_"$VERSION"\_"$ARCH".build
   rm ../"$1"\_"$VERSION"\_"$ARCH".changes
-  rm ../"$1"\_"$VERSION".dsc
-  mkdir -p "$ROOTDIR/$PKGDIR"
-  mv ../"$1"\_"$VERSION"\_"$ARCH".deb "$ROOTDIR/$PKGDIR"
-  mv ../"$1"\_"$VERSION".tar.gz "$ROOTDIR/$PKGDIR"
+  rm ../"$1"\_"$VERSION"\_"$ARCH".deb 
 }
 
 # parse command line arguments
