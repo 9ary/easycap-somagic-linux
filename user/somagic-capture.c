@@ -117,6 +117,9 @@ int video_fd = 1;
 /* Control the number of concurrent ISO transfers we have running */
 int num_iso_transfers = 4;
 
+/* Test-only mode (no capture): 0 = capture, 1 = test-only */ 
+int test_only = 0;
+
 void release_usb_device(int ret)
 {
 	fprintf(stderr, "Emergency exit\n");
@@ -697,6 +700,7 @@ void usage()
 	fprintf(stderr, "                             Value  Algorithm\n");
 	fprintf(stderr, "                                 1  TB\n");
 	fprintf(stderr, "                                 2  MD (default)\n");
+	fprintf(stderr, "      --test-only            Perform capture setup, but do not capture\n");
 	fprintf(stderr, "      --vo=FILENAME          Raw UYVY video output file (or pipe) filename\n");
 	fprintf(stderr, "                             (default is standard output)\n");
 	fprintf(stderr, "      --help                 Display usage\n");
@@ -744,8 +748,9 @@ int main(int argc, char **argv)
 		{"pal-combination-n", 0, 0, 0}, /* index 10 */
 		{"secam", 0, 0, 0},             /* index 11 */
 		{"sync", 1, 0, 0},              /* index 12 */
-		{"version", 0, 0, 0},           /* index 13 */
-		{"vo", 1, 0, 0},                /* index 14 */
+		{"test-only", 0, 0, 0},         /* index 13 */
+		{"version", 0, 0, 0},           /* index 14 */
+		{"vo", 1, 0, 0},                /* index 15 */
 		{"brightness", 1, 0, 'B'},
 		{"cvbs", 0, 0, 'c'},
 		{"contrast", 1, 0, 'C'},
@@ -823,10 +828,13 @@ int main(int argc, char **argv)
 					return 1;
 				}
 				break;
-			case 13: /* --version */
+			case 13: /* --test-only */
+				test_only = 1;
+				break;
+			case 14: /* --version */
 				version();
 				return 0;
-			case 14: /* --vo */
+			case 15: /* --vo */
 				video_fd = open(optarg, O_CREAT | O_WRONLY | O_TRUNC, S_IRUSR | S_IWUSR | S_IRGRP | S_IROTH);
 				if (video_fd == -1) {
 					fprintf(stderr, "%s: Error opening video output file '%s': %s\n", argv[0], optarg, strerror(errno));
@@ -983,8 +991,8 @@ int main(int argc, char **argv)
 	}
 
 	/*
-   * AVR Documentation @ http://www.avr-asm-tutorial.net/avr_en/beginner/PDETAIL.html#IOPORTS
-   *
+	 * AVR Documentation @ http://www.avr-asm-tutorial.net/avr_en/beginner/PDETAIL.html#IOPORTS
+	 *
  	 * Reg 0x3a should be DDRA.
  	 * (DDRA = PortA Data Direction Register)
  	 * By setting this to 0x80, we set PIN7 to output.
@@ -1283,11 +1291,7 @@ int main(int argc, char **argv)
 	somagic_write_reg(0x1740, 0x00);
 	usleep(30 * 1000);
 
-	//struct libusb_transfer *tfr[NUM_ISO_TRANSFERS];
-	//unsigned char isobuf[NUM_ISO_TRANSFERS][64 * 3072];
 	/* Allocate memory for tfr and isobuf */
-	//struct libusb_transfer **tfr;
-	//unsigned char **isobuf;
 	tfr = malloc(num_iso_transfers * sizeof *tfr);
 	if (tfr == NULL) {
 		perror("Error allocating memory for tfr");
@@ -1298,34 +1302,36 @@ int main(int argc, char **argv)
 		perror("Error allocating memory for isobuf");
 		return 1;
 	}
-	
-	for (i = 0; i < num_iso_transfers; i++)	{
-		tfr[i] = libusb_alloc_transfer(64);
-		if (tfr[i] == NULL) {
-			fprintf(stderr, "%s: Error allocating USB transfer #%d: %s\n", argv[0], i, strerror(errno));
-			return 1;
-		}
-		libusb_fill_iso_transfer(tfr[i], devh, 0x00000082, isobuf[i], 64 * 3072, 64, gotdata, NULL, 2000);
-		libusb_set_iso_packet_lengths(tfr[i], 3072);
-	}
-	
-	pending_requests = num_iso_transfers;
-	for (i = 0; i < num_iso_transfers; i++) {
-		ret = libusb_submit_transfer(tfr[i]);
-		if (ret) {
-			fprintf(stderr, "%s: Error submitting request #%d for transfer: %s\n", argv[0], i, strerror(errno));
-			return 1;
-		}
-	}
-		
-	somagic_write_reg(0x1800, 0x0d);
 
-	while (pending_requests > 0) {
-		libusb_handle_events(NULL);
-	}
+	if (!test_only) {
+		for (i = 0; i < num_iso_transfers; i++)	{
+			tfr[i] = libusb_alloc_transfer(64);
+			if (tfr[i] == NULL) {
+				fprintf(stderr, "%s: Error allocating USB transfer #%d: %s\n", argv[0], i, strerror(errno));
+				return 1;
+			}
+			libusb_fill_iso_transfer(tfr[i], devh, 0x00000082, isobuf[i], 64 * 3072, 64, gotdata, NULL, 2000);
+			libusb_set_iso_packet_lengths(tfr[i], 3072);
+		}
 	
-	for (i = 0; i < num_iso_transfers; i++) {
-		libusb_free_transfer(tfr[i]);
+		pending_requests = num_iso_transfers;
+		for (i = 0; i < num_iso_transfers; i++) {
+			ret = libusb_submit_transfer(tfr[i]);
+			if (ret) {
+				fprintf(stderr, "%s: Error submitting request #%d for transfer: %s\n", argv[0], i, strerror(errno));
+				return 1;
+			}
+		}
+		
+		somagic_write_reg(0x1800, 0x0d);
+
+		while (pending_requests > 0) {
+			libusb_handle_events(NULL);
+		}
+	
+		for (i = 0; i < num_iso_transfers; i++) {
+			libusb_free_transfer(tfr[i]);
+		}
 	}
 
 	ret = libusb_release_interface(devh, 0);

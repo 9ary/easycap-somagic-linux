@@ -200,6 +200,10 @@ n l.
 .TE
 
 .TP
+\fB\-\-test\-only\fR
+Parses command-line options and performs capture setup, but does not initiate capture.
+The purpose of this option is to allow scripts to determine whether capture should be possible.
+.TP
 \fB\-\-vo\fR=\fIFILENAME\fR
 Select a file (or pipe) to output raw UYVY video frames to.
 The default is to output video to standard output rather than a file.

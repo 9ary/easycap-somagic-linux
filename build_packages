@@ -24,53 +24,75 @@
 # along with this program; if not, see <http://www.gnu.org/licenses/>.
 
 USER="somagic-init somagic-capture"
-USERDIR=`readlink -f user`
+USERDIR="user"
 USERPKG="somagic-easycap"
 TOOLS="somagic-extract-firmware"
-TOOLSDIR=`readlink -f tools/somagic-extract-firmware`
+TOOLSDIR="tools/somagic-extract-firmware"
 TOOLSPKG="somagic-easycap-tools"
-ARCH=`dpkg --print-architecture`
+PKGDIR="packages"
 
 # verify that the version number has been updated for each program and manual
 check_version () {
-  # input: 1=list of program names, 2=path, 3=expected version
+  # input: 1=list of program names, 2=path
+  ABSPATH=$(readlink -f "$ROOTDIR/$2")
   for PROGRAM in $1
   do
     # check program
-    grep -q \#define\ VERSION\ \"$3\" $2/$PROGRAM.c
+    grep -q \#define\ VERSION\ \""$VERSION"\" "$ABSPATH/$PROGRAM.c"
     if [ $? -ne 0 ] ; then
-      echo "Error: Update version of program \"$2/$PROGRAM.c\" to \"$3\"."
+      echo "Error: Update version of program \"$ABSPATH/$PROGRAM.c\" to \"$VERSION\"."
       exit 1
     fi
 
     # check manual
-    grep -q \"$PROGRAM\ $3\" $2/man/$PROGRAM.1
+    grep -q \""$PROGRAM"\ "$VERSION"\" "$ABSPATH/man/$PROGRAM.1"
     if [ $? -ne 0 ] ; then
-      echo "Error: Update version of manual \"$2/man/$PROGRAM.1\" to \"$3\"."
+      echo "Error: Update version of manual \"$ABSPATH/man/$PROGRAM.1\" to \"$VERSION\"."
       exit 1
     fi
   done
 
   # check changelog
-  grep -q \($3\) $2/debian/changelog
+  grep -q \("$VERSION"\) "$ABSPATH/debian/changelog"
   if [ $? -ne 0 ] ; then
-    echo "Error: Add entry to changelog \"$2/debian/changelog\" for \"$3\"."
+    echo "Error: Add entry to changelog \"$ABSPATH/debian/changelog\" for \"$VERSION\"."
     exit 1
   fi
 }
 
+# perform build for a package
+build_package () {
+  # input: 1=package name, 2=package path
+  ABSPATH=$(readlink -f "$ROOTDIR/$2")
+  cd "$ABSPATH"
+  if [ $? -ne 0 ] ; then
+    echo "Failed to change directory to \"$ABSPATH\"."
+    exit 1
+  fi  
+  debuild -us -uc
+  rm ../"$1"\_"$VERSION"\_"$ARCH".build
+  rm ../"$1"\_"$VERSION"\_"$ARCH".changes
+  rm ../"$1"\_"$VERSION".dsc
+  mkdir -p "$ROOTDIR/$PKGDIR"
+  mv ../"$1"\_"$VERSION"\_"$ARCH".deb "$ROOTDIR/$PKGDIR"
+  mv ../"$1"\_"$VERSION".tar.gz "$ROOTDIR/$PKGDIR"
+}
+
 # parse command line arguments
 VERSION=$1
-if [ "$VERSION" = "" ] ; then
+if [ "" = "$VERSION" ] ; then
   echo "Usage: $0 VERSION"
   echo "Example: $0 1.0"
   exit 1
 fi
 
+# get architecture
+ARCH=$(dpkg --print-architecture)
+
 # verify current directory
-CURDIR=`readlink -f $PWD`
-PROGDIR=`readlink -f \`dirname $0\``
-if [ "$CURDIR" != "$PROGDIR" ] ; then
+CURDIR=$(readlink -f $PWD)
+ROOTDIR=$(readlink -f $(dirname $0))
+if [ "$CURDIR" != "$ROOTDIR" ] ; then
   echo "Error: Run this script from the root of the easycap-somagic-linux git tree."
   exit 1
 fi
@@ -87,22 +109,11 @@ if [ $? -ne 0 ] ; then
   exit 1
 fi
 
-check_version "$USER" $USERDIR $VERSION
-check_version "$TOOLS" $TOOLSDIR $VERSION
+# check versions
+check_version "$USER" "$USERDIR" 
+check_version "$TOOLS" "$TOOLSDIR"
 
 # build packages
-cd $USERDIR
-debuild -us -uc
-rm ../$USERPKG\_$VERSION\_$ARCH.build
-rm ../$USERPKG\_$VERSION\_$ARCH.changes
-rm ../$USERPKG\_$VERSION.dsc
-mv ../$USERPKG\_$VERSION\_$ARCH.deb $PROGDIR
-mv ../$USERPKG\_$VERSION.tar.gz $PROGDIR
-cd $TOOLSDIR
-debuild -us -uc
-rm ../$TOOLSPKG\_$VERSION\_$ARCH.build
-rm ../$TOOLSPKG\_$VERSION\_$ARCH.changes
-rm ../$TOOLSPKG\_$VERSION.dsc
-mv ../$TOOLSPKG\_$VERSION\_$ARCH.deb $PROGDIR
-mv ../$TOOLSPKG\_$VERSION.tar.gz $PROGDIR
+build_package "$USERPKG" "$USERDIR"
+build_package "$TOOLSPKG" "$TOOLSDIR"
 
