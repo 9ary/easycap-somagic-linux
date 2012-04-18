@@ -9,6 +9,7 @@ Homepage: http://code.google.com/p/easycap-somagic-linux/
 Package: somagic-easycap
 Architecture: any
 Depends: ${shlibs:Depends}, ${misc:Depends}
+Suggests: mplayer, somagic-easycap-tools, usbutils 
 Description: Somagic EasyCAP video capture
 	Linux capture program for the Somagic variants of the EasyCAP:
 	* EasyCAP Model DC60, with CVBS, S-VIDEO, AUDIO(L), and AUDIO(R)

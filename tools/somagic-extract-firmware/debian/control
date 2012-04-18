@@ -9,6 +9,7 @@ Homepage: http://code.google.com/p/easycap-somagic-linux/
 Package: somagic-easycap-tools
 Architecture: any
 Depends: ${shlibs:Depends}, ${misc:Depends}
+Suggests: somagic-easycap, wine
 Description: Somagic EasyCAP tools
 	Linux capture program for the Somagic variants of the EasyCAP:
 	* EasyCAP Model DC60, with CVBS, S-VIDEO, AUDIO(L), and AUDIO(R)

@@ -12,6 +12,12 @@ Examples
 For examples, use the --help option, or consult the program's man page.
 
 
+Dependencies
+------------
+make, gcc, libusb-1.0-0 (and development headers), 
+libgcrypt11 (and development headers)
+
+
 To build from sources
 ---------------------
 make && sudo make install
@@ -19,6 +25,7 @@ make && sudo make install
 
 To build Debian source and binary packages
 ------------------------------------------
+apt-get install devscripts debhelper
 debuild -us -uc
 
 

@@ -15,6 +15,11 @@ the "Program Files/Common Files/Somagic/SmiUsbGrabber3C/xp/" or
 "Program Files/Common Files/Somagic/SmiUsbGrabber3E/xp/" directory.
 
 
+Dependencies
+------------
+make, gcc, libgcrypt11 (and development headers)
+
+
 Example
 -------
 sudo somagic-extract-firmware ~/.wine/drive_c/Program\ Files/Common\ Files/Somagic/SmiUsbGrabber3C/xp/SmiUsbGrabber3C.sys
@@ -27,6 +32,7 @@ make && sudo make install
 
 To build Debian source and binary packages
 ------------------------------------------
+apt-get install devscripts debhelper
 debuild -us -uc
 
 
