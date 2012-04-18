@@ -1,14 +1,13 @@
 /*******************************************************************************
- * somagic_main.c                                                              *
+ * somagic.h                                                                   *
  *                                                                             *
  * USB Driver for Somagic EasyCAP DC60                                         *
- * USB ID 1c88:0007                                                            *
+ * USB ID 1c88:003c                                                            *
  *                                                                             *
- * This driver will only upload the firmware for the Somagic chip,             *
- * and reconnect the usb-dongle with new product id: 1c88:003c.                *
+ * TODO description                                                            *
  * *****************************************************************************
  *
- * Copyright 2011 Jon Arne Jørgensen
+ * Copyright 2011, 2012 Jon Arne Jørgensen
  *
  * This file is part of somagic_dc60
  * http://code.google.com/p/easycap-somagic-linux/
@@ -27,6 +26,7 @@
  * along with this program; if not, see <http://www.gnu.org/licenses/>.
  *
  */
+
 #ifndef SOMAGIC_H
 #define SOMAGIC_H
 
@@ -77,10 +77,10 @@
 #define SOMAGIC_DATAPART_HEADER_SIZE 2
 #define SOMAGIC_DATAPART_SIZE 64
 
-#define SOMAGIC_DEFAULT_BRIGHTNESS 0x80 // 128 // u8
-#define SOMAGIC_DEFAULT_CONTRAST 0x47   // 71  // s8
-#define SOMAGIC_DEFAULT_SATURATION 0x40 // 64  // s8
-#define SOMAGIC_DEFAULT_HUE 0x00        // 0   // s8 
+#define SOMAGIC_DEFAULT_BRIGHTNESS 0x80			/* 128, u8 */
+#define SOMAGIC_DEFAULT_CONTRAST 0x47			/* 71 , s8 */
+#define SOMAGIC_DEFAULT_SATURATION 0x40			/* 64 , s8 */
+#define SOMAGIC_DEFAULT_HUE 0x00			/* 0  , s8 */
 
 #define SOMAGIC_URB_STD_TIMEOUT 1000
 #define SOMAGIC_URB_STD_REQUEST 0x01
@@ -95,8 +95,8 @@
 
 #define SOMAGIC_ACK_READY_FOR_FIRMWARE 0x0701
 
-#define SOMAGIC_NORMS (V4L2_STD_PAL | V4L2_STD_NTSC) // | V4L2_STD_SECAM | V4L2_STD_PAL_M)
-#define SOMAGIC_NUM_FRAMES 4 // Maximum number of frames an application can get
+#define SOMAGIC_NORMS (V4L2_STD_PAL | V4L2_STD_NTSC) // | V4L2_STD_SECAM | V4L2_STD_PAL_M) 
+#define SOMAGIC_NUM_FRAMES 4				/* Maximum number of frames an application can get */
 
 #define SOMAGIC_LINE_WIDTH 720
 #define SOMAGIC_STD_FIELD_LINES_PAL 288
@@ -111,11 +111,11 @@ enum somagic_inputs {
 };
 
 enum {
-	FRAME_STATE_GRABBING,			// ???
-	FRAME_STATE_UNUSED,				// Frame is mapped to userspace
-	FRAME_STATE_READY,				// Frame in Ingoing Queue
-	FRAME_STATE_DONE, 				// Frame in Outgoing Queue
-	FRAME_STATE_ERROR					// An error occured
+	FRAME_STATE_GRABBING,				/* ??? */
+	FRAME_STATE_UNUSED,				/* Frame is mapped to user space */
+	FRAME_STATE_READY,				/* Frame in Ingoing Queue */
+	FRAME_STATE_DONE,				/* Frame in Outgoing Queue */
+	FRAME_STATE_ERROR				/* An error occured */
 };
 
 enum parse_state {
@@ -145,25 +145,25 @@ struct somagic_sbuf {
 };
 
 struct somagic_frame {
-	char *data;								// Pointer to somagic_video->fbuf[offset_of_this_frame]
-	volatile int grabstate;		// State of grabbing
+	char *data;					/* Pointer to somagic_video->fbuf[offset_of_this_frame] */
+	volatile int grabstate;				/* State of grabbing */
 
-	int index;								// Frame index
+	int index;					/* Frame index */
 
-	int scanlength;						// The number of bytes this frame contains (one PAL frame should be (2 * 288 * 2 * 720)  Bytes)
-	int bytes_read;						// Count the bytes read out of this buffer from userspace
+	int scanlength;					/* The number of bytes this frame contains (one PAL frame should be (2 * 288 * 2 * 720) Bytes) */
+	int bytes_read;					/* Count the bytes read out of this buffer from user space */
 
-	// Used by parser!
+	/* Used by parser */
 	enum line_sync_state line_sync;
 	u16 line;
 	u16 col;
 	u8 field;
 	u8 blank;
 
-	int sequence;							// Frame number since start of capture
-	struct timeval timestamp;	// Time, when frame was captured
+	int sequence;					/* Frame number since start of capture */
+	struct timeval timestamp;			/* Time, when frame was captured */
 
-	struct list_head frame;		// For frame inqueue/outqueue
+	struct list_head frame;				/* For frame inqueue/outqueue */
 };
 
 struct somagic_audio {
@@ -174,23 +174,24 @@ struct somagic_audio {
 
 	struct tasklet_struct process_audio;
 
-	int users; // Open counter
+	int users;					/* Open counter */
 	u8 streaming;
 
 	unsigned long time;
-	
 };
 
 struct somagic_video {
 	struct v4l2_device v4l2_dev;
-	struct video_device *vdev;				// This is the actual V4L2 Device
+	struct video_device *vdev;			/* This is the actual V4L2 Device */
 
 	struct mutex v4l2_lock;						
 	unsigned int nr;
 
-	//struct urb *ctrl_urb;
-	//unsigned char ctrl_urb_buffer[8];
-	//struct usb_ctrlrequest ctrl_urb_setup;
+	/*
+	struct urb *ctrl_urb;
+	unsigned char ctrl_urb_buffer[8];
+	struct usb_ctrlrequest ctrl_urb_setup;
+	*/
 
 	unsigned int open_instances;
 	u8 setup_sent;
@@ -202,41 +203,41 @@ struct somagic_video {
 	int max_frame_size;
 	int num_frames;	
 	int fbuf_size;
-	char *fbuf;													// V4L2 Videodev buffer area for frame data! // This is allocated in somagic_video.c!
-	spinlock_t queue_lock; 							// Spinlock for protecting mods on inqueue and outqueue
-	wait_queue_head_t wait_frame;				// Processes waiting
-	wait_queue_head_t wait_stream;			// Processes waiting
+	char *fbuf;					/* V4L2 Videodev buffer area for frame data. This is allocated in somagic_video.c */
+	spinlock_t queue_lock; 				/* Spinlock for protecting mods on inqueue and outqueue */
+	wait_queue_head_t wait_frame;			/* Processes waiting */
+	wait_queue_head_t wait_stream;			/* Processes waiting */
 
-	struct list_head inqueue, outqueue;	// Input/Output Frame queue
+	struct list_head inqueue, outqueue;		/* Input/Output Frame queue */
 
 	struct tasklet_struct process_video;
 
-	struct somagic_frame *cur_frame;		// Pointer to current frame
-	struct somagic_frame frame[SOMAGIC_NUM_FRAMES];	// Frame buffer
+	struct somagic_frame *cur_frame;		/* Pointer to current frame */
+	struct somagic_frame frame[SOMAGIC_NUM_FRAMES];	/* Frame buffer */
 
-	struct somagic_frame *cur_read_frame; // Used by somagic_v4l2_read (somagic_video.c)
+	struct somagic_frame *cur_read_frame;		/* Used by somagic_v4l2_read (somagic_video.c) */
 
-	// Scratch space for ISOC Pipe
+	/* Scratch space for ISOC Pipe */
 	unsigned char *scratch;
 	int scratch_read_ptr;
 	int scratch_write_ptr;
 
-	struct somagic_sbuf sbuf[2];				// SOMAGIC_NUM_S_BUF
+	struct somagic_sbuf sbuf[2];			/* SOMAGIC_NUM_S_BUF */
 
-	int framecounter;										// For sequencing of frames sent to userspace
+	int framecounter;				/* For sequencing of frames sent to user space */
 
-	// Debug - Info that can be retrieved from by sysfs calls!
+	/* Debug - Info that can be retrieved from by sysfs calls */
 	int received_urbs;
 
-	// PAL/NTSC toggle handling
-	v4l2_std_id cur_std;								// Current Video standard NTSC/PAL
-	u16 field_lines;											// Lines per field NTSC:240 PAL:288
-	int frame_size;											// Size of one completed frame
+	/* PAL/NTSC toggle handling */
+	v4l2_std_id cur_std;				/* Current Video standard NTSC/PAL */
+	u16 field_lines;				/* Lines per field NTSC:240 PAL:288 */
+	int frame_size;					/* Size of one completed frame */
 
-	// Input selection
+	/* Input selection */
 	enum somagic_inputs cur_input;
 
-	// Controls
+	/* Controls */
 	u8 cur_brightness;
 	s8 cur_contrast;
 	s8 cur_saturation;
@@ -251,33 +252,32 @@ struct usb_somagic {
 	struct somagic_video video;
 };
 
-// Function declarations for somagic_audio.c
+/* Function declarations for somagic_audio.c */
 int somagic_connect_audio(struct usb_somagic *somagic);
 void somagic_disconnect_audio(struct usb_somagic *somagic);
 
-// Function declarations for somagic_video.c
+/* Function declarations for somagic_video.c */
 int somagic_connect_video(struct usb_somagic *somagic, bool default_ntsc);
 void somagic_disconnect_video(struct usb_somagic *somagic);
 
-//
-// Function-declarations for somagic_dev.c
-//
+/* Function-declarations for somagic_dev.c */
 int somagic_dev_video_alloc_scratch(struct usb_somagic *somagic);
 void somagic_dev_video_free_scratch(struct usb_somagic *somagic);
 
 int somagic_dev_video_alloc_isoc(struct usb_somagic *somagic);
 void somagic_dev_video_free_isoc(struct usb_somagic *somagic);
 
-int somagic_dev_video_alloc_frames(struct usb_somagic *somagic,
-                                   int number_of_frames);
+int somagic_dev_video_alloc_frames(struct usb_somagic *somagic, 
+							int number_of_frames);
 void somagic_dev_video_free_frames(struct usb_somagic *somagic);
 void somagic_dev_video_empty_framequeues(struct usb_somagic *somagic);
 
-// Send saa7113 Setup code to device
+/* Send saa7113 Setup code to device */
 int somagic_dev_init_video(struct usb_somagic *somagic, v4l2_std_id id);
 
 int somagic_dev_video_set_std(struct usb_somagic *somagic, v4l2_std_id id);
-int somagic_dev_video_set_input(struct usb_somagic *somagic, unsigned int input);
+int somagic_dev_video_set_input(struct usb_somagic *somagic, 
+							unsigned int input);
 
 int somagic_dev_video_start_stream(struct usb_somagic *somagic);
 void somagic_dev_video_stop_stream(struct usb_somagic *somagic);

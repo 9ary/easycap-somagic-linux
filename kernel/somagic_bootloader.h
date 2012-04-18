@@ -4,8 +4,8 @@
  * USB Driver for Somagic EasyCAP DC60                                         *
  * USB ID 1c88:0007                                                            *
  *                                                                             *
- * This driver will only upload the firmware for the Somagic chip,             *
- * and reconnect the usb-dongle with new product id: 1c88:003c.                *
+ * This driver will upload the firmware for the Somagic chip, and reconnect    *
+ * the USB dongle with new product id: 1c88:003c.                              *
  * *****************************************************************************
  *
  * Copyright 2011 Jon Arne Jørgensen
@@ -29,7 +29,7 @@
  */
 
 #ifndef SOMAGIC_BOOTLOADER_H
-#define SOMAGIC_BOOTLOADER_H 
+#define SOMAGIC_BOOTLOADER_H
 
 #include "somagic.h"
 
