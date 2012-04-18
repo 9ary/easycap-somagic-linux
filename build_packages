@@ -5,7 +5,7 @@
 # Perform basic sanity checks and then create release package set              #
 # ##############################################################################
 #
-# Copyright 2012 Jeffry Johnston 
+# Copyright 2012 Jeffry Johnston
 # 
 # This file is part of somagic_easycap
 # http://code.google.com/p/easycap-somagic-linux/
@@ -30,6 +30,7 @@ TOOLS="somagic-extract-firmware"
 TOOLSDIR="tools/somagic-extract-firmware"
 TOOLSPKG="somagic-easycap-tools"
 PKGDIR="packages"
+TMPDIR="/tmp"
 
 # verify that the version number has been updated for each program and manual
 check_version () {
@@ -69,15 +70,29 @@ build_package () {
     echo "Failed to change directory to \"$ABSPATH\"."
     exit 1
   fi  
-  debuild -us -uc
+   
+  # make sure destination directory exists
   mkdir -p "$ROOTDIR/$PKGDIR"
-  mv -i ../"$1"\_"$VERSION".tar.gz "$ROOTDIR/$PKGDIR"
+
+  # build source package
+  SOURCE=$(readlink -f "$TMPDIR/$1"\_"$VERSION")
+  mkdir "$SOURCE"
+  if [ $? -ne 0 ] ; then
+    echo "Failed to create source directory \"$SOURCE\"."
+    exit 1
+  fi  
+  make clean
+  fakeroot debian/rules clean
+  cp -a * "$SOURCE"
+  tar -C "$TMPDIR" -zcvf "$ROOTDIR/$PKGDIR/$1"\_"$VERSION".tar.gz "$1"\_"$VERSION"
+  rm -r "$SOURCE"
+
+  # build binary package
+  debuild -B -us -uc
   mv -i ../"$1"\_"$VERSION"\_"$ARCH".deb "$ROOTDIR/$PKGDIR"
-  rm ../"$1"\_"$VERSION".dsc
-  rm ../"$1"\_"$VERSION".tar.gz
   rm ../"$1"\_"$VERSION"\_"$ARCH".build
   rm ../"$1"\_"$VERSION"\_"$ARCH".changes
-  rm ../"$1"\_"$VERSION"\_"$ARCH".deb 
+  rm ../"$1"\_"$VERSION"\_"$ARCH".deb
 }
 
 # parse command line arguments
@@ -112,7 +127,7 @@ if [ $? -ne 0 ] ; then
 fi
 
 # check versions
-check_version "$USER" "$USERDIR" 
+check_version "$USER" "$USERDIR"
 check_version "$TOOLS" "$TOOLSDIR"
 
 # build packages
