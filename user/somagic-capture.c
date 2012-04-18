@@ -46,7 +46,7 @@
 #include <unistd.h>
 
 #define PROGRAM_NAME "somagic-capture"
-#define VERSION "1.0"
+#define VERSION "1.1"
 #define VENDOR 0x1c88
 static const int PRODUCT[2] = {
 	0x003c,

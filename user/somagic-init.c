@@ -42,7 +42,7 @@
 #include <unistd.h>
 
 #define PROGRAM_NAME "somagic-init"
-#define VERSION "1.0"
+#define VERSION "1.1"
 #define SOMAGIC_FIRMWARE_PATH "/lib/firmware/somagic_firmware.bin"
 static const unsigned char SOMAGIC_FIRMWARE_CRC32[2][4] = {
 	{'\x34', '\x89', '\xf7', '\x7b'}, 
