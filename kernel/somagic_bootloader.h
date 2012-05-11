@@ -33,6 +33,6 @@
 
 #include "somagic.h"
 
-void somagic_upload_firmware(struct usb_device *somagic_device);
+void somagic_run_bootloader(struct usb_device *somagic_device);
 
 #endif /* SOMAGIC_BOOTLOADER_H */

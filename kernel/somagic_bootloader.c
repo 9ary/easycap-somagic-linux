@@ -33,7 +33,7 @@
 
 #include <linux/firmware.h>
 
-void somagic_upload_firmware(struct usb_device *somagic_device)
+void somagic_run_bootloader(struct usb_device *somagic_device)
 {
 	int rc, firmware_parts, i, e;
 	__u16 igot;
