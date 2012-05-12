@@ -32,7 +32,7 @@
 
 /* Constants */
 #define PROGRAM_NAME "somagic-extract-firmware"
-#define VERSION "1.0"
+#define VERSION "1.1"
 #define SOMAGIC_FIRMWARE_PATH "/lib/firmware/somagic_firmware.bin"
 
 /* 

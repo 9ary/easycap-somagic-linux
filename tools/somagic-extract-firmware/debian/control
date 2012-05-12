@@ -9,16 +9,18 @@ Homepage: http://code.google.com/p/easycap-somagic-linux/
 Package: somagic-easycap-tools
 Architecture: any
 Depends: ${shlibs:Depends}, ${misc:Depends}
+Suggests: somagic-easycap, wine
 Description: Somagic EasyCAP tools
 	Linux capture program for the Somagic variants of the EasyCAP:
-	* EasyCAP Model DC60, with CVBS, S-VIDEO, AUDIO(L), and AUDIO(R) inputs.
-          The uninitialized device shows in lsusb as "1c88:0007 Somagic, Inc.".
-          Once initialized, it shows as "1c88:003c Somagic, Inc".
-	* EasyCAP Model 002 (or EasyCAP002), with 1, 2, 3, 4, and unlabeled 
-          microphone inputs. The uninitialized device shows in lsusb as 
+	* EasyCAP Model DC60, with CVBS, S-VIDEO, AUDIO(L), and AUDIO(R)
+          inputs. The uninitialized device shows in lsusb as
           "1c88:0007 Somagic, Inc.". Once initialized, it shows as 
-          "1c88:003e Somagic, Inc".
+          "1c88:003c Somagic, Inc".
+	* EasyCAP Model 002 (or EasyCAP002), with 1, 2, 3, 4, and 
+          unlabeled microphone inputs. The uninitialized device shows in
+          lsusb as "1c88:0007 Somagic, Inc.". Once initialized, it shows
+          as "1c88:003e Somagic, Inc".
 	. 
-	This package provides somagic-extract-firmware (to extract firmware from
-        a Windows driver).
+	This package provides somagic-extract-firmware (to extract 
+        firmware from a Windows driver).
 
