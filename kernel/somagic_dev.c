@@ -13,15 +13,12 @@
 /*                                                                           */
 /*****************************************************************************/
 
-#define DEFAULT_SCRATCH_BUF_SIZE (0x20000) // 128kB memory scratch buffer
-static const int scratch_buf_size = DEFAULT_SCRATCH_BUF_SIZE;
-
 static int scratch_len(struct usb_somagic *somagic)
 {
-	int len = somagic->video.scratch_write_ptr - somagic->video.scratch_read_ptr;
+	int len = somagic->scratch_write_ptr - somagic->scratch_read_ptr;
 
 	if (len < 0) {
-		len += scratch_buf_size;
+		len += SOMAGIC_SCRATCH_BUF_SIZE;
 	}
 
 	return len;
@@ -35,9 +32,9 @@ static int scratch_len(struct usb_somagic *somagic)
  * NOT USED, UNCOMMENT IF NEEDED!
 static int scratch_free(struct usb_somagic *somagic)
 {
-	int free = somagic->video.scratch_read_ptr - somagic->video.scratch_write_ptr;
+	int free = somagic->scratch_read_ptr - somagic->scratch_write_ptr;
 	if (free <= 0) {
-		free += scratch_buf_size;
+		free += SOMAGIC_SCRATCH_BUF_SIZE;
 	}
 
 	if (free) {
@@ -55,20 +52,20 @@ static int scratch_put(struct usb_somagic *somagic,
 {
 	int len_part;
 
-	if (somagic->video.scratch_write_ptr + len < scratch_buf_size) {
-		memcpy(somagic->video.scratch + somagic->video.scratch_write_ptr,
+	if (somagic->scratch_write_ptr + len < SOMAGIC_SCRATCH_BUF_SIZE) {
+		memcpy(somagic->scratch + somagic->scratch_write_ptr,
 						data, len);
-		somagic->video.scratch_write_ptr += len;
+		somagic->scratch_write_ptr += len;
 	} else {
-		len_part = scratch_buf_size - somagic->video.scratch_write_ptr;
-		memcpy(somagic->video.scratch + somagic->video.scratch_write_ptr,
+		len_part = SOMAGIC_SCRATCH_BUF_SIZE - somagic->scratch_write_ptr;
+		memcpy(somagic->scratch + somagic->scratch_write_ptr,
 						data, len_part);
 
 		if (len == len_part) {
-			somagic->video.scratch_write_ptr = 0;
+			somagic->scratch_write_ptr = 0;
 		} else {
-			memcpy(somagic->video.scratch, data + len_part, len - len_part);
-			somagic->video.scratch_write_ptr = len - len_part;
+			memcpy(somagic->scratch, data + len_part, len - len_part);
+			somagic->scratch_write_ptr = len - len_part;
 		}
 	}
 
@@ -76,21 +73,21 @@ static int scratch_put(struct usb_somagic *somagic,
 }
 
 static int scratch_get_custom(struct usb_somagic *somagic, int *ptr,
-                       unsigned char *data, int len)
+                              unsigned char *data, int len)
 {
 	int len_part;
 
-	if (*ptr + len < scratch_buf_size) {
-		memcpy(data, somagic->video.scratch + *ptr, len);
+	if (*ptr + len < SOMAGIC_SCRATCH_BUF_SIZE) {
+		memcpy(data, somagic->scratch + *ptr, len);
 	  *ptr += len;
 	} else {
-		len_part = scratch_buf_size - *ptr;
-		memcpy(data, somagic->video.scratch + *ptr, len_part);
+		len_part = SOMAGIC_SCRATCH_BUF_SIZE - *ptr;
+		memcpy(data, somagic->scratch + *ptr, len_part);
 
 		if (len == len_part) {
 			*ptr = 0;
 		} else {
-			memcpy(data + len_part, somagic->video.scratch, len - len_part);
+			memcpy(data + len_part, somagic->scratch, len - len_part);
 			*ptr = len - len_part;
 		}
 	}
@@ -98,22 +95,23 @@ static int scratch_get_custom(struct usb_somagic *somagic, int *ptr,
 	return len;
 }
 
-static inline void scratch_create_custom_pointer(struct usb_somagic *somagic, int *ptr, int offset)
+static inline void scratch_create_custom_pointer(struct usb_somagic *somagic,
+                                                 int *ptr, int offset)
 {
-	*ptr = (somagic->video.scratch_read_ptr + offset) % scratch_buf_size;
+	*ptr = (somagic->scratch_read_ptr + offset) % SOMAGIC_SCRATCH_BUF_SIZE;
 } 
 
-// TODO: This could probably be made into a simple define
 static inline int scratch_get(struct usb_somagic *somagic,
 											 unsigned char *data, int len)
 {
-	return scratch_get_custom(somagic, &(somagic->video.scratch_read_ptr), data, len);
+	return scratch_get_custom(somagic, &(somagic->scratch_read_ptr),
+														data, len);
 }
 
 static void scratch_reset(struct usb_somagic *somagic)
 {
-	somagic->video.scratch_read_ptr = 0;
-	somagic->video.scratch_write_ptr = 0;
+	somagic->scratch_read_ptr = 0;
+	somagic->scratch_write_ptr = 0;
 }
 
 /*
@@ -123,13 +121,13 @@ static void scratch_reset(struct usb_somagic *somagic)
  */
 static int allocate_scratch_buffer(struct usb_somagic *somagic)
 {
-	somagic->video.scratch = vmalloc_32(scratch_buf_size);
+	somagic->scratch = vmalloc_32(SOMAGIC_SCRATCH_BUF_SIZE);
 	scratch_reset(somagic);
 
-	if (somagic->video.scratch == NULL) {
+	if (somagic->scratch == NULL) {
 		dev_err(&somagic->dev->dev,
 						"%s: unable to allocate %d bytes for scratch\n",
-						__func__, scratch_buf_size);
+						__func__, SOMAGIC_SCRATCH_BUF_SIZE);
 		return -ENOMEM;
 	}
 
@@ -137,17 +135,17 @@ static int allocate_scratch_buffer(struct usb_somagic *somagic)
 }
 
 /*
- * somagic_dev_video_free_scratch()
+ * free_scratch_buffer()
  *
  * Free the scratch - ring buffer
  */
 static void free_scratch_buffer(struct usb_somagic *somagic)
 {
-	if (somagic->video.scratch == NULL) {
+	if (somagic->scratch == NULL) {
 		return;
 	}
-	vfree(somagic->video.scratch);
-	somagic->video.scratch = NULL;
+	vfree(somagic->scratch);
+	somagic->scratch = NULL;
 }
 
 /*****************************************************************************/

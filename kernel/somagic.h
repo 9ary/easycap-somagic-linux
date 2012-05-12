@@ -99,6 +99,8 @@
 #define SOMAGIC_NORMS (V4L2_STD_PAL | V4L2_STD_NTSC) // | V4L2_STD_SECAM | V4L2_STD_PAL_M) 
 #define SOMAGIC_NUM_FRAMES 4				/* Maximum number of frames an application can get */
 
+#define SOMAGIC_SCRATCH_BUF_SIZE 0x20000 // 128kB
+
 #define SOMAGIC_LINE_WIDTH 720
 #define SOMAGIC_STD_FIELD_LINES_PAL 288
 #define SOMAGIC_STD_FIELD_LINES_NTSC 240
@@ -218,14 +220,7 @@ struct somagic_video {
 
 	struct somagic_frame *cur_read_frame;		/* Used by somagic_v4l2_read (somagic_video.c) */
 
-	/* Scratch space for ISOC Pipe */
-	unsigned char *scratch;
-	int scratch_read_ptr;
-	int scratch_write_ptr;
-
-
 	int framecounter;				/* For sequencing of frames sent to user space */
-
 
 	/* PAL/NTSC toggle handling */
 	v4l2_std_id cur_std;				/* Current Video standard NTSC/PAL */
@@ -246,6 +241,11 @@ struct usb_somagic {
 	struct usb_device *dev;
 	struct somagic_isoc_buffer isoc_buf[SOMAGIC_NUM_ISOC_BUFFERS];
 
+	/* Scratch space for ISOC Pipe */
+	unsigned char *scratch;
+	int scratch_read_ptr;
+	int scratch_write_ptr;
+
 	/* Debug - Info that can be retrieved from by sysfs calls */
 	int received_urbs;
 
@@ -256,10 +256,6 @@ struct usb_somagic {
 /* Function declarations for somagic_audio.c */
 int somagic_connect_audio(struct usb_somagic *somagic);
 void somagic_disconnect_audio(struct usb_somagic *somagic);
-
-/* Function-declarations for somagic_dev.c */
-int somagic_dev_video_alloc_scratch(struct usb_somagic *somagic);
-void somagic_dev_video_free_scratch(struct usb_somagic *somagic);
 
 // Function declarations for somagic_video.c
 int somagic_v4l2_init(struct usb_somagic *somagic /*, bool default_ntsc*/);
