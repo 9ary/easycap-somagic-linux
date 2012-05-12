@@ -81,7 +81,7 @@ static ssize_t show_isoc_count(struct device *cd,
 {
 	struct video_device *vdev = container_of(cd, struct video_device, dev);
 	struct usb_somagic *somagic = video_get_drvdata(vdev);
-	return sprintf(buf, "%d\n", somagic->video.received_urbs); 
+	return sprintf(buf, "%d\n", somagic->received_urbs); 
 }
 
 static DEVICE_ATTR(received_isocs, S_IRUGO, show_isoc_count, NULL);
@@ -122,9 +122,9 @@ static void somagic_video_remove_sysfs(struct video_device *vdev)
 /*                                                                           */
 /*****************************************************************************/
 
-int __devinit somagic_connect_video(struct usb_somagic *somagic, bool default_ntsc)
+int somagic_v4l2_init(struct usb_somagic *somagic /*, bool default_ntsc*/)
 {
-	v4l2_std_id default_norm = (default_ntsc) ? V4L2_STD_NTSC : V4L2_STD_PAL;
+	//v4l2_std_id default_norm = (default_ntsc) ? V4L2_STD_NTSC : V4L2_STD_PAL;
 
   if (v4l2_device_register(&somagic->dev->dev, &somagic->video.v4l2_dev)) {
     goto err_exit;
@@ -132,16 +132,10 @@ int __devinit somagic_connect_video(struct usb_somagic *somagic, bool default_nt
 	mutex_init(&somagic->video.v4l2_lock);
 
   somagic->video.vdev = somagic_vdev_init(somagic, &somagic_video_template,
-                                          SOMAGIC_DRIVER_NAME, default_norm);
+                                          SOMAGIC_DRIVER_NAME, V4L2_STD_PAL);
 	if (somagic->video.vdev == NULL) {
 		goto err_exit;
 	}
-
-	// Send SAA7113 - Setup
-	somagic_dev_init_video(somagic, default_norm);
-	
-	// Allocate scratch - ring buffer
-	somagic_dev_video_alloc_scratch(somagic);
 
 	// All setup done, we can register the v4l2 device.
 	if (video_register_device(somagic->video.vdev, VFL_TYPE_GRABBER, video_nr) < 0) {
@@ -169,7 +163,7 @@ int __devinit somagic_connect_video(struct usb_somagic *somagic, bool default_nt
     return -1;
 }
 
-void __devexit somagic_disconnect_video(struct usb_somagic *somagic)
+void __devexit somagic_v4l2_exit(struct usb_somagic *somagic)
 {
 	mutex_lock(&somagic->video.v4l2_lock);
 	v4l2_device_disconnect(&somagic->video.v4l2_dev);
@@ -177,7 +171,6 @@ void __devexit somagic_disconnect_video(struct usb_somagic *somagic)
 	mutex_unlock(&somagic->video.v4l2_lock);
 
 	somagic_video_remove_sysfs(somagic->video.vdev);
-	somagic_dev_video_free_scratch(somagic);
 
 	if (somagic->video.vdev) {
 		if (video_is_registered(somagic->video.vdev)) {
@@ -628,10 +621,6 @@ static int somagic_v4l2_open(struct file *file)
 	printk(KERN_INFO "somagic::%s: %d open instances\n",
          __func__, somagic->video.open_instances);
 
-	if (somagic->video.open_instances == 1) {
-		somagic_dev_video_alloc_isoc(somagic);
-	}
-
 	return 0;
 //	return -EBUSY;
 }
@@ -650,7 +639,6 @@ static int somagic_v4l2_close(struct file *file)
 
 
 	if (!somagic->video.open_instances) {
-		somagic_dev_video_free_isoc(somagic);
 
 		somagic_dev_video_free_frames(somagic);
 		somagic->video.cur_frame = NULL;

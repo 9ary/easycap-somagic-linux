@@ -84,8 +84,6 @@ static int __devinit somagic_usb_probe(struct usb_interface *intf,
 											const struct usb_device_id *devid)
 {
 	struct usb_device *dev = usb_get_dev(interface_to_usbdev(intf));
-	struct usb_somagic *somagic = NULL;
-	int rc;
 
   printk(KERN_INFO "%s: Probing for %04x:%04x\n", __func__,
          dev->descriptor.idVendor,
@@ -109,48 +107,20 @@ static int __devinit somagic_usb_probe(struct usb_interface *intf,
 	}
 
   // We have a valid Somagic-Easycap device. now we setup the driver!
+	return somagic_dev_init(intf);
 
-	somagic = kzalloc(sizeof(struct usb_somagic), GFP_KERNEL);
-	if (somagic == NULL) {
-		dev_err(&intf->dev, "%s: couldn't allocate Somagic struct\n", __func__);
-		return -ENOMEM;
-	}
-
-
-	somagic->initialized = 0;
-	somagic->dev = dev;
-
-	// Store a pointer to this driver in the interface
-	usb_set_intfdata(intf, somagic);
-
-	rc = somagic_connect_audio(somagic);
-	if (rc != 0) {
-		somagic->dev = NULL;
-		kfree(somagic);
-		return -ENODEV;
-	}
-
-	rc = somagic_connect_video(somagic, somagic_default_ntsc);
-	if (rc != 0) {
-		somagic->dev = NULL;
-		kfree(somagic);
-		return -ENODEV;
-	}
-
-	somagic->initialized = 1;
-
-	return 0;
 }
 
 static void __devexit somagic_usb_disconnect(struct usb_interface *intf)
 {
-	struct usb_somagic *somagic = NULL;
 	struct usb_device *dev = usb_get_dev(interface_to_usbdev(intf));
 
 	if (dev->descriptor.idProduct != SOMAGIC_USB_PRODUCT_ID) {
     return;
 	}
 
+	somagic_dev_exit(intf);
+/*
 	somagic = usb_get_intfdata(intf);
 	if (somagic == NULL) {
 		printk(KERN_WARNING "somagic::%s: "
@@ -160,12 +130,12 @@ static void __devexit somagic_usb_disconnect(struct usb_interface *intf)
 
 	somagic->initialized = 0;
 	somagic_disconnect_video(somagic);
-	somagic_disconnect_audio(somagic);
 
 	somagic->dev = NULL;
 	kfree(somagic);
 
 	printk(KERN_INFO "somagic:%s: Driver-struct has been removed\n", __func__);
+*/
 }
 
 /*****************************************************************************/

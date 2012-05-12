@@ -89,6 +89,7 @@
 #define SOMAGIC_URB_FIRMWARE_PART_VALUE  0x0005
 #define SOMAGIC_URB_SEND_ENDPOINT 0x00
 #define SOMAGIC_URB_RECEIVE_ENDPOINT 0x80
+#define SOMAGIC_NUM_ISOC_BUFFERS 2
 
 #define SOMAGIC_USB_CTRL_SEND_EP 0x01
 #define SOMAGIC_USB_STD_REQUEST 0x01
@@ -139,7 +140,7 @@ enum sync_state {
 };
 
 /* USB - Isochronous Buffer */
-struct somagic_sbuf {
+struct somagic_isoc_buffer {
 	char *data;
 	struct urb *urb;	
 };
@@ -222,12 +223,9 @@ struct somagic_video {
 	int scratch_read_ptr;
 	int scratch_write_ptr;
 
-	struct somagic_sbuf sbuf[2];			/* SOMAGIC_NUM_S_BUF */
 
 	int framecounter;				/* For sequencing of frames sent to user space */
 
-	/* Debug - Info that can be retrieved from by sysfs calls */
-	int received_urbs;
 
 	/* PAL/NTSC toggle handling */
 	v4l2_std_id cur_std;				/* Current Video standard NTSC/PAL */
@@ -245,9 +243,12 @@ struct somagic_video {
 };
 
 struct usb_somagic {
-	int initialized;
-
 	struct usb_device *dev;
+	struct somagic_isoc_buffer isoc_buf[SOMAGIC_NUM_ISOC_BUFFERS];
+
+	/* Debug - Info that can be retrieved from by sysfs calls */
+	int received_urbs;
+
 	struct somagic_audio audio;
 	struct somagic_video video;
 };
@@ -256,24 +257,25 @@ struct usb_somagic {
 int somagic_connect_audio(struct usb_somagic *somagic);
 void somagic_disconnect_audio(struct usb_somagic *somagic);
 
-/* Function declarations for somagic_video.c */
-int somagic_connect_video(struct usb_somagic *somagic, bool default_ntsc);
-void somagic_disconnect_video(struct usb_somagic *somagic);
-
 /* Function-declarations for somagic_dev.c */
 int somagic_dev_video_alloc_scratch(struct usb_somagic *somagic);
 void somagic_dev_video_free_scratch(struct usb_somagic *somagic);
 
-int somagic_dev_video_alloc_isoc(struct usb_somagic *somagic);
-void somagic_dev_video_free_isoc(struct usb_somagic *somagic);
+// Function declarations for somagic_video.c
+int somagic_v4l2_init(struct usb_somagic *somagic /*, bool default_ntsc*/);
+void somagic_v4l2_exit(struct usb_somagic *somagic);
+
+//
+// Function-declarations for somagic_dev.c
+//
+
+int somagic_dev_init(struct usb_interface *intf);
+void somagic_dev_exit(struct usb_interface *intf);
 
 int somagic_dev_video_alloc_frames(struct usb_somagic *somagic, 
 							int number_of_frames);
 void somagic_dev_video_free_frames(struct usb_somagic *somagic);
 void somagic_dev_video_empty_framequeues(struct usb_somagic *somagic);
-
-/* Send saa7113 Setup code to device */
-int somagic_dev_init_video(struct usb_somagic *somagic, v4l2_std_id id);
 
 int somagic_dev_video_set_std(struct usb_somagic *somagic, v4l2_std_id id);
 int somagic_dev_video_set_input(struct usb_somagic *somagic, 

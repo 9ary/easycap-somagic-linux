@@ -117,11 +117,11 @@ static void scratch_reset(struct usb_somagic *somagic)
 }
 
 /*
- * somagic_dev_video_alloc_scratch()
+ * allocaate_scratch_buffer()
  *
  * Allocate memory for the scratch - ring buffer
  */
-int somagic_dev_video_alloc_scratch(struct usb_somagic *somagic)
+static int allocate_scratch_buffer(struct usb_somagic *somagic)
 {
 	somagic->video.scratch = vmalloc_32(scratch_buf_size);
 	scratch_reset(somagic);
@@ -141,8 +141,11 @@ int somagic_dev_video_alloc_scratch(struct usb_somagic *somagic)
  *
  * Free the scratch - ring buffer
  */
-void somagic_dev_video_free_scratch(struct usb_somagic *somagic)
+static void free_scratch_buffer(struct usb_somagic *somagic)
 {
+	if (somagic->video.scratch == NULL) {
+		return;
+	}
 	vfree(somagic->video.scratch);
 	somagic->video.scratch = NULL;
 }
@@ -279,9 +282,184 @@ void somagic_dev_video_empty_framequeues(struct usb_somagic *somagic)
 }
 
 /*****************************************************************************/
-/*																																					 */
-/* 																																					 */
-/* 																																					 */
+/*                                                                           */
+/*            USB transfer                                                   */
+/*                                                                           */
+/*****************************************************************************/
+
+// Some declarations!
+static void process_video(unsigned long somagic_addr);
+static void process_audio(unsigned long somagic_addr);
+
+static void isoc_complete(struct urb *urb)
+{
+	u8 print = 0;
+	int i,rc,audio_wp;
+	struct usb_somagic *somagic = urb->context;
+
+	if (urb->status == -ENOENT) {
+		printk(KERN_INFO "somagic::%s: Recieved empty ISOC urb!\n", __func__);
+		return;
+	}
+
+	somagic->received_urbs++;
+	audio_wp = somagic->audio.dma_write_ptr;
+
+	for (i = 0; i < urb->number_of_packets; i++) {
+		unsigned char *data = urb->transfer_buffer + urb->iso_frame_desc[i].offset;
+		int packet_len = urb->iso_frame_desc[i].actual_length;
+		int pos = 0;
+
+
+		if ((packet_len % 0x400) != 0) {
+				printk(KERN_INFO "somagic::%s: recieved ISOC packet with "\
+							           "unknown size! Size is %d\n",
+								__func__, packet_len);
+		}
+
+		while(pos < packet_len) {
+			/*
+			 * Within each packet of transfer, the data is divided into blocks of 0x400 (1024) bytes
+			 * beginning with [0xaa 0xaa 0x00 0x00],
+		 	 * Check for this signature, and pass each block to scratch buffer for further processing
+		 	 */
+
+			if (data[pos] == 0xaa && data[pos+1] == 0xaa &&
+					data[pos+2] == 0x00 && data[pos+3] == 0x00) {
+				// We have data, put it on scratch-buffer
+				scratch_put(somagic, &data[pos+4], 0x400 - 4);
+
+			} else if (data[pos] == 0xaa && data[pos+1] == 0xaa &&
+								 data[pos+2] == 0x00 && data[pos+3] == 0x01) {
+/*
+				unsigned long delta,cur_t = jiffies;
+				if (print == 0 && somagic->audio.time != 0 && printk_ratelimit()) {
+					delta = cur_t - somagic->audio.time;
+					printk(KERN_INFO "somagic::%s: Sound-part recieved, delta = %ld\n",
+								 __func__, delta * 1000 / HZ);
+					print = 1;
+				}
+				somagic->audio.time = cur_t;
+*/
+				if (somagic->audio.streaming) {
+					struct snd_pcm_runtime *runtime = somagic->audio.pcm_substream->runtime;
+					memcpy(runtime->dma_area + somagic->audio.dma_write_ptr,
+								 data + 4, (0x400 - 4));
+
+					somagic->audio.dma_write_ptr += (0x400 - 4);
+					if (somagic->audio.dma_write_ptr >= runtime->dma_bytes) {
+						somagic->audio.dma_write_ptr = 0;
+					}
+				}
+			} else if (printk_ratelimit()) {
+				printk(KERN_INFO "somagic::%s: Unexpected block, "\
+							 "expected [aa aa 00 00], found [%02x %02x %02x %02x]\n",
+							 __func__, data[pos], data[pos+1], data[pos+2], data[pos+3]);
+			}
+
+			// Skip to next 0xaa 0xaa 0x00 0x00
+			pos += 0x400;
+		}
+	}
+
+	if (audio_wp != somagic->audio.dma_write_ptr) {
+		tasklet_hi_schedule(&(somagic->audio.process_audio));
+	}
+
+	tasklet_hi_schedule(&(somagic->video.process_video));
+
+	for (i = 0; i < 32; i++) { // 32 = NUM_URB_FRAMES	
+		urb->iso_frame_desc[i].status = 0;
+		urb->iso_frame_desc[i].actual_length = 0;
+	}
+
+	urb->status = 0;
+	urb->dev = somagic->dev;
+	rc = usb_submit_urb(urb, GFP_ATOMIC);
+	if (rc) {
+		dev_err(&somagic->dev->dev,
+						"%s: usb_submit_urb failed: error %d\n",
+						__func__, rc);
+	}
+
+	return;
+}
+
+static int allocate_isoc_buffer(struct usb_somagic *somagic)
+{
+	int buf_idx;
+	int isoc_buf_size = 32 * 3072; // 32 = NUM_URB_FRAMES * 3072 = VIDEO_ISOC_PACKET_SIZE
+
+	for (buf_idx = 0; buf_idx < SOMAGIC_NUM_ISOC_BUFFERS; buf_idx++) {
+		int j,k;
+		struct urb *urb;
+
+		urb = usb_alloc_urb(32, GFP_KERNEL); // 32 = NUM_URB_FRAMES
+		if (urb == NULL) {
+			dev_err(&somagic->dev->dev,
+			"%s: usb_alloc_urb() failed\n", __func__);
+			return -ENOMEM;
+		}
+
+		somagic->isoc_buf[buf_idx].urb = urb;
+		somagic->isoc_buf[buf_idx].data =
+				usb_alloc_coherent(somagic->dev,
+													isoc_buf_size,
+													GFP_KERNEL,
+													&urb->transfer_dma);
+
+		urb->dev = somagic->dev;
+		urb->context = somagic;
+		urb->pipe = usb_rcvisocpipe(somagic->dev, 0x82);
+		urb->transfer_flags = URB_ISO_ASAP | URB_NO_TRANSFER_DMA_MAP;
+		urb->interval = 1;
+		urb->transfer_buffer = somagic->isoc_buf[buf_idx].data;
+		urb->complete = isoc_complete;
+		urb->number_of_packets = 32; // 32 = NUM_URB_FRAMES
+		urb->transfer_buffer_length = isoc_buf_size;
+		for (j = k = 0; j < 32; j++, k += 3072) {
+			urb->iso_frame_desc[j].offset = k;
+			urb->iso_frame_desc[j].length = 3072;
+		}
+	}
+
+	printk(KERN_INFO "somagic::%s: Allocated ISOC urbs!\n", __func__);
+
+	tasklet_init(&(somagic->video.process_video), process_video, (unsigned long)somagic);
+	tasklet_init(&(somagic->audio.process_audio), process_audio, (unsigned long)somagic);
+
+	return 0;
+}
+
+void free_isoc_buffer(struct usb_somagic *somagic)
+{
+	int buf_idx;
+	int isoc_buf_size = 32 * 3072;
+
+	for (buf_idx = 0; buf_idx < SOMAGIC_NUM_ISOC_BUFFERS; buf_idx++) {
+		usb_kill_urb(somagic->isoc_buf[buf_idx].urb);
+
+		if (somagic->isoc_buf[buf_idx].data) {
+			usb_free_coherent(somagic->dev,
+												isoc_buf_size,
+												somagic->isoc_buf[buf_idx].data,
+												somagic->isoc_buf[buf_idx].urb->transfer_dma);
+		}
+
+		usb_free_urb(somagic->isoc_buf[buf_idx].urb);
+		somagic->isoc_buf[buf_idx].urb = NULL;
+	}
+
+	tasklet_kill(&(somagic->video.process_video));
+	tasklet_kill(&(somagic->audio.process_audio));
+
+	printk(KERN_INFO "somagic::%s: Freed ISOC urbs!\n", __func__);
+}
+
+/*****************************************************************************/
+/*                                                                           */
+/*            Device communication                                           */
+/*                                                                           */
 /*****************************************************************************/
 
 static const struct saa_setup {
@@ -555,11 +733,11 @@ static int reg_write(struct usb_somagic *somagic, u16 reg, u8 val)
 }
 
 /*
- * somagic_dev_init_video()
+ * send_video_setup()
  *
  * Send the SAA7113 Setup commands to the device!
  */
-int somagic_dev_init_video(struct usb_somagic *somagic, v4l2_std_id tvnorm)
+static int send_video_setup(struct usb_somagic *somagic, v4l2_std_id tvnorm)
 {
 	int i,rc;
 	u8 buf[2];
@@ -628,6 +806,86 @@ int somagic_dev_init_video(struct usb_somagic *somagic, v4l2_std_id tvnorm)
 	somagic->video.setup_sent = 1;
 	return 0;
 }
+
+/*****************************************************************************/
+/*																																					 */
+/* 						Device initialization and disconnection												 */
+/* 																																					 */
+/*****************************************************************************/
+
+int __devinit somagic_dev_init(struct usb_interface *intf)
+{
+	struct usb_device *dev = usb_get_dev(interface_to_usbdev(intf));
+	struct usb_somagic *somagic = kzalloc(sizeof(struct usb_somagic), GFP_KERNEL);
+	int rc;
+
+	if (somagic == NULL) {
+		dev_err(&intf->dev, "%s: Error, could not allocate memory for the somagic struct\n",
+						__func__);
+		return -ENOMEM;
+	}
+
+	somagic->dev = dev;
+
+	usb_set_intfdata(intf, somagic);
+
+	rc = allocate_scratch_buffer(somagic);
+	if (rc != 0) {
+		goto err_exit;
+	}
+
+	rc = allocate_isoc_buffer(somagic);
+	if (rc != 0) {
+		goto err_exit;
+	}
+
+	// v4l2_std_id default_norm = (default_ntsc) ? V4L2_STD_NTSC : V4L2_STD_PAL;
+	send_video_setup(somagic, V4L2_STD_PAL);
+
+	rc = somagic_v4l2_init(somagic);
+	if (rc != 0) {
+		goto err_exit;
+	}
+
+	rc = somagic_connect_audio(somagic);
+	if (rc != 0) {
+		goto err_exit;
+	}
+
+	return 0;
+
+	err_exit: {
+		free_scratch_buffer(somagic);
+		free_isoc_buffer(somagic);
+		kfree(somagic);
+		return -ENODEV;
+	}
+}
+
+void __devexit somagic_dev_exit(struct usb_interface *intf)
+{
+	struct usb_somagic *somagic = usb_get_intfdata(intf);
+	if (somagic == NULL) {
+		return;
+	}
+
+	free_scratch_buffer(somagic);
+	free_isoc_buffer(somagic);
+
+	somagic_v4l2_exit(somagic);
+	somagic_disconnect_audio(somagic);
+
+	somagic->dev = NULL;
+	kfree(somagic);
+
+	printk(KERN_INFO "somagic::%s: Disconnect complete!\n", __func__);
+}
+
+/*****************************************************************************/
+/*                                                                           */
+/*                                                                           */
+/*                                                                           */
+/*****************************************************************************/
 
 static void find_sync(struct usb_somagic *somagic)
 {
@@ -869,99 +1127,6 @@ static void process_audio(unsigned long somagic_addr)
 	snd_pcm_period_elapsed(somagic->audio.pcm_substream);
 }
 
-static void somagic_dev_isoc_video_irq(struct urb *urb)
-{
-	u8 print = 0;
-	int i,rc,audio_wp;
-	struct usb_somagic *somagic = urb->context;
-
-	if (urb->status == -ENOENT) {
-		printk(KERN_INFO "somagic::%s: Recieved empty ISOC urb!\n", __func__);
-		return;
-	}
-
-	somagic->video.received_urbs++;
-	audio_wp = somagic->audio.dma_write_ptr;
-
-	for (i = 0; i < urb->number_of_packets; i++) {
-		unsigned char *data = urb->transfer_buffer + urb->iso_frame_desc[i].offset;
-		int packet_len = urb->iso_frame_desc[i].actual_length;
-		int pos = 0;
-
-
-		if ((packet_len % 0x400) != 0) {
-				printk(KERN_INFO "somagic::%s: recieved ISOC packet with "\
-							           "unknown size! Size is %d\n",
-								__func__, packet_len);
-		}
-
-		while(pos < packet_len) {
-			/*
-			 * Within each packet of transfer, the data is divided into blocks of 0x400 (1024) bytes
-			 * beginning with [0xaa 0xaa 0x00 0x00],
-		 	 * Check for this signature, and pass each block to scratch buffer for further processing
-		 	 */
-
-			if (data[pos] == 0xaa && data[pos+1] == 0xaa &&
-					data[pos+2] == 0x00 && data[pos+3] == 0x00) {
-				// We have data, put it on scratch-buffer
-				scratch_put(somagic, &data[pos+4], 0x400 - 4);
-
-			} else if (data[pos] == 0xaa && data[pos+1] == 0xaa &&
-								 data[pos+2] == 0x00 && data[pos+3] == 0x01) {
-/*
-				unsigned long delta,cur_t = jiffies;
-				if (print == 0 && somagic->audio.time != 0 && printk_ratelimit()) {
-					delta = cur_t - somagic->audio.time;
-					printk(KERN_INFO "somagic::%s: Sound-part recieved, delta = %ld\n",
-								 __func__, delta * 1000 / HZ);
-					print = 1;
-				}
-				somagic->audio.time = cur_t;
-*/
-				if (somagic->audio.streaming) {
-					struct snd_pcm_runtime *runtime = somagic->audio.pcm_substream->runtime;
-					memcpy(runtime->dma_area + somagic->audio.dma_write_ptr,
-								 data + 4, (0x400 - 4));
-
-					somagic->audio.dma_write_ptr += (0x400 - 4);
-					if (somagic->audio.dma_write_ptr >= runtime->dma_bytes) {
-						somagic->audio.dma_write_ptr = 0;
-					}
-				}
-			} else if (printk_ratelimit()) {
-				printk(KERN_INFO "somagic::%s: Unexpected block, "\
-							 "expected [aa aa 00 00], found [%02x %02x %02x %02x]\n",
-							 __func__, data[pos], data[pos+1], data[pos+2], data[pos+3]);
-			}
-
-			// Skip to next 0xaa 0xaa 0x00 0x00
-			pos += 0x400;
-		}
-	}
-
-	if (audio_wp != somagic->audio.dma_write_ptr) {
-		tasklet_hi_schedule(&(somagic->audio.process_audio));
-	}
-
-	tasklet_hi_schedule(&(somagic->video.process_video));
-
-	for (i = 0; i < 32; i++) { // 32 = NUM_URB_FRAMES	
-		urb->iso_frame_desc[i].status = 0;
-		urb->iso_frame_desc[i].actual_length = 0;
-	}
-
-	urb->status = 0;
-	urb->dev = somagic->dev;
-	rc = usb_submit_urb(urb, GFP_ATOMIC);
-	if (rc) {
-		dev_err(&somagic->dev->dev,
-						"%s: usb_submit_urb failed: error %d\n",
-						__func__, rc);
-	}
-
-	return;
-}
 
 // Set video standard NTSC | PAL
 int somagic_dev_video_set_std(struct usb_somagic *somagic, v4l2_std_id id)
@@ -1150,8 +1315,8 @@ int somagic_dev_video_start_stream(struct usb_somagic *somagic)
 	}
 
 	// Submit urbs
-	for (buf_idx = 0; buf_idx < 2; buf_idx++) { // 2 = NUM_SBUF
-		rc = usb_submit_urb(somagic->video.sbuf[buf_idx].urb, GFP_KERNEL);
+	for (buf_idx = 0; buf_idx < SOMAGIC_NUM_ISOC_BUFFERS; buf_idx++) {
+		rc = usb_submit_urb(somagic->isoc_buf[buf_idx].urb, GFP_KERNEL);
 		if (rc) {
 			dev_err(&somagic->dev->dev,
 							"%s: usb_submit_urb(%d) failed: error %d\n",
@@ -1201,76 +1366,5 @@ void somagic_dev_video_stop_stream(struct usb_somagic *somagic)
 										__func__, rc);
 	}
 
-}
-
-int somagic_dev_video_alloc_isoc(struct usb_somagic *somagic)
-{
-	int buf_idx;
-	int sb_size = 32 * 3072; // 32 = NUM_URB_FRAMES * 3072 = VIDEO_ISOC_PACKET_SIZE
-
-	for (buf_idx = 0; buf_idx < 2; buf_idx++) { // 2 = NUM_SBUF
-		int j,k;
-		struct urb *urb;
-
-		urb = usb_alloc_urb(32, GFP_KERNEL); // 32 = NUM_URB_FRAMES
-		if (urb == NULL) {
-			dev_err(&somagic->dev->dev,
-			"%s: usb_alloc_urb() failed\n", __func__);
-			return -ENOMEM;
-		}
-
-		somagic->video.sbuf[buf_idx].urb = urb;
-		somagic->video.sbuf[buf_idx].data =
-				usb_alloc_coherent(somagic->dev,
-													sb_size,
-													GFP_KERNEL,
-													&urb->transfer_dma);
-
-		urb->dev = somagic->dev;
-		urb->context = somagic;
-		urb->pipe = usb_rcvisocpipe(somagic->dev, 0x82);
-		urb->transfer_flags = URB_ISO_ASAP | URB_NO_TRANSFER_DMA_MAP;
-		urb->interval = 1;
-		urb->transfer_buffer = somagic->video.sbuf[buf_idx].data;
-		urb->complete = somagic_dev_isoc_video_irq;
-		urb->number_of_packets = 32; // 32 = NUM_URB_FRAMES
-		urb->transfer_buffer_length = sb_size;
-		for (j = k = 0; j < 32; j++, k += 3072) {
-			urb->iso_frame_desc[j].offset = k;
-			urb->iso_frame_desc[j].length = 3072;
-		}
-	}
-
-	printk(KERN_INFO "somagic::%s: Allocated ISOC urbs!\n", __func__);
-
-	tasklet_init(&(somagic->video.process_video), process_video, (unsigned long)somagic);
-	tasklet_init(&(somagic->audio.process_audio), process_audio, (unsigned long)somagic);
-
-	return 0;
-}
-
-void somagic_dev_video_free_isoc(struct usb_somagic *somagic)
-{
-	int buf_idx;
-	int sb_size = 32 * 3072;
-
-	for (buf_idx = 0; buf_idx < 2; buf_idx++) {
-		usb_kill_urb(somagic->video.sbuf[buf_idx].urb);
-
-		if (somagic->video.sbuf[buf_idx].data) {
-			usb_free_coherent(somagic->dev,
-												sb_size,
-												somagic->video.sbuf[buf_idx].data,
-												somagic->video.sbuf[buf_idx].urb->transfer_dma);
-		}
-
-		usb_free_urb(somagic->video.sbuf[buf_idx].urb);
-		somagic->video.sbuf[buf_idx].urb = NULL;
-	}
-
-	tasklet_kill(&(somagic->video.process_video));
-	tasklet_kill(&(somagic->audio.process_audio));
-
-	printk(KERN_INFO "somagic::%s: Freed ISOC urbs!\n", __func__);
 }
 
