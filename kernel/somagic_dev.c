@@ -289,15 +289,28 @@ void somagic_dev_video_empty_framequeues(struct usb_somagic *somagic)
 static void process_video(unsigned long somagic_addr);
 static void process_audio(unsigned long somagic_addr);
 
+/*
+ * isoc_complete
+ *
+ * This is an interrupt handler.
+ * Called when we recieve isochronous usb-data from the device
+ */
 static void isoc_complete(struct urb *urb)
 {
 	u8 print = 0;
 	int i,rc,audio_wp;
 	struct usb_somagic *somagic = urb->context;
+	struct timeval now;
 
 	if (urb->status == -ENOENT) {
 		printk(KERN_INFO "somagic::%s: Recieved empty ISOC urb!\n", __func__);
 		return;
+	}
+
+	do_gettimeofday(&now);
+	if (somagic->received_urbs != 0 && printk_ratelimit()) {
+		printk(KERN_INFO "somagic::%s: %lld usecs since last interrupt ended!\n",
+					 __func__, (long long)(now.tv_usec - somagic->prev_timestamp.tv_usec));
 	}
 
 	somagic->received_urbs++;
@@ -318,27 +331,18 @@ static void isoc_complete(struct urb *urb)
 		while(pos < packet_len) {
 			/*
 			 * Within each packet of transfer, the data is divided into blocks of 0x400 (1024) bytes
-			 * beginning with [0xaa 0xaa 0x00 0x00],
+			 * beginning with [0xaa 0xaa 0x00 0x00] for video, or [0xaa 0xaa 0x00 0x01] for audio.
 		 	 * Check for this signature, and pass each block to scratch buffer for further processing
 		 	 */
 
 			if (data[pos] == 0xaa && data[pos+1] == 0xaa &&
 					data[pos+2] == 0x00 && data[pos+3] == 0x00) {
-				// We have data, put it on scratch-buffer
+				// We have video data, put it on scratch-buffer
 				scratch_put(somagic, &data[pos+4], 0x400 - 4);
 
 			} else if (data[pos] == 0xaa && data[pos+1] == 0xaa &&
 								 data[pos+2] == 0x00 && data[pos+3] == 0x01) {
-/*
-				unsigned long delta,cur_t = jiffies;
-				if (print == 0 && somagic->audio.time != 0 && printk_ratelimit()) {
-					delta = cur_t - somagic->audio.time;
-					printk(KERN_INFO "somagic::%s: Sound-part recieved, delta = %ld\n",
-								 __func__, delta * 1000 / HZ);
-					print = 1;
-				}
-				somagic->audio.time = cur_t;
-*/
+
 				if (somagic->audio.streaming) {
 					struct snd_pcm_runtime *runtime = somagic->audio.pcm_substream->runtime;
 					memcpy(runtime->dma_area + somagic->audio.dma_write_ptr,
@@ -379,6 +383,8 @@ static void isoc_complete(struct urb *urb)
 						"%s: usb_submit_urb failed: error %d\n",
 						__func__, rc);
 	}
+
+	do_gettimeofday(&(somagic->prev_timestamp));
 
 	return;
 }
@@ -1073,6 +1079,11 @@ static enum parse_state parse_data(struct usb_somagic *somagic)
 	return PARSE_STATE_CONTINUE;
 }
 
+/*
+ * process_video
+ *
+ * This is called after the first part of the isochronous usb data-transfer
+ */
 static void process_video(unsigned long somagic_addr)
 {
 	enum parse_state state;

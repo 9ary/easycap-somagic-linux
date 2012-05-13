@@ -248,6 +248,7 @@ struct usb_somagic {
 
 	/* Debug - Info that can be retrieved from by sysfs calls */
 	int received_urbs;
+	struct timeval prev_timestamp;
 
 	struct somagic_audio audio;
 	struct somagic_video video;
