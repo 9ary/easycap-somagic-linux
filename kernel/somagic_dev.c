@@ -2,154 +2,6 @@
 
 /*****************************************************************************/
 /*                                                                           */
-/*            Scratch Buffer                                                 */
-/*                                                                           */
-/*            Ring-buffer used to store the bytes received from              */
-/*            in the isochronous transfers while doing capture.              */
-/*							                                                             */
-/*            The ring-buffer is read when the driver processes the data,    */
-/*            and the data is then copied to the frame-buffers               */
-/*            that we shift between kernelspace & userspace                  */
-/*                                                                           */
-/*****************************************************************************/
-
-static int scratch_len(struct usb_somagic *somagic)
-{
-	int len = somagic->scratch_write_ptr - somagic->scratch_read_ptr;
-
-	if (len < 0) {
-		len += SOMAGIC_SCRATCH_BUF_SIZE;
-	}
-
-	return len;
-}
-
-/*
- * scratch_free()
- *
- * Returns the free space left in buffer
- *
- * NOT USED, UNCOMMENT IF NEEDED!
-static int scratch_free(struct usb_somagic *somagic)
-{
-	int free = somagic->scratch_read_ptr - somagic->scratch_write_ptr;
-	if (free <= 0) {
-		free += SOMAGIC_SCRATCH_BUF_SIZE;
-	}
-
-	if (free) {
-		// At least one byte in the buffer must be left blank,
-		// otherwise ther is no chance to differ between full and empty
-		free -= 1;
-	}
-
-	return free;
-}
-*/
-
-static int scratch_put(struct usb_somagic *somagic,
-												unsigned char *data, int len)
-{
-	int len_part;
-
-	if (somagic->scratch_write_ptr + len < SOMAGIC_SCRATCH_BUF_SIZE) {
-		memcpy(somagic->scratch + somagic->scratch_write_ptr,
-						data, len);
-		somagic->scratch_write_ptr += len;
-	} else {
-		len_part = SOMAGIC_SCRATCH_BUF_SIZE - somagic->scratch_write_ptr;
-		memcpy(somagic->scratch + somagic->scratch_write_ptr,
-						data, len_part);
-
-		if (len == len_part) {
-			somagic->scratch_write_ptr = 0;
-		} else {
-			memcpy(somagic->scratch, data + len_part, len - len_part);
-			somagic->scratch_write_ptr = len - len_part;
-		}
-	}
-
-	return len;
-}
-
-static int scratch_get_custom(struct usb_somagic *somagic, int *ptr,
-                              unsigned char *data, int len)
-{
-	int len_part;
-
-	if (*ptr + len < SOMAGIC_SCRATCH_BUF_SIZE) {
-		memcpy(data, somagic->scratch + *ptr, len);
-	  *ptr += len;
-	} else {
-		len_part = SOMAGIC_SCRATCH_BUF_SIZE - *ptr;
-		memcpy(data, somagic->scratch + *ptr, len_part);
-
-		if (len == len_part) {
-			*ptr = 0;
-		} else {
-			memcpy(data + len_part, somagic->scratch, len - len_part);
-			*ptr = len - len_part;
-		}
-	}
-
-	return len;
-}
-
-static inline void scratch_create_custom_pointer(struct usb_somagic *somagic,
-                                                 int *ptr, int offset)
-{
-	*ptr = (somagic->scratch_read_ptr + offset) % SOMAGIC_SCRATCH_BUF_SIZE;
-} 
-
-static inline int scratch_get(struct usb_somagic *somagic,
-											 unsigned char *data, int len)
-{
-	return scratch_get_custom(somagic, &(somagic->scratch_read_ptr),
-														data, len);
-}
-
-static void scratch_reset(struct usb_somagic *somagic)
-{
-	somagic->scratch_read_ptr = 0;
-	somagic->scratch_write_ptr = 0;
-}
-
-/*
- * allocaate_scratch_buffer()
- *
- * Allocate memory for the scratch - ring buffer
- */
-static int allocate_scratch_buffer(struct usb_somagic *somagic)
-{
-	somagic->scratch = vmalloc_32(SOMAGIC_SCRATCH_BUF_SIZE);
-	scratch_reset(somagic);
-
-	if (somagic->scratch == NULL) {
-		dev_err(&somagic->dev->dev,
-						"%s: unable to allocate %d bytes for scratch\n",
-						__func__, SOMAGIC_SCRATCH_BUF_SIZE);
-		return -ENOMEM;
-	}
-
-	return 0;
-}
-
-/*
- * free_scratch_buffer()
- *
- * Free the scratch - ring buffer
- */
-static void free_scratch_buffer(struct usb_somagic *somagic)
-{
-	if (somagic->scratch == NULL) {
-		return;
-	}
-	vfree(somagic->scratch);
-	somagic->scratch = NULL;
-}
-
-/*****************************************************************************/
-/*                                                                           */
 /*            Frame Buffers                                                  */
 /*                                                                           */
 /*            The frames are passed between kernelspace & userspace          */
@@ -285,10 +137,6 @@ void somagic_dev_video_empty_framequeues(struct usb_somagic *somagic)
 /*                                                                           */
 /*****************************************************************************/
 
-// Some declarations!
-static void process_video(unsigned long somagic_addr);
-static void process_audio(unsigned long somagic_addr);
-
 /*
  * isoc_complete
  *
@@ -297,35 +145,29 @@ static void process_audio(unsigned long somagic_addr);
  */
 static void isoc_complete(struct urb *urb)
 {
-	u8 print = 0;
-	int i,rc,audio_wp;
+	int i,rc;
 	struct usb_somagic *somagic = urb->context;
-	struct timeval now;
 
 	if (urb->status == -ENOENT) {
 		printk(KERN_INFO "somagic::%s: Recieved empty ISOC urb!\n", __func__);
 		return;
 	}
 
-	do_gettimeofday(&now);
-	if (somagic->received_urbs != 0 && printk_ratelimit()) {
-		printk(KERN_INFO "somagic::%s: %lld usecs since last interrupt ended!\n",
-					 __func__, (long long)(now.tv_usec - somagic->prev_timestamp.tv_usec));
-	}
-
 	somagic->received_urbs++;
-	audio_wp = somagic->audio.dma_write_ptr;
 
 	for (i = 0; i < urb->number_of_packets; i++) {
 		unsigned char *data = urb->transfer_buffer + urb->iso_frame_desc[i].offset;
 		int packet_len = urb->iso_frame_desc[i].actual_length;
 		int pos = 0;
 
+		urb->iso_frame_desc[i].status = 0;
+		urb->iso_frame_desc[i].actual_length = 0;
 
 		if ((packet_len % 0x400) != 0) {
-				printk(KERN_INFO "somagic::%s: recieved ISOC packet with "\
+				printk(KERN_INFO "somagic::%s: Discrad ISOC packet with "\
 							           "unknown size! Size is %d\n",
 								__func__, packet_len);
+				continue;
 		}
 
 		while(pos < packet_len) {
@@ -338,21 +180,14 @@ static void isoc_complete(struct urb *urb)
 			if (data[pos] == 0xaa && data[pos+1] == 0xaa &&
 					data[pos+2] == 0x00 && data[pos+3] == 0x00) {
 				// We have video data, put it on scratch-buffer
-				scratch_put(somagic, &data[pos+4], 0x400 - 4);
+
+				somagic_video_put(somagic, &data[pos+4], 0x400 - 4);
 
 			} else if (data[pos] == 0xaa && data[pos+1] == 0xaa &&
 								 data[pos+2] == 0x00 && data[pos+3] == 0x01) {
 
-				if (somagic->audio.streaming) {
-					struct snd_pcm_runtime *runtime = somagic->audio.pcm_substream->runtime;
-					memcpy(runtime->dma_area + somagic->audio.dma_write_ptr,
-								 data + 4, (0x400 - 4));
+				somagic_audio_put(somagic, &data[pos + 4], 0x400 - 4);
 
-					somagic->audio.dma_write_ptr += (0x400 - 4);
-					if (somagic->audio.dma_write_ptr >= runtime->dma_bytes) {
-						somagic->audio.dma_write_ptr = 0;
-					}
-				}
 			} else if (printk_ratelimit()) {
 				printk(KERN_INFO "somagic::%s: Unexpected block, "\
 							 "expected [aa aa 00 00], found [%02x %02x %02x %02x]\n",
@@ -364,16 +199,8 @@ static void isoc_complete(struct urb *urb)
 		}
 	}
 
-	if (audio_wp != somagic->audio.dma_write_ptr) {
-		tasklet_hi_schedule(&(somagic->audio.process_audio));
-	}
-
+	tasklet_hi_schedule(&(somagic->audio.process_audio));
 	tasklet_hi_schedule(&(somagic->video.process_video));
-
-	for (i = 0; i < 32; i++) { // 32 = NUM_URB_FRAMES	
-		urb->iso_frame_desc[i].status = 0;
-		urb->iso_frame_desc[i].actual_length = 0;
-	}
 
 	urb->status = 0;
 	urb->dev = somagic->dev;
@@ -383,8 +210,6 @@ static void isoc_complete(struct urb *urb)
 						"%s: usb_submit_urb failed: error %d\n",
 						__func__, rc);
 	}
-
-	do_gettimeofday(&(somagic->prev_timestamp));
 
 	return;
 }
@@ -428,10 +253,6 @@ static int allocate_isoc_buffer(struct usb_somagic *somagic)
 	}
 
 	printk(KERN_INFO "somagic::%s: Allocated ISOC urbs!\n", __func__);
-
-	tasklet_init(&(somagic->video.process_video), process_video, (unsigned long)somagic);
-	tasklet_init(&(somagic->audio.process_audio), process_audio, (unsigned long)somagic);
-
 	return 0;
 }
 
@@ -453,9 +274,6 @@ void free_isoc_buffer(struct usb_somagic *somagic)
 		usb_free_urb(somagic->isoc_buf[buf_idx].urb);
 		somagic->isoc_buf[buf_idx].urb = NULL;
 	}
-
-	tasklet_kill(&(somagic->video.process_video));
-	tasklet_kill(&(somagic->audio.process_audio));
 
 	printk(KERN_INFO "somagic::%s: Freed ISOC urbs!\n", __func__);
 }
@@ -833,11 +651,6 @@ int __devinit somagic_dev_init(struct usb_interface *intf)
 
 	usb_set_intfdata(intf, somagic);
 
-	rc = allocate_scratch_buffer(somagic);
-	if (rc != 0) {
-		goto err_exit;
-	}
-
 	rc = allocate_isoc_buffer(somagic);
 	if (rc != 0) {
 		goto err_exit;
@@ -851,7 +664,7 @@ int __devinit somagic_dev_init(struct usb_interface *intf)
 		goto err_exit;
 	}
 
-	rc = somagic_connect_audio(somagic);
+	rc = somagic_alsa_init(somagic);
 	if (rc != 0) {
 		goto err_exit;
 	}
@@ -859,7 +672,6 @@ int __devinit somagic_dev_init(struct usb_interface *intf)
 	return 0;
 
 	err_exit: {
-		free_scratch_buffer(somagic);
 		free_isoc_buffer(somagic);
 		kfree(somagic);
 		return -ENODEV;
@@ -873,269 +685,16 @@ void __devexit somagic_dev_exit(struct usb_interface *intf)
 		return;
 	}
 
-	free_scratch_buffer(somagic);
 	free_isoc_buffer(somagic);
 
 	somagic_v4l2_exit(somagic);
-	somagic_disconnect_audio(somagic);
+	somagic_alsa_exit(somagic);
 
 	somagic->dev = NULL;
 	kfree(somagic);
 
 	printk(KERN_INFO "somagic::%s: Disconnect complete!\n", __func__);
 }
-
-/*****************************************************************************/
-/*                                                                           */
-/*                                                                           */
-/*                                                                           */
-/*****************************************************************************/
-
-static void find_sync(struct usb_somagic *somagic)
-{
-	int look_ahead;
-	u16 check;
-	u8 c;
-	u8 trc[3];
-
-	u8 cur_vbi, cur_field;
-
-	while(1) {
-		if (scratch_len(somagic) < 1) {
-			break;
-		}
-
-		scratch_get(somagic, &c, 1);
-		if (c != 0xff) {
-			continue;
-		}
-
-		if (scratch_len(somagic) < sizeof(trc)) {
-			break;
-		}
-
-		scratch_create_custom_pointer(somagic, &look_ahead, 0);
-		scratch_get_custom(somagic, &look_ahead, (unsigned char *)&check, sizeof(check));
-		if (check != 0x0000) {
-			continue;
-		}
-
-		// We have found [0xff 0x00 0x00]. Now find SAV/EAV
-		scratch_get(somagic, trc, sizeof(trc));
-		if (trc[2] == 0x00 || (trc[2] & 0x10) == 0x10) { // This is EAV (or SDID)
-			continue;
-		}
-
-		cur_vbi = (trc[2] & 0x20) >> 5;
-		cur_field = (trc[2] & 0x40) >> 6;
-
-		if (somagic->video.cur_sync_state == SYNC_STATE_SEARCHING) {
-			somagic->video.prev_field = cur_field;
-			somagic->video.cur_sync_state = SYNC_STATE_UNSTABLE;
-			continue;
-		}
-		
-		if (cur_field == 0 && somagic->video.prev_field == 1) {
-			somagic->video.cur_sync_state = SYNC_STATE_STABLE;
-			return;
-		}
-
-		somagic->video.prev_field = cur_field;
-	}
-}
-
-/* One PAL frame is 905000 Bytes, including TRC - (625 Lines).
- * An ODD Field is 4517756 Bytes, including TRC - (312 Lines). (288 Active video lines + 24 Lines of VBI)
- * An EVEN Field is 453224 Bytes, including TRC - (313 Lines). (288 Actice video lines + 25 Lines of VBI)
- *
- * VLC allocates: 831488 pr frame!
- *
- * mplayer expects one PAL frame to be: 829440
- * That is 576 (288 * 2) lines of 1440 (720 * 2)Bytes
- *
- */
-static u8 parse_lines(struct usb_somagic *somagic)
-{
-	struct somagic_frame *frame;
-	u8 c;
-	int look_ahead;
-	u8 check[8];
-
-	frame = somagic->video.cur_frame;
-
-	while(scratch_len(somagic) >= 1448) {
-		scratch_create_custom_pointer(somagic, &look_ahead, 1440);
-		scratch_get_custom(somagic, &look_ahead, check, 8);
-		if (check[0] == 0xff && check[1] == 0x00 && check[2] == 0x00) {
-			int line_pos = (2 * frame->line + frame->field) * (720 * 2) + frame->col;
-			scratch_get(somagic, frame->data + line_pos, 1440);
-			frame->scanlength += 1440;
-
-			/*
-       * Just grab the TRC including EAV of this line, and handle it here!
-       * check is already holding this info when we reach this part.
-       * But we need to increment the regular scratch_read_ptr,
-       * so we just grab the code again.
-       *
-       * Notice: We only read 4 bytes,
-       * the last 4 bytes of check is containing data from the last call
-       * to scratch_get_custom
-			 */
-			scratch_get(somagic, check, 4);
-
-			if ((check[3] & 0x10) == 0x10)	{ // Double check that this actually is EAV
-					
-				frame->line++;
-				frame->col = 0;
-				if (frame->line > 313) {
-					printk(KERN_WARNING "somagic::%s: SYNC Error, got line number %d\n", __func__, frame->line);						
-					frame->line = 313;
-				}
-
-				// Now we check that the scratch containes the SAV of the next line
-				if (check[4] == 0xff && check[5] == 0x00 && check[6] == 0x00) {
-					/* SAV
- 					 * 
- 					 * F (Field bit) = Bit 6 (mask 0x40)
- 					 * 0: Odd Field;
- 					 * 1: Even Field;
- 					 *
- 					 * V (Vertical blanking bit) = Bit 5 (mask 0x20)
- 					 * 0: in VBI
- 					 * 1: in Active video
- 					 */
-					u8 field_edge;
-					u8 blank_edge;
-
-					// Again, we do this to increment the scratch_read_ptr!
-					scratch_get(somagic, check + 4, 4);
-					c = check[7];
-
-					field_edge = frame->field;
-					blank_edge = frame->blank;
-
-					frame->field = (c & 0x40) >> 6;
-					frame->blank = (c & 0x20) >> 5;
-
-					field_edge = frame->field ^ field_edge;
-					blank_edge = frame->blank ^ blank_edge;
-
-					if (frame->field == 0 && field_edge) {
-						if (frame->scanlength < somagic->video.frame_size) {
-							// This frame is not a full frame, something went wrong!
-							if (printk_ratelimit())	{
-								printk(KERN_INFO "somagic::%s: Got partial video, "\
-                       "resetting sync state!\n", __func__);
-							}
-							somagic->video.cur_sync_state = SYNC_STATE_SEARCHING;
-						}
-						return 1;
-					}
-
-					if (frame->blank == 0 && blank_edge) {
-						frame->line = 0;
-						frame->col = 0;
-					}
-					// We have sync, so we try to read next line!
-					continue;	
-				}
-			} // Data is not followed by EAV
-		} else {// We dont have FF 00 00 at 1440
-			if (printk_ratelimit()) {
-				printk(KERN_INFO "somagic::%s: Lost sync on line %d, "\
-  	                     "swapping out current frame & resetting sync state!\n", __func__, frame->line);
-			}
-			somagic->video.cur_sync_state = SYNC_STATE_SEARCHING;
-			return 1;
-		}
-	}
-	return 0;
-}
-
-static enum parse_state parse_data(struct usb_somagic *somagic)
-{
-	struct somagic_frame *frame;
-	frame = somagic->video.cur_frame;
-
-	while(1) {
-		if (somagic->video.cur_sync_state != SYNC_STATE_STABLE) {
-			find_sync(somagic);
-			if (somagic->video.cur_sync_state != SYNC_STATE_STABLE) {
-				return PARSE_STATE_OUT;
-			}	
-			frame->col = 0;
-			frame->scanlength = 0;
-			frame->line = 0;
-			frame->field = 0;
-			frame->blank = 1;
-		}
-
-		if (parse_lines(somagic)) {
-			return PARSE_STATE_NEXT_FRAME;
-		} else {
-			return PARSE_STATE_OUT;
-		}
-	}
-	return PARSE_STATE_CONTINUE;
-}
-
-/*
- * process_video
- *
- * This is called after the first part of the isochronous usb data-transfer
- */
-static void process_video(unsigned long somagic_addr)
-{
-	enum parse_state state;
-	struct somagic_frame **f;
-	unsigned long lock_flags;
-	struct usb_somagic *somagic = (struct usb_somagic *)somagic_addr;
-
-	// We check if we have a v4l2_framebuffer to fill!
-	f = &somagic->video.cur_frame;
-	if (scratch_len(somagic) > 0x800 && !list_empty(&(somagic->video.inqueue))) {
-
-		//printk(KERN_INFO "somagic::%s: Parsing Data", __func__);
-
-		if (!(*f)) { // cur_frame == NULL
-			(*f) = list_entry(somagic->video.inqueue.next,
-												struct somagic_frame, frame);
-			(*f)->scanlength = 0;
-		}
-	
-		state = parse_data(somagic);
-
-		if (state == PARSE_STATE_NEXT_FRAME) {
-			// This should never occur, don't know if we need to check this here?
-			if ((*f)->scanlength > somagic->video.frame_size) {
-				(*f)->scanlength = somagic->video.frame_size;
-			}
-
-			(*f)->grabstate = FRAME_STATE_DONE;
-			do_gettimeofday(&((*f)->timestamp));
-			(*f)->sequence = somagic->video.framecounter;
-
-			spin_lock_irqsave(&somagic->video.queue_lock, lock_flags);
-			list_move_tail(&((*f)->frame), &somagic->video.outqueue);
-			somagic->video.cur_frame = NULL;
-			spin_unlock_irqrestore(&somagic->video.queue_lock, lock_flags);
-
-			somagic->video.framecounter++;
-
-			// Hang here, wait for new frame!
-			if (waitqueue_active(&somagic->video.wait_frame)) {
-				wake_up_interruptible(&somagic->video.wait_frame);
-			}
-		}
-	}
-}
-
-static void process_audio(unsigned long somagic_addr)
-{
-	struct usb_somagic *somagic = (struct usb_somagic *)somagic_addr;
-	snd_pcm_period_elapsed(somagic->audio.pcm_substream);
-}
-
 
 // Set video standard NTSC | PAL
 int somagic_dev_video_set_std(struct usb_somagic *somagic, v4l2_std_id id)
@@ -1286,10 +845,6 @@ int somagic_dev_video_start_stream(struct usb_somagic *somagic)
 	}
 
 	// somagic->video.scan_state = SCANNER_FIND_VBI;
-
-	somagic->video.cur_frame = NULL;
-	scratch_reset(somagic);
-
 
 	rc = usb_control_msg(somagic->dev,
 											 usb_sndctrlpipe(somagic->dev, 0x00),

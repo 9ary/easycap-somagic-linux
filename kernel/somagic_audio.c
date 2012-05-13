@@ -1,5 +1,6 @@
 #include "somagic.h"
 
+
 static const struct snd_pcm_hardware pcm_hardware = {
 	.info = SNDRV_PCM_INFO_BLOCK_TRANSFER |
 					SNDRV_PCM_INFO_MMAP |
@@ -106,11 +107,29 @@ static struct snd_pcm_ops somagic_audio_ops = {
 	.pointer = somagic_pcm_pointer,
 };
 
-int __devinit somagic_connect_audio(struct usb_somagic *somagic)
+/*
+ * process_audio
+ *
+ * Tasklet, called after isochrounous usb-transfer
+ */
+static void process_audio(unsigned long somagic_addr)
+{
+	struct usb_somagic *somagic = (struct usb_somagic *)somagic_addr;
+	if (!somagic->audio.elapsed_periode) {
+		return;
+	}
+
+	snd_pcm_period_elapsed(somagic->audio.pcm_substream);
+	somagic->audio.elapsed_periode = 0;
+}
+
+int somagic_alsa_init(struct usb_somagic *somagic)
 {
 	int rc;
 	struct snd_card *sound_card;
 	struct snd_pcm *sound_pcm;
+
+	tasklet_init(&(somagic->audio.process_audio), process_audio, (unsigned long)somagic);
 
 	rc = snd_card_create(SNDRV_DEFAULT_IDX1, "Somagic",
 											THIS_MODULE, 0, &sound_card);
@@ -121,6 +140,11 @@ int __devinit somagic_connect_audio(struct usb_somagic *somagic)
 	}
 
 	rc = snd_pcm_new(sound_card, "Somagic PCM", 0, 0, 1, &sound_pcm);
+	if (rc != 0) {
+		printk(KERN_ERR "somagic::%s: Could not do ALSA snd_pcm_new()\n",
+					 __func__);
+		return rc;
+	}
 	snd_pcm_set_ops(sound_pcm, SNDRV_PCM_STREAM_CAPTURE, &somagic_audio_ops);
 	sound_pcm->info_flags = 0;
 	sound_pcm->private_data = somagic;
@@ -151,9 +175,40 @@ int __devinit somagic_connect_audio(struct usb_somagic *somagic)
 	return 0;
 }
 
-void __devexit somagic_disconnect_audio(struct usb_somagic *somagic)
+void __devexit somagic_alsa_exit(struct usb_somagic *somagic)
 {
-	if (somagic->audio.card != 0) {
+	tasklet_kill(&(somagic->audio.process_audio));
+
+	if (somagic->audio.card != NULL) {
 		snd_card_free(somagic->audio.card);
 	}
 }
+
+/*
+ * somagic_audio_put
+ *
+ * Called when the driver is recieving data in the isochronous usb-transfer
+ *
+ * WARNING: This function is called within an interrupt, don't let it sleep
+ */
+void somagic_audio_put(struct usb_somagic *somagic, u8 *data, int size)
+{
+	struct snd_pcm_runtime *runtime;
+
+	if (!somagic->audio.streaming) {
+		return;
+	}
+
+	runtime = somagic->audio.pcm_substream->runtime;
+
+	memcpy(runtime->dma_area + somagic->audio.dma_write_ptr, data, size);
+
+	somagic->audio.dma_write_ptr += size;
+	if (somagic->audio.dma_write_ptr >= runtime->dma_bytes) {
+		somagic->audio.dma_write_ptr = 0;
+	}
+
+	somagic->audio.elapsed_periode = 1;
+}
+
+

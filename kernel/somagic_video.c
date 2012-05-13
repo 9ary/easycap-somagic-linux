@@ -117,70 +117,153 @@ static void somagic_video_remove_sysfs(struct video_device *vdev)
 
 /*****************************************************************************/
 /*                                                                           */
-/*            Video 4 Linux API  -  Init / Exit                              */
-/*            Called when we plug/unplug the device                          */
+/*            Scratch Buffer                                                 */
+/*                                                                           */
+/*            Ring-buffer used to store the bytes received from              */
+/*            in the isochronous transfers while doing capture.              */
+/*							                                                             */
+/*            The ring-buffer is read when the driver processes the data,    */
+/*            and the data is then copied to the frame-buffers               */
+/*            that we shift between kernelspace & userspace                  */
 /*                                                                           */
 /*****************************************************************************/
 
-int somagic_v4l2_init(struct usb_somagic *somagic /*, bool default_ntsc*/)
+static int scratch_len(struct usb_somagic *somagic)
 {
-	//v4l2_std_id default_norm = (default_ntsc) ? V4L2_STD_NTSC : V4L2_STD_PAL;
+	int len = somagic->video.scratch_write_ptr - somagic->video.scratch_read_ptr;
 
-  if (v4l2_device_register(&somagic->dev->dev, &somagic->video.v4l2_dev)) {
-    goto err_exit;
-  }
-	mutex_init(&somagic->video.v4l2_lock);
-
-  somagic->video.vdev = somagic_vdev_init(somagic, &somagic_video_template,
-                                          SOMAGIC_DRIVER_NAME, V4L2_STD_PAL);
-	if (somagic->video.vdev == NULL) {
-		goto err_exit;
+	if (len < 0) {
+		len += SOMAGIC_SCRATCH_BUF_SIZE;
 	}
 
-	// All setup done, we can register the v4l2 device.
-	if (video_register_device(somagic->video.vdev, VFL_TYPE_GRABBER, video_nr) < 0) {
-		goto err_exit;
-	}
-
-	printk(KERN_INFO "Somagic[%d]: registered Somagic Video device %s [v4l2]\n",
-					somagic->video.nr, video_device_node_name(somagic->video.vdev));
-
-	somagic_video_create_sysfs(somagic->video.vdev);
-
-	return 0;
-
-	err_exit:
-		dev_err(&somagic->dev->dev, "Somagic[%d]: video_register_device() failed\n",
-						somagic->video.nr);
-
-    if (somagic->video.vdev) {
-      if (video_is_registered(somagic->video.vdev)) {
-        video_unregister_device(somagic->video.vdev);
-      } else {
-        video_device_release(somagic->video.vdev);
-      }
-    }
-    return -1;
+	return len;
 }
 
-void __devexit somagic_v4l2_exit(struct usb_somagic *somagic)
+/*
+ * scratch_free()
+ *
+ * Returns the free space left in buffer
+ *
+ * NOT USED, UNCOMMENT IF NEEDED!
+static int scratch_free(struct usb_somagic *somagic)
 {
-	mutex_lock(&somagic->video.v4l2_lock);
-	v4l2_device_disconnect(&somagic->video.v4l2_dev);
-	usb_put_dev(somagic->dev);
-	mutex_unlock(&somagic->video.v4l2_lock);
+	int free = somagic->scratch_read_ptr - somagic->scratch_write_ptr;
+	if (free <= 0) {
+		free += SOMAGIC_SCRATCH_BUF_SIZE;
+	}
 
-	somagic_video_remove_sysfs(somagic->video.vdev);
+	if (free) {
+		// At least one byte in the buffer must be left blank,
+		// otherwise ther is no chance to differ between full and empty
+		free -= 1;
+	}
 
-	if (somagic->video.vdev) {
-		if (video_is_registered(somagic->video.vdev)) {
-			video_unregister_device(somagic->video.vdev);
+	return free;
+}
+*/
+
+/*
+ * somagic_video_put
+ *
+ * WARNING: This function is called inside an interrupt and must not sleep
+ */
+void somagic_video_put(struct usb_somagic *somagic,
+												unsigned char *data, int len)
+{
+	int len_part;
+
+	if (somagic->video.scratch_write_ptr + len < SOMAGIC_SCRATCH_BUF_SIZE) {
+		memcpy(somagic->video.scratch + somagic->video.scratch_write_ptr,
+						data, len);
+		somagic->video.scratch_write_ptr += len;
+	} else {
+		len_part = SOMAGIC_SCRATCH_BUF_SIZE - somagic->video.scratch_write_ptr;
+		memcpy(somagic->video.scratch + somagic->video.scratch_write_ptr,
+						data, len_part);
+
+		if (len == len_part) {
+			somagic->video.scratch_write_ptr = 0;
 		} else {
-			video_device_release(somagic->video.vdev);
+			memcpy(somagic->video.scratch, data + len_part, len - len_part);
+			somagic->video.scratch_write_ptr = len - len_part;
 		}
-		somagic->video.vdev = NULL;
-	}	
-	v4l2_device_unregister(&somagic->video.v4l2_dev);
+	}
+}
+
+static int scratch_get_custom(struct usb_somagic *somagic, int *ptr,
+                              unsigned char *data, int len)
+{
+	int len_part;
+
+	if (*ptr + len < SOMAGIC_SCRATCH_BUF_SIZE) {
+		memcpy(data, somagic->video.scratch + *ptr, len);
+	  *ptr += len;
+	} else {
+		len_part = SOMAGIC_SCRATCH_BUF_SIZE - *ptr;
+		memcpy(data, somagic->video.scratch + *ptr, len_part);
+
+		if (len == len_part) {
+			*ptr = 0;
+		} else {
+			memcpy(data + len_part, somagic->video.scratch, len - len_part);
+			*ptr = len - len_part;
+		}
+	}
+
+	return len;
+}
+
+static inline void scratch_create_custom_pointer(struct usb_somagic *somagic,
+                                                 int *ptr, int offset)
+{
+	*ptr = (somagic->video.scratch_read_ptr + offset) % SOMAGIC_SCRATCH_BUF_SIZE;
+} 
+
+static inline int scratch_get(struct usb_somagic *somagic,
+											 unsigned char *data, int len)
+{
+	return scratch_get_custom(somagic, &(somagic->video.scratch_read_ptr),
+														data, len);
+}
+
+static void scratch_reset(struct usb_somagic *somagic)
+{
+	somagic->video.scratch_read_ptr = 0;
+	somagic->video.scratch_write_ptr = 0;
+}
+
+/*
+ * allocaate_scratch_buffer()
+ *
+ * Allocate memory for the scratch - ring buffer
+ */
+static int allocate_scratch_buffer(struct usb_somagic *somagic)
+{
+	somagic->video.scratch = vmalloc_32(SOMAGIC_SCRATCH_BUF_SIZE);
+	scratch_reset(somagic);
+
+	if (somagic->video.scratch == NULL) {
+		dev_err(&somagic->dev->dev,
+						"%s: unable to allocate %d bytes for scratch\n",
+						__func__, SOMAGIC_SCRATCH_BUF_SIZE);
+		return -ENOMEM;
+	}
+
+	return 0;
+}
+
+/*
+ * free_scratch_buffer()
+ *
+ * Free the scratch - ring buffer
+ */
+static void free_scratch_buffer(struct usb_somagic *somagic)
+{
+	if (somagic->video.scratch == NULL) {
+		return;
+	}
+	vfree(somagic->video.scratch);
+	somagic->video.scratch = NULL;
 }
 
 /*****************************************************************************/
@@ -533,6 +616,8 @@ static int vidioc_streamon(struct file *file, void *priv, enum v4l2_buf_type i)
 	struct usb_somagic *somagic = video_drvdata(file);
 
 	printk(KERN_ERR "somagic:: %s Called\n", __func__);
+	somagic->video.cur_frame = NULL;
+	scratch_reset(somagic);
 	somagic_dev_video_start_stream(somagic);
 
 	return 0;
@@ -689,6 +774,8 @@ static ssize_t somagic_v4l2_read(struct file *file, char __user *buf,
 		printk(KERN_INFO "somagic::%s: Allocated frames!\n", __func__);
 	}
 
+	somagic->video.cur_frame = NULL;
+	scratch_reset(somagic);
 	somagic_dev_video_start_stream(somagic);
 
 	// Enqueue Videoframes
@@ -898,5 +985,333 @@ static struct video_device *somagic_vdev_init(struct usb_somagic *somagic,
 	video_set_drvdata(vdev, somagic);
 	vdev->current_norm = norm;
 	return vdev;
+}
+
+/*****************************************************************************/
+/*                                                                           */
+/*            Video-parsing                                                  */
+/*                                                                           */
+/*****************************************************************************/
+static void find_sync(struct usb_somagic *somagic)
+{
+	int look_ahead;
+	u16 check;
+	u8 c;
+	u8 trc[3];
+
+	u8 cur_vbi, cur_field;
+
+	while(1) {
+		if (scratch_len(somagic) < 1) {
+			break;
+		}
+
+		scratch_get(somagic, &c, 1);
+		if (c != 0xff) {
+			continue;
+		}
+
+		if (scratch_len(somagic) < sizeof(trc)) {
+			break;
+		}
+
+		scratch_create_custom_pointer(somagic, &look_ahead, 0);
+		scratch_get_custom(somagic, &look_ahead, (unsigned char *)&check, sizeof(check));
+		if (check != 0x0000) {
+			continue;
+		}
+
+		// We have found [0xff 0x00 0x00]. Now find SAV/EAV
+		scratch_get(somagic, trc, sizeof(trc));
+		if (trc[2] == 0x00 || (trc[2] & 0x10) == 0x10) { // This is EAV (or SDID)
+			continue;
+		}
+
+		cur_vbi = (trc[2] & 0x20) >> 5;
+		cur_field = (trc[2] & 0x40) >> 6;
+
+		if (somagic->video.cur_sync_state == SYNC_STATE_SEARCHING) {
+			somagic->video.prev_field = cur_field;
+			somagic->video.cur_sync_state = SYNC_STATE_UNSTABLE;
+			continue;
+		}
+		
+		if (cur_field == 0 && somagic->video.prev_field == 1) {
+			somagic->video.cur_sync_state = SYNC_STATE_STABLE;
+			return;
+		}
+
+		somagic->video.prev_field = cur_field;
+	}
+}
+
+/* One PAL frame is 905000 Bytes, including TRC - (625 Lines).
+ * An ODD Field is 4517756 Bytes, including TRC - (312 Lines). (288 Active video lines + 24 Lines of VBI)
+ * An EVEN Field is 453224 Bytes, including TRC - (313 Lines). (288 Actice video lines + 25 Lines of VBI)
+ *
+ * VLC allocates: 831488 pr frame!
+ *
+ * mplayer expects one PAL frame to be: 829440
+ * That is 576 (288 * 2) lines of 1440 (720 * 2)Bytes
+ *
+ */
+static u8 parse_lines(struct usb_somagic *somagic)
+{
+	struct somagic_frame *frame;
+	u8 c;
+	int look_ahead;
+	u8 check[8];
+
+	frame = somagic->video.cur_frame;
+
+	while(scratch_len(somagic) >= 1448) {
+		scratch_create_custom_pointer(somagic, &look_ahead, 1440);
+		scratch_get_custom(somagic, &look_ahead, check, 8);
+		if (check[0] == 0xff && check[1] == 0x00 && check[2] == 0x00) {
+			int line_pos = (2 * frame->line + frame->field) * (720 * 2) + frame->col;
+			scratch_get(somagic, frame->data + line_pos, 1440);
+			frame->scanlength += 1440;
+
+			/*
+       * Just grab the TRC including EAV of this line, and handle it here!
+       * check is already holding this info when we reach this part.
+       * But we need to increment the regular scratch_read_ptr,
+       * so we just grab the code again.
+       *
+       * Notice: We only read 4 bytes,
+       * the last 4 bytes of check is containing data from the last call
+       * to scratch_get_custom
+			 */
+			scratch_get(somagic, check, 4);
+
+			if ((check[3] & 0x10) == 0x10)	{ // Double check that this actually is EAV
+					
+				frame->line++;
+				frame->col = 0;
+				if (frame->line > 313) {
+					printk(KERN_WARNING "somagic::%s: SYNC Error, got line number %d\n", __func__, frame->line);						
+					frame->line = 313;
+				}
+
+				// Now we check that the scratch containes the SAV of the next line
+				if (check[4] == 0xff && check[5] == 0x00 && check[6] == 0x00) {
+					/* SAV
+ 					 * 
+ 					 * F (Field bit) = Bit 6 (mask 0x40)
+ 					 * 0: Odd Field;
+ 					 * 1: Even Field;
+ 					 *
+ 					 * V (Vertical blanking bit) = Bit 5 (mask 0x20)
+ 					 * 0: in VBI
+ 					 * 1: in Active video
+ 					 */
+					u8 field_edge;
+					u8 blank_edge;
+
+					// Again, we do this to increment the scratch_read_ptr!
+					scratch_get(somagic, check + 4, 4);
+					c = check[7];
+
+					field_edge = frame->field;
+					blank_edge = frame->blank;
+
+					frame->field = (c & 0x40) >> 6;
+					frame->blank = (c & 0x20) >> 5;
+
+					field_edge = frame->field ^ field_edge;
+					blank_edge = frame->blank ^ blank_edge;
+
+					if (frame->field == 0 && field_edge) {
+						if (frame->scanlength < somagic->video.frame_size) {
+							// This frame is not a full frame, something went wrong!
+							if (printk_ratelimit())	{
+								printk(KERN_INFO "somagic::%s: Got partial video, "\
+                       "resetting sync state!\n", __func__);
+							}
+							somagic->video.cur_sync_state = SYNC_STATE_SEARCHING;
+						}
+						return 1;
+					}
+
+					if (frame->blank == 0 && blank_edge) {
+						frame->line = 0;
+						frame->col = 0;
+					}
+					// We have sync, so we try to read next line!
+					continue;	
+				}
+			} // Data is not followed by EAV
+		} else {// We dont have FF 00 00 at 1440
+			if (printk_ratelimit()) {
+				printk(KERN_INFO "somagic::%s: Lost sync on line %d, "\
+  	                     "swapping out current frame & resetting sync state!\n", __func__, frame->line);
+			}
+			somagic->video.cur_sync_state = SYNC_STATE_SEARCHING;
+			return 1;
+		}
+	}
+	return 0;
+}
+
+static enum parse_state parse_data(struct usb_somagic *somagic)
+{
+	struct somagic_frame *frame;
+	frame = somagic->video.cur_frame;
+
+	while(1) {
+		if (somagic->video.cur_sync_state != SYNC_STATE_STABLE) {
+			find_sync(somagic);
+			if (somagic->video.cur_sync_state != SYNC_STATE_STABLE) {
+				return PARSE_STATE_OUT;
+			}	
+			frame->col = 0;
+			frame->scanlength = 0;
+			frame->line = 0;
+			frame->field = 0;
+			frame->blank = 1;
+		}
+
+		if (parse_lines(somagic)) {
+			return PARSE_STATE_NEXT_FRAME;
+		} else {
+			return PARSE_STATE_OUT;
+		}
+	}
+	return PARSE_STATE_CONTINUE;
+}
+
+/*
+ * process_video
+ *
+ * This tasklet is run when the isocronous interrupt has returned.
+ * There should be new video data int the scratch-buffer now.
+ *
+ */
+static void process_video(unsigned long somagic_addr)
+{
+	enum parse_state state;
+	struct somagic_frame **f;
+	unsigned long lock_flags;
+	struct usb_somagic *somagic = (struct usb_somagic *)somagic_addr;
+
+	// We check if we have a v4l2_framebuffer to fill!
+	f = &somagic->video.cur_frame;
+	if (scratch_len(somagic) > 0x800 && !list_empty(&(somagic->video.inqueue))) {
+
+		//printk(KERN_INFO "somagic::%s: Parsing Data", __func__);
+
+		if (!(*f)) { // cur_frame == NULL
+			(*f) = list_entry(somagic->video.inqueue.next,
+												struct somagic_frame, frame);
+			(*f)->scanlength = 0;
+		}
+	
+		state = parse_data(somagic);
+
+		if (state == PARSE_STATE_NEXT_FRAME) {
+			// This should never occur, don't know if we need to check this here?
+			if ((*f)->scanlength > somagic->video.frame_size) {
+				(*f)->scanlength = somagic->video.frame_size;
+			}
+
+			(*f)->grabstate = FRAME_STATE_DONE;
+			do_gettimeofday(&((*f)->timestamp));
+			(*f)->sequence = somagic->video.framecounter;
+
+			spin_lock_irqsave(&somagic->video.queue_lock, lock_flags);
+			list_move_tail(&((*f)->frame), &somagic->video.outqueue);
+			somagic->video.cur_frame = NULL;
+			spin_unlock_irqrestore(&somagic->video.queue_lock, lock_flags);
+
+			somagic->video.framecounter++;
+
+			// Hang here, wait for new frame!
+			if (waitqueue_active(&somagic->video.wait_frame)) {
+				wake_up_interruptible(&somagic->video.wait_frame);
+			}
+		}
+	}
+}
+
+
+/*****************************************************************************/
+/*                                                                           */
+/*            Video 4 Linux API  -  Init / Exit                              */
+/*            Called when we plug/unplug the device                          */
+/*                                                                           */
+/*****************************************************************************/
+
+int somagic_v4l2_init(struct usb_somagic *somagic /*, bool default_ntsc*/)
+{
+	int rc;
+
+	//v4l2_std_id default_norm = (default_ntsc) ? V4L2_STD_NTSC : V4L2_STD_PAL;
+	mutex_init(&somagic->video.v4l2_lock);
+	
+	tasklet_init(&(somagic->video.process_video), process_video, (unsigned long)somagic);
+
+	rc = allocate_scratch_buffer(somagic);
+	if (rc != 0) {
+		printk(KERN_ERR "somagic::%s: Could not allocate scratch buffer!\n",
+						__func__);
+		goto err_exit;
+	}
+
+  if (v4l2_device_register(&somagic->dev->dev, &somagic->video.v4l2_dev)) {
+		dev_err(&somagic->dev->dev, "Somagic[%d]: video_register_device() failed\n",
+						somagic->video.nr);
+    goto err_exit;
+  }
+
+  somagic->video.vdev = somagic_vdev_init(somagic, &somagic_video_template,
+                                          SOMAGIC_DRIVER_NAME, V4L2_STD_PAL);
+	if (somagic->video.vdev == NULL) {
+		goto err_exit;
+	}
+
+	// All setup done, we can register the v4l2 device.
+	if (video_register_device(somagic->video.vdev, VFL_TYPE_GRABBER, video_nr) < 0) {
+		goto err_exit;
+	}
+
+	printk(KERN_INFO "Somagic[%d]: registered Somagic Video device %s [v4l2]\n",
+					somagic->video.nr, video_device_node_name(somagic->video.vdev));
+
+	somagic_video_create_sysfs(somagic->video.vdev);
+
+	return 0;
+
+	err_exit:
+    if (somagic->video.vdev) {
+      if (video_is_registered(somagic->video.vdev)) {
+        video_unregister_device(somagic->video.vdev);
+      } else {
+        video_device_release(somagic->video.vdev);
+      }
+    }
+    return -1;
+}
+
+void somagic_v4l2_exit(struct usb_somagic *somagic)
+{
+	mutex_lock(&somagic->video.v4l2_lock);
+	v4l2_device_disconnect(&somagic->video.v4l2_dev);
+	usb_put_dev(somagic->dev);
+	mutex_unlock(&somagic->video.v4l2_lock);
+
+	somagic_video_remove_sysfs(somagic->video.vdev);
+
+	if (somagic->video.vdev) {
+		if (video_is_registered(somagic->video.vdev)) {
+			video_unregister_device(somagic->video.vdev);
+		} else {
+			video_device_release(somagic->video.vdev);
+		}
+		somagic->video.vdev = NULL;
+	}	
+	v4l2_device_unregister(&somagic->video.v4l2_dev);
+
+	tasklet_kill(&(somagic->video.process_video));
+	free_scratch_buffer(somagic);
 }
 

@@ -179,6 +179,7 @@ struct somagic_audio {
 
 	int users;					/* Open counter */
 	u8 streaming;
+	u8 elapsed_periode;
 
 	unsigned long time;
 };
@@ -190,11 +191,10 @@ struct somagic_video {
 	struct mutex v4l2_lock;						
 	unsigned int nr;
 
-	/*
-	struct urb *ctrl_urb;
-	unsigned char ctrl_urb_buffer[8];
-	struct usb_ctrlrequest ctrl_urb_setup;
-	*/
+	/* Scratch-space for storing raw SAA7113 Data */
+	unsigned char *scratch;
+	int scratch_read_ptr;
+	int scratch_write_ptr;
 
 	unsigned int open_instances;
 	u8 setup_sent;
@@ -241,10 +241,11 @@ struct usb_somagic {
 	struct usb_device *dev;
 	struct somagic_isoc_buffer isoc_buf[SOMAGIC_NUM_ISOC_BUFFERS];
 
-	/* Scratch space for ISOC Pipe */
-	unsigned char *scratch;
-	int scratch_read_ptr;
-	int scratch_write_ptr;
+	/*
+	struct urb *ctrl_urb;
+	unsigned char ctrl_urb_buffer[8];
+	struct usb_ctrlrequest ctrl_urb_setup;
+	*/
 
 	/* Debug - Info that can be retrieved from by sysfs calls */
 	int received_urbs;
@@ -255,12 +256,14 @@ struct usb_somagic {
 };
 
 /* Function declarations for somagic_audio.c */
-int somagic_connect_audio(struct usb_somagic *somagic);
-void somagic_disconnect_audio(struct usb_somagic *somagic);
+int somagic_alsa_init(struct usb_somagic *somagic);
+void somagic_alsa_exit(struct usb_somagic *somagic);
+void somagic_audio_put(struct usb_somagic *somagic, u8 *data, int size);
 
 // Function declarations for somagic_video.c
 int somagic_v4l2_init(struct usb_somagic *somagic /*, bool default_ntsc*/);
 void somagic_v4l2_exit(struct usb_somagic *somagic);
+void somagic_video_put(struct usb_somagic *somagic, u8 *data, int size);
 
 //
 // Function-declarations for somagic_dev.c
