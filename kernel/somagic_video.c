@@ -172,6 +172,10 @@ void somagic_video_put(struct usb_somagic *somagic,
 {
 	int len_part;
 
+	if (!(somagic->streaming_flags & SOMAGIC_STREAMING_CAPTURE_VIDEO)) {
+		return;
+	}
+
 	if (somagic->video.scratch_write_ptr + len < SOMAGIC_SCRATCH_BUF_SIZE) {
 		memcpy(somagic->video.scratch + somagic->video.scratch_write_ptr,
 						data, len);
@@ -614,11 +618,14 @@ static int vidioc_dqbuf(struct file *file, void *priv,
 static int vidioc_streamon(struct file *file, void *priv, enum v4l2_buf_type i)
 {
 	struct usb_somagic *somagic = video_drvdata(file);
+	unsigned long lock_flags;
 
-	printk(KERN_ERR "somagic:: %s Called\n", __func__);
 	somagic->video.cur_frame = NULL;
 	scratch_reset(somagic);
-	somagic_dev_video_start_stream(somagic);
+	spin_lock_irqsave(&somagic->streaming_flags_lock, lock_flags);
+	somagic->streaming_flags |= SOMAGIC_STREAMING_CAPTURE_VIDEO;
+	spin_unlock_irqrestore(&somagic->streaming_flags_lock, lock_flags);
+	somagic_start_stream(somagic);
 
 	return 0;
 }
@@ -626,9 +633,16 @@ static int vidioc_streamon(struct file *file, void *priv, enum v4l2_buf_type i)
 static int vidioc_streamoff(struct file *file, void *priv, enum v4l2_buf_type type)
 {
 	struct usb_somagic *somagic = video_drvdata(file);
+	unsigned long lock_flags;
 
 	printk(KERN_ERR "somagic:: %s Called\n", __func__);
-	somagic_dev_video_stop_stream(somagic);
+	spin_lock_irqsave(&somagic->streaming_flags_lock, lock_flags);
+	somagic->streaming_flags &= ~SOMAGIC_STREAMING_CAPTURE_VIDEO;
+	spin_unlock_irqrestore(&somagic->streaming_flags_lock, lock_flags);
+	somagic_stop_stream(somagic);
+
+	somagic->video.framecounter = 0;
+	somagic->video.cur_sync_state = SYNC_STATE_SEARCHING;
 
 	return 0;
 }
@@ -719,15 +733,24 @@ static int somagic_v4l2_open(struct file *file)
  */
 static int somagic_v4l2_close(struct file *file)
 {
+	unsigned long lock_flags;
 	struct usb_somagic *somagic = video_drvdata(file);
 	somagic->video.open_instances--;
 
 
 	if (!somagic->video.open_instances) {
 
+		somagic_stop_stream(somagic);
 		somagic_dev_video_free_frames(somagic);
 		somagic->video.cur_frame = NULL;
-		somagic->video.streaming = 0;
+
+		spin_lock_irqsave(&somagic->streaming_flags_lock, lock_flags);
+		somagic->streaming_flags &= ~SOMAGIC_STREAMING_CAPTURE_VIDEO;
+		spin_unlock_irqrestore(&somagic->streaming_flags_lock, lock_flags);
+		somagic_stop_stream(somagic);
+
+		somagic->video.framecounter = 0;
+		somagic->video.cur_sync_state = SYNC_STATE_SEARCHING;
 
 		printk(KERN_INFO "somagic::%s: Freed frames!\n", __func__);
 	}
@@ -776,7 +799,10 @@ static ssize_t somagic_v4l2_read(struct file *file, char __user *buf,
 
 	somagic->video.cur_frame = NULL;
 	scratch_reset(somagic);
-	somagic_dev_video_start_stream(somagic);
+	spin_lock_irqsave(&somagic->streaming_flags_lock, lock_flags);
+	somagic->streaming_flags |= SOMAGIC_STREAMING_CAPTURE_VIDEO;
+	spin_unlock_irqrestore(&somagic->streaming_flags_lock, lock_flags);
+	somagic_start_stream(somagic);
 
 	// Enqueue Videoframes
 	for (i = 0; i < somagic->video.num_frames; i++) {
@@ -1193,6 +1219,10 @@ static void process_video(unsigned long somagic_addr)
 	struct somagic_frame **f;
 	unsigned long lock_flags;
 	struct usb_somagic *somagic = (struct usb_somagic *)somagic_addr;
+
+	if (!(somagic->streaming_flags & SOMAGIC_STREAMING_CAPTURE_VIDEO)) {
+		return;
+	}
 
 	// We check if we have a v4l2_framebuffer to fill!
 	f = &somagic->video.cur_frame;

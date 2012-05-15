@@ -178,7 +178,6 @@ struct somagic_audio {
 	struct tasklet_struct process_audio;
 
 	int users;					/* Open counter */
-	u8 streaming;
 	u8 elapsed_periode;
 
 	unsigned long time;
@@ -198,7 +197,6 @@ struct somagic_video {
 
 	unsigned int open_instances;
 	u8 setup_sent;
-	u8 streaming;
 
 	volatile enum sync_state cur_sync_state;
 	volatile u8 prev_field;	
@@ -237,6 +235,11 @@ struct somagic_video {
 	s8 cur_hue;
 };
 
+#define SOMAGIC_STREAMING_STARTED 0x01
+#define SOMAGIC_STREAMING_CAPTURE_VIDEO 0x10
+#define SOMAGIC_STREAMING_CAPTURE_AUDIO 0x20
+#define SOMAGIC_STREAMING_CAPTURE_MASK 0xf0
+
 struct usb_somagic {
 	struct usb_device *dev;
 	struct somagic_isoc_buffer isoc_buf[SOMAGIC_NUM_ISOC_BUFFERS];
@@ -250,6 +253,9 @@ struct usb_somagic {
 	/* Debug - Info that can be retrieved from by sysfs calls */
 	int received_urbs;
 	struct timeval prev_timestamp;
+
+	spinlock_t streaming_flags_lock;
+	u8 streaming_flags;
 
 	struct somagic_audio audio;
 	struct somagic_video video;
@@ -281,8 +287,8 @@ int somagic_dev_video_set_std(struct usb_somagic *somagic, v4l2_std_id id);
 int somagic_dev_video_set_input(struct usb_somagic *somagic, 
 							unsigned int input);
 
-int somagic_dev_video_start_stream(struct usb_somagic *somagic);
-void somagic_dev_video_stop_stream(struct usb_somagic *somagic);
+int somagic_start_stream(struct usb_somagic *somagic);
+void somagic_stop_stream(struct usb_somagic *somagic);
 
 void somagic_dev_video_set_brightness(struct usb_somagic *somagic, s32 value);
 void somagic_dev_video_set_contrast(struct usb_somagic *somagic, s32 value);

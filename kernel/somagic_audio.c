@@ -1,20 +1,19 @@
 #include "somagic.h"
 
-
 static const struct snd_pcm_hardware pcm_hardware = {
 	.info = SNDRV_PCM_INFO_BLOCK_TRANSFER |
 					SNDRV_PCM_INFO_MMAP |
 					SNDRV_PCM_INFO_INTERLEAVED |
 					SNDRV_PCM_INFO_MMAP_VALID,
-	.formats = SNDRV_PCM_FMTBIT_S32_LE,
+	.formats = SNDRV_PCM_FMTBIT_S32_LE, //SNDRV_PCM_FMTBIT_S24_LE,
 	.rates = SNDRV_PCM_RATE_48000,
 	.rate_min = 48000,
 	.rate_max = 48000,
 	.channels_min = 2,
 	.channels_max = 2,
-	.buffer_bytes_max = 32640, // 1020 Bytes * 32 Usb packets!
-	.period_bytes_min = 3060,
-	.period_bytes_max = 32640,
+	.buffer_bytes_max = 32640, //24480, 	// 1020 Bytes * 32 Usb packets!
+	.period_bytes_min = 1020, // 1020 = 127,5 Frames //765, 		// 3060,
+	.period_bytes_max = 32640, // 32640 = 4080 Frames //24480, //  32640,
 	.periods_min = 1,
 	.periods_max = 127
 };
@@ -36,16 +35,25 @@ static int somagic_pcm_open(struct snd_pcm_substream *substream)
 
 	snd_pcm_hw_constraint_integer(substream->runtime,
 																SNDRV_PCM_HW_PARAM_PERIODS);
-
+	
+	somagic_start_stream(somagic);
+	
 	return 0;
 }
 
 static int somagic_pcm_close(struct snd_pcm_substream *substream)
 {
 	struct usb_somagic *somagic = snd_pcm_substream_chip(substream);
+	unsigned long lock_flags;
 
 	printk(KERN_INFO "somagic::%s Called!, %d users\n", __func__,
 				 somagic->audio.users);
+
+	/* Clear flag, in case it's not allready done! */
+	spin_lock_irqsave(&somagic->streaming_flags_lock, lock_flags);
+	somagic->streaming_flags &= ~SOMAGIC_STREAMING_CAPTURE_AUDIO;
+	spin_unlock_irqrestore(&somagic->streaming_flags_lock, lock_flags);
+	somagic_stop_stream(somagic);
 
 	somagic->audio.users--;
 
@@ -62,6 +70,14 @@ static int somagic_pcm_hw_params(struct snd_pcm_substream *substream,
 
 static int somagic_pcm_hw_free(struct snd_pcm_substream *substream)
 {
+	struct usb_somagic *somagic = snd_pcm_substream_chip(substream);
+	unsigned long lock_flags;
+
+	/* Clear flag, in case it's not allready done! */
+	spin_lock_irqsave(&somagic->streaming_flags_lock, lock_flags);
+	somagic->streaming_flags &= ~SOMAGIC_STREAMING_CAPTURE_AUDIO;
+	spin_unlock_irqrestore(&somagic->streaming_flags_lock, lock_flags);
+	somagic_stop_stream(somagic);
 	return snd_pcm_lib_free_pages(substream);
 }
 
@@ -70,16 +86,28 @@ static int somagic_pcm_prepare(struct snd_pcm_substream *substream)
 	return 0;
 }
 
+/*
+ * somagic_pcm_trigger
+ *
+ * Alsa Callback
+ *
+ * WARNING: This callback is ATOMIC, and must not sleep
+ */
 static int somagic_pcm_trigger(struct snd_pcm_substream *substream, int cmd)
 {
+	unsigned long lock_flags;
 	struct usb_somagic *somagic = snd_pcm_substream_chip(substream);
 	switch(cmd) {
 		case SNDRV_PCM_TRIGGER_START: {
-			somagic->audio.streaming = 1;
+			spin_lock_irqsave(&somagic->streaming_flags_lock, lock_flags);
+			somagic->streaming_flags |= SOMAGIC_STREAMING_CAPTURE_AUDIO;
+			spin_unlock_irqrestore(&somagic->streaming_flags_lock, lock_flags);
 			return 0;
 		}
 		case SNDRV_PCM_TRIGGER_STOP: {
-			somagic->audio.streaming = 0;
+			spin_lock_irqsave(&somagic->streaming_flags_lock, lock_flags);
+			somagic->streaming_flags &= ~SOMAGIC_STREAMING_CAPTURE_AUDIO;
+			spin_unlock_irqrestore(&somagic->streaming_flags_lock, lock_flags);
 			return 0;
 		}
 		default: {
@@ -89,11 +117,20 @@ static int somagic_pcm_trigger(struct snd_pcm_substream *substream, int cmd)
 	return -EINVAL;
 }
 
+/* 
+ * somagic_pcm_pointer
+ *
+ * Alsa Callback
+ *
+ * WARNING: This callback is atomic, and must not sleep
+ */
 static snd_pcm_uframes_t somagic_pcm_pointer(
 																					struct snd_pcm_substream *substream)
 {
 	struct usb_somagic *somagic = snd_pcm_substream_chip(substream);
-	return somagic->audio.dma_write_ptr / 8; 
+
+	/* This should be 6, why is it 12 */
+	return somagic->audio.dma_write_ptr / 8;
 }
 
 static struct snd_pcm_ops somagic_audio_ops = {
@@ -111,10 +148,12 @@ static struct snd_pcm_ops somagic_audio_ops = {
  * process_audio
  *
  * Tasklet, called after isochrounous usb-transfer
+ * WARNING: This is bottom-half of interrupt, and must not sleep!
  */
 static void process_audio(unsigned long somagic_addr)
 {
 	struct usb_somagic *somagic = (struct usb_somagic *)somagic_addr;
+
 	if (!somagic->audio.elapsed_periode) {
 		return;
 	}
@@ -190,25 +229,54 @@ void __devexit somagic_alsa_exit(struct usb_somagic *somagic)
  * Called when the driver is recieving data in the isochronous usb-transfer
  *
  * WARNING: This function is called within an interrupt, don't let it sleep
+ *
+ * The audio date is received as Signed 32Bit from the device, but
+ * there seems to be NULL in the LSB.
+ *
+ * We just drop LSB, and pass the remaining 24Bits trough to ALSA
+ *
  */
 void somagic_audio_put(struct usb_somagic *somagic, u8 *data, int size)
 {
 	struct snd_pcm_runtime *runtime;
+	int i;
+	int dbg_s;
 
-	if (!somagic->audio.streaming) {
+	if (!(somagic->streaming_flags & SOMAGIC_STREAMING_CAPTURE_AUDIO)) {
 		return;
 	}
 
+	dbg_s = somagic->audio.dma_write_ptr;
 	runtime = somagic->audio.pcm_substream->runtime;
 
-	memcpy(runtime->dma_area + somagic->audio.dma_write_ptr, data, size);
+/*
+	for (i = 0; i < size; i++) {
+		if ((i % 4) == 0) {
+			continue;
+		}
 
+		runtime->dma_area[somagic->audio.dma_write_ptr++] = data[i];
+	}
+*/
+
+	memcpy(runtime->dma_area + somagic->audio.dma_write_ptr, data, size);
 	somagic->audio.dma_write_ptr += size;
+	
+/*
+	if (printk_ratelimit()) {
+		printk(KERN_INFO "somagic::%s: runtume->dma_bytes = %ld\n\t"
+										 "wrote %d bytes to dma_area, of %d received bytes!\n\t"
+										 "Current write_ptr = %d!\n",
+					 __func__, (long)runtime->dma_bytes,
+					 somagic->audio.dma_write_ptr - dbg_s, size,
+					 somagic->audio.dma_write_ptr);
+	}
+*/
+
 	if (somagic->audio.dma_write_ptr >= runtime->dma_bytes) {
 		somagic->audio.dma_write_ptr = 0;
 	}
 
 	somagic->audio.elapsed_periode = 1;
 }
-
 

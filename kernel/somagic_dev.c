@@ -148,6 +148,10 @@ static void isoc_complete(struct urb *urb)
 	int i,rc;
 	struct usb_somagic *somagic = urb->context;
 
+	if (!(somagic->streaming_flags & SOMAGIC_STREAMING_STARTED)) {
+		return;
+	}
+
 	if (urb->status == -ENOENT) {
 		printk(KERN_INFO "somagic::%s: Recieved empty ISOC urb!\n", __func__);
 		return;
@@ -730,7 +734,7 @@ int somagic_dev_video_set_std(struct usb_somagic *somagic, v4l2_std_id id)
 
 	// Not sure what will happen if we change this while we are streaming!
 	// Could probably be tested!
-	if (somagic->video.streaming == 1) {
+	if (somagic->streaming_flags & SOMAGIC_STREAMING_STARTED) {
 		printk(KERN_INFO "somagic::%s: Warning: application is trying to "\
                      "change tv-standard while streaming!\n", __func__);	
 		return -EAGAIN;
@@ -830,7 +834,7 @@ void somagic_dev_video_set_hue(struct usb_somagic *somagic, s32 value)
 	somagic->video.cur_hue = value;
 }
 
-int somagic_dev_video_start_stream(struct usb_somagic *somagic)
+int somagic_start_stream(struct usb_somagic *somagic)
 {
 
 	int buf_idx,rc;
@@ -840,11 +844,10 @@ int somagic_dev_video_start_stream(struct usb_somagic *somagic)
 
 	/* TODO: Check that we have allocated the ISOC memory (fbuf) */
 
-	if (somagic->video.streaming) {
+	/* Check that we have not started the streaming already */
+	if (somagic->streaming_flags & SOMAGIC_STREAMING_STARTED) {
 		return 0;
 	}
-
-	// somagic->video.scan_state = SCANNER_FIND_VBI;
 
 	rc = usb_control_msg(somagic->dev,
 											 usb_sndctrlpipe(somagic->dev, 0x00),
@@ -869,10 +872,11 @@ int somagic_dev_video_start_stream(struct usb_somagic *somagic)
 										__func__);
 		return -1;
 	}
-	printk(KERN_INFO "somagic:%s:: Changed to alternate setting 2 on interface 0\n",
-										__func__);
 
-	/* 0x1d = 0001 1101 */
+	/*
+	 * Start Audio streaming
+	 * 0x1d = 0001 1101
+	 */
 	rc = reg_write(somagic, 0x1740, 0x1d);
 	if (rc < 0) {
 		return -1;
@@ -890,20 +894,35 @@ int somagic_dev_video_start_stream(struct usb_somagic *somagic)
 		}
 	}
 
-	somagic->video.streaming = 1;
-	printk(KERN_INFO "somagic:%s:: Sent urbs!\n", __func__);
+	somagic->streaming_flags |= SOMAGIC_STREAMING_STARTED;
+	printk(KERN_INFO "somagic:%s:: Started stream ISOC_TRANSFER\n", __func__);
 
 	return 0;
 }
 
-void somagic_dev_video_stop_stream(struct usb_somagic *somagic)
+void somagic_stop_stream(struct usb_somagic *somagic)
 {
 	int rc;
+	int buf_idx;
 	u8 data[2];
 
-	somagic->video.streaming = 0;
-	somagic->video.framecounter = 0;
-	somagic->video.cur_sync_state = SYNC_STATE_SEARCHING;
+	if ((somagic->streaming_flags & SOMAGIC_STREAMING_CAPTURE_MASK) != 0x00) {
+		printk(KERN_INFO "somagic::%s: Stop requested, "
+					 					 "but we still have a consumer!\n", __func__);
+		return;
+	}
+	
+	if (!(somagic->streaming_flags & SOMAGIC_STREAMING_STARTED)) {
+		return;
+	}
+
+	somagic->streaming_flags &= ~SOMAGIC_STREAMING_STARTED;
+
+	for (buf_idx = 0; buf_idx < SOMAGIC_NUM_ISOC_BUFFERS; buf_idx++) {
+		usb_kill_urb(somagic->isoc_buf[buf_idx].urb);
+	}
+
+	printk(KERN_INFO "somagic::%s: Stopped stream ISOC_TRANSFER!", __func__);
 
 	data[0] = 0x01;
 	data[1] = 0x03;
@@ -929,6 +948,5 @@ void somagic_dev_video_stop_stream(struct usb_somagic *somagic)
                     "alt interface to 0: %d\n",
 										__func__, rc);
 	}
-
 }
 
