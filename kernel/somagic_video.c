@@ -1210,7 +1210,7 @@ static enum parse_state parse_data(struct usb_somagic *somagic)
  * process_video
  *
  * This tasklet is run when the isocronous interrupt has returned.
- * There should be new video data int the scratch-buffer now.
+ * There should be new video data in the scratch-buffer now.
  *
  */
 static void process_video(unsigned long somagic_addr)
@@ -1255,7 +1255,7 @@ static void process_video(unsigned long somagic_addr)
 
 			somagic->video.framecounter++;
 
-			// Hang here, wait for new frame!
+			// Wake up threads waiting for frames in outqueue
 			if (waitqueue_active(&somagic->video.wait_frame)) {
 				wake_up_interruptible(&somagic->video.wait_frame);
 			}
