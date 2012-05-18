@@ -1239,8 +1239,9 @@ static void process_video(unsigned long somagic_addr)
 		state = parse_data(somagic);
 
 		if (state == PARSE_STATE_NEXT_FRAME) {
-			// This should never occur, don't know if we need to check this here?
+
 			if ((*f)->scanlength > somagic->video.frame_size) {
+				// This should never occur, don't know if we need to check this here?
 				(*f)->scanlength = somagic->video.frame_size;
 			}
 
