@@ -34,17 +34,6 @@ module_param(video_nr, int, 0444);
 // MODULE_PARAM_DESC(video_nr, "Set video device number (/dev/videoX).
 // Default: -1(autodetect)");
 
-///////////////////////////////////////////////////////////////////////////////
-/*****************************************************************************/
-/*                                                                           */
-/*            Function Declarations                                          */
-/*                                                                           */
-/*****************************************************************************/
-
-static struct video_device *somagic_vdev_init(struct usb_somagic *somagic,
-        									             struct video_device *vdev_template,
-                                       char *name, v4l2_std_id norm);
-
 /*****************************************************************************/
 /*                                                                           */
 /*            Struct Declarations                                            */
@@ -925,31 +914,6 @@ static struct video_device somagic_video_template = {
 	.vfl_type = VFL_TYPE_GRABBER
 };
 
-static struct video_device *somagic_vdev_init(struct usb_somagic *somagic,
-        									             struct video_device *vdev_template,
-                                       char *name, v4l2_std_id norm)
-{
-  struct usb_device *usb_dev = somagic->dev;
-  struct video_device *vdev;
-
-  if (usb_dev == NULL) {
-    dev_err(&somagic->dev->dev, "%s: somagic->dev is not set\n", __func__);
-    return NULL;
-  }
-
-  vdev = video_device_alloc();
-  if (vdev == NULL) {
-    return NULL;
-  }
-	*vdev = *vdev_template;
-	vdev->lock = &somagic->video.v4l2_lock;
-	vdev->v4l2_dev = &somagic->video.v4l2_dev;
-	snprintf(vdev->name, sizeof(vdev->name), "%s", name);
-	video_set_drvdata(vdev, somagic);
-	vdev->current_norm = norm;
-	return vdev;
-}
-
 /*****************************************************************************/
 /*                                                                           */
 /*            Video-parsing                                                  */
@@ -1209,6 +1173,31 @@ static void process_video(unsigned long somagic_addr)
 /*                                                                           */
 /*****************************************************************************/
 
+static struct video_device *vdev_init(struct usb_somagic *somagic,
+        									             struct video_device *vdev_template,
+                                       char *name, v4l2_std_id norm)
+{
+  struct usb_device *usb_dev = somagic->dev;
+  struct video_device *vdev;
+
+  if (usb_dev == NULL) {
+    dev_err(&somagic->dev->dev, "%s: somagic->dev is not set\n", __func__);
+    return NULL;
+  }
+
+  vdev = video_device_alloc();
+  if (vdev == NULL) {
+    return NULL;
+  }
+	*vdev = *vdev_template;
+	vdev->lock = &somagic->video.v4l2_lock;
+	vdev->v4l2_dev = &somagic->video.v4l2_dev;
+	snprintf(vdev->name, sizeof(vdev->name), "%s", name);
+	video_set_drvdata(vdev, somagic);
+	vdev->current_norm = norm;
+	return vdev;
+}
+
 int somagic_v4l2_init(struct usb_somagic *somagic /*, bool default_ntsc*/)
 {
 	int rc;
@@ -1231,8 +1220,8 @@ int somagic_v4l2_init(struct usb_somagic *somagic /*, bool default_ntsc*/)
     goto err_exit;
   }
 
-  somagic->video.vdev = somagic_vdev_init(somagic, &somagic_video_template,
-                                          SOMAGIC_DRIVER_NAME, V4L2_STD_PAL);
+  somagic->video.vdev = vdev_init(somagic, &somagic_video_template,
+                                  SOMAGIC_DRIVER_NAME, V4L2_STD_PAL);
 	if (somagic->video.vdev == NULL) {
 		goto err_exit;
 	}
