@@ -724,10 +724,10 @@ static int vidioc_g_fmt_vid_cap(struct file *file, void *priv,
 	pix->width = SOMAGIC_LINE_WIDTH; 
 	pix->height = 2 * somagic->video.field_lines;
 	pix->pixelformat = V4L2_PIX_FMT_UYVY;
-	pix->field = V4L2_FIELD_INTERLACED;
+	pix->field = SOMAGIC_PIX_FMT_FIELD;
 	pix->bytesperline = SOMAGIC_BYTES_PER_LINE;
 	pix->sizeimage = somagic->video.frame_size;
-	pix->colorspace = V4L2_COLORSPACE_SMPTE170M;
+	pix->colorspace = SOMAGIC_PIX_FMT_COLORSPACE;
 	return 0;
 }
 
@@ -826,6 +826,11 @@ static ssize_t somagic_v4l2_read(struct file *file, char __user *buf,
 	unsigned long lock_flags;
 	int rc, i;
 	struct somagic_frame *frame;
+
+	printk(KERN_ERR "somagic::%s: read disabled,"
+				 "will not work with current SOMAGIC_PIX_FMT_FIELD\n",
+				 __func__);
+	return -EINVAL;
 
 /*
 	printk(KERN_INFO "somagic::%s: %ld bytes, noblock=%d", __func__,
@@ -1203,7 +1208,19 @@ static u8 parse_lines(struct usb_somagic *somagic)
 	}
 	return 0;
 }
-
+ 
+/*
+ * parse_data
+ *
+ * Parse the data we have in the scratch_buffer, and put it into
+ * the frame_buffer so it can be passed to userspace.
+ *
+ * When we start receiving data from the device, we have no way of knowing
+ * what scanline we are receiving.
+ * We solve this by reding and discarding the bytes until we
+ * find the beginning of a field.
+ *
+ */
 static enum parse_state parse_data(struct usb_somagic *somagic)
 {
 	struct somagic_frame *frame;
@@ -1228,6 +1245,7 @@ static enum parse_state parse_data(struct usb_somagic *somagic)
 			return PARSE_STATE_OUT;
 		}
 	}
+
 	return PARSE_STATE_CONTINUE;
 }
 
@@ -1236,7 +1254,6 @@ static enum parse_state parse_data(struct usb_somagic *somagic)
  *
  * This tasklet is run when the isocronous interrupt has returned.
  * There should be new video data in the scratch-buffer now.
- *
  */
 static void process_video(unsigned long somagic_addr)
 {
@@ -1281,7 +1298,7 @@ static void process_video(unsigned long somagic_addr)
 
 			somagic->video.framecounter++;
 
-			// Wake up threads waiting for frames in outqueue
+			// Wake up any threads waiting for frames in outqueue
 			if (waitqueue_active(&somagic->video.wait_frame)) {
 				wake_up_interruptible(&somagic->video.wait_frame);
 			}
