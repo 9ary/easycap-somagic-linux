@@ -36,13 +36,6 @@ module_param(video_nr, int, 0444);
 
 /*****************************************************************************/
 /*                                                                           */
-/*            Struct Declarations                                            */
-/*                                                                           */
-/*****************************************************************************/
-static struct video_device somagic_video_template;
-
-/*****************************************************************************/
-/*                                                                           */
 /*            Scratch Buffer                                                 */
 /*                                                                           */
 /*            Ring-buffer used to store the bytes received from              */
