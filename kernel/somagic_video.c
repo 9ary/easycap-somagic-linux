@@ -248,7 +248,7 @@ static void rvfree(void *mem, unsigned long size)
 }
 
 /*
- * Allocate Buffer for somagic->video.fbuf
+ * Allocate Buffer for somagic->video.frame_buf
  * This is the buffer that will hold the frame data received from the device,
  * when we have stripped of the TRC header & footer of each line.
  *
@@ -270,11 +270,11 @@ static int alloc_frame_buffer(struct usb_somagic *somagic,
 	somagic->video.num_frames = number_of_frames;
 
 	while (somagic->video.num_frames > 0) {
-		somagic->video.fbuf_size = somagic->video.num_frames *
+		somagic->video.frame_buf_size = somagic->video.num_frames *
 				somagic->video.max_frame_size;
 
-		somagic->video.fbuf = rvmalloc(somagic->video.fbuf_size);
-		if (somagic->video.fbuf) {
+		somagic->video.frame_buf = rvmalloc(somagic->video.frame_buf_size);
+		if (somagic->video.frame_buf) {
 			// Success, we managed to allocate a frame buffer
 			break;
 		}
@@ -290,7 +290,7 @@ static int alloc_frame_buffer(struct usb_somagic *somagic,
 	for (i = 0; i < somagic->video.num_frames; i++) {
 		somagic->video.frame[i].index = i;	
 		somagic->video.frame[i].grabstate = FRAME_STATE_UNUSED;
-		somagic->video.frame[i].data = somagic->video.fbuf + 
+		somagic->video.frame[i].data = somagic->video.frame_buf + 
 			(i * somagic->video.max_frame_size);
 	}
 
@@ -299,9 +299,9 @@ static int alloc_frame_buffer(struct usb_somagic *somagic,
 
 static void free_frame_buffer(struct usb_somagic *somagic)
 {
-	if (somagic->video.fbuf != NULL) {
-		rvfree(somagic->video.fbuf, somagic->video.fbuf_size);
-		somagic->video.fbuf = NULL;
+	if (somagic->video.frame_buf != NULL) {
+		rvfree(somagic->video.frame_buf, somagic->video.frame_buf_size);
+		somagic->video.frame_buf = NULL;
 
 		somagic->video.num_frames = 0;
 	}
@@ -610,14 +610,14 @@ static int vidioc_qbuf(struct file *file, void *priv,
 	}
 
 	frame->grabstate = FRAME_STATE_READY;
-	frame->scanlength = 0;
+	frame->length = 0;
 	frame->line = 0;
 	frame->col = 0;
 
 	vb->flags &= ~V4L2_BUF_FLAG_DONE;
 
 	spin_lock_irqsave(&somagic->video.queue_lock, lock_flags);
-	list_add_tail(&frame->frame, &somagic->video.inqueue);	
+	list_add_tail(&frame->list_index, &somagic->video.inqueue);	
 	spin_unlock_irqrestore(&somagic->video.queue_lock, lock_flags);
 
 	return 0;
@@ -644,14 +644,14 @@ static int vidioc_dqbuf(struct file *file, void *priv,
 
 	spin_lock_irqsave(&somagic->video.queue_lock, lock_flags);
 	f = list_entry(somagic->video.outqueue.next,
-										 struct somagic_frame, frame);
+										 struct somagic_frame, list_index);
 	list_del(somagic->video.outqueue.next);
 	spin_unlock_irqrestore(&somagic->video.queue_lock, lock_flags);
 	f->grabstate = FRAME_STATE_UNUSED;
 
 /*
 	printk(KERN_ERR "somagic::%s: About to pass a buffer to userspace: "\
-									"scanlenght=%d", __func__, f->scanlength);
+									"scanlenght=%d", __func__, f->length);
 */
 
 	vb->memory = V4L2_MEMORY_MMAP;
@@ -660,7 +660,7 @@ static int vidioc_dqbuf(struct file *file, void *priv,
 	vb->sequence = f->sequence;
 	vb->timestamp = f->timestamp;
 	vb->field = V4L2_FIELD_INTERLACED;
-	vb->bytesused = f->scanlength;
+	vb->bytesused = f->length;
 
 	return 0;
 }
@@ -861,12 +861,12 @@ static ssize_t somagic_v4l2_read(struct file *file, char __user *buf,
 		if (frame->grabstate == FRAME_STATE_UNUSED) {
 			// Mark frame as ready and enqueue the frame!
 			frame->grabstate = FRAME_STATE_READY;
-			frame->scanlength = 0;
+			frame->length = 0;
 			frame->line = 0;
 			frame->bytes_read = 0;
 
 			spin_lock_irqsave(&somagic->video.queue_lock, lock_flags);
-			list_add_tail(&frame->frame, &somagic->video.inqueue);
+			list_add_tail(&frame->list_index, &somagic->video.inqueue);
 			spin_unlock_irqrestore(&somagic->video.queue_lock, lock_flags);
 		}
 	}
@@ -888,7 +888,7 @@ static ssize_t somagic_v4l2_read(struct file *file, char __user *buf,
 
 		spin_lock_irqsave(&somagic->video.queue_lock, lock_flags);
 		frame = list_entry(somagic->video.outqueue.next,
-													struct somagic_frame, frame);
+													struct somagic_frame, list_index);
 		list_del(somagic->video.outqueue.next);
 		spin_unlock_irqrestore(&somagic->video.queue_lock, lock_flags);
 
@@ -902,8 +902,8 @@ static ssize_t somagic_v4l2_read(struct file *file, char __user *buf,
 		return 0;
 	}
 
-	if ((count + frame->bytes_read) > (unsigned long)frame->scanlength) {
-		count = frame->scanlength - frame->bytes_read;
+	if ((count + frame->bytes_read) > (unsigned long)frame->length) {
+		count = frame->length - frame->bytes_read;
 	}
 
 	// We have a verified frame,
@@ -917,11 +917,11 @@ static ssize_t somagic_v4l2_read(struct file *file, char __user *buf,
 	frame->bytes_read += count;
 
 /*
-	printk(KERN_INFO "somagic::%s: frmx=%d, bytes_read=%d, scanlength=%d",
-				 __func__, frame->index, frame->bytes_read, frame->scanlength);
+	printk(KERN_INFO "somagic::%s: frmx=%d, bytes_read=%d, length=%d",
+				 __func__, frame->index, frame->bytes_read, frame->length);
 */
 
-	if (frame->bytes_read >= frame->scanlength) {
+	if (frame->bytes_read >= frame->length) {
 		frame->bytes_read = 0;
 		frame->grabstate = FRAME_STATE_UNUSED;
 		somagic->video.cur_read_frame = NULL;
@@ -1121,7 +1121,7 @@ static u8 parse_lines(struct usb_somagic *somagic)
 		if (check[0] == 0xff && check[1] == 0x00 && check[2] == 0x00) {
 			int line_pos = (2 * frame->line + frame->field) * (720 * 2) + frame->col;
 			scratch_get(somagic, frame->data + line_pos, 1440);
-			frame->scanlength += 1440;
+			frame->length += 1440;
 
 			/*
        * Just grab the TRC including EAV of this line, and handle it here!
@@ -1173,7 +1173,7 @@ static u8 parse_lines(struct usb_somagic *somagic)
 					blank_edge = frame->blank ^ blank_edge;
 
 					if (frame->field == 0 && field_edge) {
-						if (frame->scanlength < somagic->video.frame_size) {
+						if (frame->length < somagic->video.frame_size) {
 							// This frame is not a full frame, something went wrong!
 							if (printk_ratelimit())	{
 								printk(KERN_INFO "somagic::%s: Got partial video, "\
@@ -1216,7 +1216,7 @@ static enum parse_state parse_data(struct usb_somagic *somagic)
 				return PARSE_STATE_OUT;
 			}	
 			frame->col = 0;
-			frame->scanlength = 0;
+			frame->length = 0;
 			frame->line = 0;
 			frame->field = 0;
 			frame->blank = 1;
@@ -1257,17 +1257,17 @@ static void process_video(unsigned long somagic_addr)
 
 		if (!(*f)) { // cur_frame == NULL
 			(*f) = list_entry(somagic->video.inqueue.next,
-												struct somagic_frame, frame);
-			(*f)->scanlength = 0;
+												struct somagic_frame, list_index);
+			(*f)->length = 0;
 		}
 	
 		state = parse_data(somagic);
 
 		if (state == PARSE_STATE_NEXT_FRAME) {
 
-			if ((*f)->scanlength > somagic->video.frame_size) {
+			if ((*f)->length > somagic->video.frame_size) {
 				// This should never occur, don't know if we need to check this here?
-				(*f)->scanlength = somagic->video.frame_size;
+				(*f)->length = somagic->video.frame_size;
 			}
 
 			(*f)->grabstate = FRAME_STATE_DONE;
@@ -1275,7 +1275,7 @@ static void process_video(unsigned long somagic_addr)
 			(*f)->sequence = somagic->video.framecounter;
 
 			spin_lock_irqsave(&somagic->video.queue_lock, lock_flags);
-			list_move_tail(&((*f)->frame), &somagic->video.outqueue);
+			list_move_tail(&((*f)->list_index), &somagic->video.outqueue);
 			somagic->video.cur_frame = NULL;
 			spin_unlock_irqrestore(&somagic->video.queue_lock, lock_flags);
 

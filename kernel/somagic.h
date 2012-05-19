@@ -148,13 +148,17 @@ struct somagic_isoc_buffer {
 };
 
 struct somagic_frame {
-	char *data;					/* Pointer to somagic_video->fbuf[offset_of_this_frame] */
-	volatile int grabstate;				/* State of grabbing */
+	char *data;                   /* Video data buffer */
+	int length;                   /* Size of buffer */
+	int index;                    /* Frame index */
 
-	int index;					/* Frame index */
+	struct list_head list_index;  /* linked_list index */
 
-	int scanlength;					/* The number of bytes this frame contains (one PAL frame should be (2 * 288 * 2 * 720) Bytes) */
-	int bytes_read;					/* Count the bytes read out of this buffer from user space */
+	int bytes_read;               /* Bytes read from this buffer in user space */
+	int sequence;                 /* Sequence number of frame, for user space  */
+	struct timeval timestamp;     /* Time, when frame was captured */
+
+	volatile int grabstate;       /* State of grabbing */
 
 	/* Used by parser */
 	enum line_sync_state line_sync;
@@ -163,10 +167,6 @@ struct somagic_frame {
 	u8 field;
 	u8 blank;
 
-	int sequence;					/* Frame number since start of capture */
-	struct timeval timestamp;			/* Time, when frame was captured */
-
-	struct list_head frame;				/* For frame inqueue/outqueue */
 };
 
 struct somagic_audio {
@@ -185,10 +185,10 @@ struct somagic_audio {
 
 struct somagic_video {
 	struct v4l2_device v4l2_dev;
-	struct video_device *vdev;			/* This is the actual V4L2 Device */
+	struct video_device *vdev;            /* This is the actual V4L2 Device */
 
 	struct mutex v4l2_lock;						
-	unsigned int nr;
+	unsigned int nr;                      /* Dev number */
 
 	/* Scratch-space for storing raw SAA7113 Data */
 	unsigned char *scratch;
@@ -201,27 +201,28 @@ struct somagic_video {
 	volatile enum sync_state cur_sync_state;
 	volatile u8 prev_field;	
 
+	/* v4l2 Frame buffer handling */
+	spinlock_t queue_lock;                /* Protecting inqueue and outqueue */
+	struct list_head inqueue, outqueue;   /* Frame lists */
 	int max_frame_size;
-	int num_frames;	
-	int fbuf_size;
-	char *fbuf;					/* V4L2 Videodev buffer area for frame data. This is allocated in somagic_video.c */
-	spinlock_t queue_lock; 				/* Spinlock for protecting mods on inqueue and outqueue */
-	wait_queue_head_t wait_frame;			/* Processes waiting */
-	wait_queue_head_t wait_stream;			/* Processes waiting */
-
-	struct list_head inqueue, outqueue;		/* Input/Output Frame queue */
+	int num_frames;
+	int frame_buf_size;
+	char *frame_buf;                      /* Main video buffer */
+	wait_queue_head_t wait_frame;         /* Waiting for completion of frame */
+	wait_queue_head_t wait_stream;        /* Processes waiting */
 
 	struct tasklet_struct process_video;
 
-	struct somagic_frame *cur_frame;		/* Pointer to current frame */
-	struct somagic_frame frame[SOMAGIC_NUM_FRAMES];	/* Frame buffer */
+	struct somagic_frame *cur_frame;      /* Pointer to frame beeing filled */
+	struct somagic_frame frame[SOMAGIC_NUM_FRAMES];
 
-	struct somagic_frame *cur_read_frame;		/* Used by somagic_v4l2_read (somagic_video.c) */
+	/* Pointer to frame beeing read by v4l2_read */
+	struct somagic_frame *cur_read_frame;
 
 	int framecounter;				/* For sequencing of frames sent to user space */
 
 	/* PAL/NTSC toggle handling */
-	v4l2_std_id cur_std;				/* Current Video standard NTSC/PAL */
+	v4l2_std_id cur_std;		/* Current Video standard NTSC/PAL */
 	u16 field_lines;				/* Lines per field NTSC:240 PAL:288 */
 	int frame_size;					/* Size of one completed frame */
 
