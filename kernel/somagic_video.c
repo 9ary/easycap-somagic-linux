@@ -191,6 +191,137 @@ static void free_scratch_buffer(struct usb_somagic *somagic)
 
 /*****************************************************************************/
 /*                                                                           */
+/*            Frame Buffers                                                  */
+/*                                                                           */
+/*            The frames are passed between kernelspace & userspace          */
+/*            while the capture is running.                                  */
+/*                                                                           */
+/*            All the buffers is stored in one big chunk of memory.          */
+/*            Each somagic_frame struct has a pointer to a different         */
+/*            offset in this memory                                          */
+/*                                                                           */
+/*            The passing of the somagic_frame structs                       */
+/*            is handled by                                                  */
+/*            vidioc_dqbuf() and vidioc_qbuf()                               */
+/*                                                                           */
+/*****************************************************************************/
+static void *rvmalloc(unsigned long size)
+{
+	void *mem;
+	unsigned long adr;
+
+	size = PAGE_ALIGN(size);
+	mem = vmalloc_32(size);
+	if (!mem) {
+		return NULL;
+	}
+
+	memset(mem, 0, size);
+	adr = (unsigned long)mem;
+	while ((long) size > 0) {
+		SetPageReserved(vmalloc_to_page((void*)adr));
+		adr += PAGE_SIZE;
+		size -= PAGE_SIZE;
+	}
+
+	return mem;
+}
+
+static void rvfree(void *mem, unsigned long size)
+{
+	unsigned long adr;
+
+	if (!mem) {
+		return;
+	}
+
+	size = PAGE_ALIGN(size);
+	adr = (unsigned long) mem;
+
+	while((long) size > 0) {
+		ClearPageReserved(vmalloc_to_page((void *)adr));
+		adr += PAGE_SIZE;
+		size -= PAGE_SIZE;
+	}
+
+	vfree(mem);
+}
+
+/*
+ * Allocate Buffer for somagic->video.fbuf
+ * This is the buffer that will hold the frame data received from the device,
+ * when we have stripped of the TRC header & footer of each line.
+ *
+ * Return the number of frames we managed to allocate!
+
+ * This function will be called from userspace
+ * by a V4L2 API Call (vidioc_reqbufs).
+ *
+ * We must try to allocate the requested frames,
+ * but if we don't have the memory we decrease by 
+ * one frame and try again.
+ */
+static int alloc_frame_buffer(struct usb_somagic *somagic,
+                                   int number_of_frames)
+{
+	int i;
+
+	somagic->video.max_frame_size = PAGE_ALIGN(720 * 2 * 627 * 2);
+	somagic->video.num_frames = number_of_frames;
+
+	while (somagic->video.num_frames > 0) {
+		somagic->video.fbuf_size = somagic->video.num_frames *
+				somagic->video.max_frame_size;
+
+		somagic->video.fbuf = rvmalloc(somagic->video.fbuf_size);
+		if (somagic->video.fbuf) {
+			// Success, we managed to allocate a frame buffer
+			break;
+		}
+		somagic->video.num_frames--;
+	}
+
+	// Initialize locks and waitqueue
+	spin_lock_init(&somagic->video.queue_lock);
+	init_waitqueue_head(&somagic->video.wait_frame);
+	init_waitqueue_head(&somagic->video.wait_stream);
+
+	// Setup the frames
+	for (i = 0; i < somagic->video.num_frames; i++) {
+		somagic->video.frame[i].index = i;	
+		somagic->video.frame[i].grabstate = FRAME_STATE_UNUSED;
+		somagic->video.frame[i].data = somagic->video.fbuf + 
+			(i * somagic->video.max_frame_size);
+	}
+
+	return somagic->video.num_frames;
+}
+
+static void free_frame_buffer(struct usb_somagic *somagic)
+{
+	if (somagic->video.fbuf != NULL) {
+		rvfree(somagic->video.fbuf, somagic->video.fbuf_size);
+		somagic->video.fbuf = NULL;
+
+		somagic->video.num_frames = 0;
+	}
+}
+
+static void reset_frame_buffer(struct usb_somagic *somagic)
+{
+	int i;
+	INIT_LIST_HEAD(&(somagic->video.inqueue));
+	INIT_LIST_HEAD(&(somagic->video.outqueue));
+
+	for (i = 0; i < somagic->video.num_frames; i++) {
+		somagic->video.frame[i].grabstate = FRAME_STATE_UNUSED;
+		somagic->video.frame[i].bytes_read = 0;	
+	}
+}
+
+
+/*****************************************************************************/
+/*                                                                           */
 /*            V4L2 Ioctl handling functions                                  */
 /*                                                                           */
 /*****************************************************************************/
@@ -407,12 +538,12 @@ static int vidioc_reqbufs(struct file *file, void *priv,
 		vr->count = SOMAGIC_NUM_FRAMES;
 	}
 
-	somagic_dev_video_free_frames(somagic);
-	somagic_dev_video_empty_framequeues(somagic);
+	free_frame_buffer(somagic);
+	reset_frame_buffer(somagic);
 
 	// Allocate the frames data-buffers
 	// and return the number of frames we have available
-	vr->count = somagic_dev_video_alloc_frames(somagic, vr->count);
+	vr->count = alloc_frame_buffer(somagic, vr->count);
 
 	somagic->video.cur_frame = NULL;
 	return 0;
@@ -660,7 +791,7 @@ static int somagic_v4l2_close(struct file *file)
 	if (!somagic->video.open_instances) {
 
 		somagic_stop_stream(somagic);
-		somagic_dev_video_free_frames(somagic);
+		free_frame_buffer(somagic);
 		somagic->video.cur_frame = NULL;
 
 		spin_lock_irqsave(&somagic->streaming_flags_lock, lock_flags);
@@ -710,9 +841,9 @@ static ssize_t somagic_v4l2_read(struct file *file, char __user *buf,
    */
 	if (!somagic->video.num_frames) {
 		somagic->video.cur_read_frame = NULL;
-		somagic_dev_video_free_frames(somagic);
-		somagic_dev_video_empty_framequeues(somagic);
-		somagic_dev_video_alloc_frames(somagic, SOMAGIC_NUM_FRAMES);
+		free_frame_buffer(somagic);
+		reset_frame_buffer(somagic);
+		alloc_frame_buffer(somagic, SOMAGIC_NUM_FRAMES);
 		printk(KERN_INFO "somagic::%s: Allocated frames!\n", __func__);
 	}
 

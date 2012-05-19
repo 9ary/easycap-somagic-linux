@@ -271,24 +271,17 @@ int somagic_v4l2_init(struct usb_somagic *somagic /*, bool default_ntsc*/);
 void somagic_v4l2_exit(struct usb_somagic *somagic);
 void somagic_video_put(struct usb_somagic *somagic, u8 *data, int size);
 
-//
-// Function-declarations for somagic_dev.c
-//
 
+// Function declarations for somagic_dev.c
 int somagic_dev_init(struct usb_interface *intf);
 void somagic_dev_exit(struct usb_interface *intf);
 
-int somagic_dev_video_alloc_frames(struct usb_somagic *somagic, 
-							int number_of_frames);
-void somagic_dev_video_free_frames(struct usb_somagic *somagic);
-void somagic_dev_video_empty_framequeues(struct usb_somagic *somagic);
+int somagic_start_stream(struct usb_somagic *somagic);
+void somagic_stop_stream(struct usb_somagic *somagic);
 
 int somagic_dev_video_set_std(struct usb_somagic *somagic, v4l2_std_id id);
 int somagic_dev_video_set_input(struct usb_somagic *somagic, 
 							unsigned int input);
-
-int somagic_start_stream(struct usb_somagic *somagic);
-void somagic_stop_stream(struct usb_somagic *somagic);
 
 void somagic_dev_video_set_brightness(struct usb_somagic *somagic, s32 value);
 void somagic_dev_video_set_contrast(struct usb_somagic *somagic, s32 value);
