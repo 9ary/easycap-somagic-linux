@@ -41,13 +41,6 @@ module_param(video_nr, int, 0444);
 /*                                                                           */
 /*****************************************************************************/
 
-/*
-static inline struct usb_somagic *to_somagic(struct v4l2_device *v4l2_dev)
-{
-	return container_of(v4l2_dev, struct usb_somagic, video.v4l2_dev);
-}
-*/
-
 static struct video_device *somagic_vdev_init(struct usb_somagic *somagic,
         									             struct video_device *vdev_template,
                                        char *name, v4l2_std_id norm);
@@ -58,62 +51,6 @@ static struct video_device *somagic_vdev_init(struct usb_somagic *somagic,
 /*                                                                           */
 /*****************************************************************************/
 static struct video_device somagic_video_template;
-
-/*****************************************************************************/
-/*                                                                           */
-/* SYSFS Code	- Copied from the stv680.c usb module.												 */
-/* Device information is located at /sys/class/video4linux/videoX            */
-/* Device parameters information is located at /sys/module/somagic_easycap   */
-/* Device USB information is located at /sys/bus/usb/drivers/somagic_easycap */
-/*                                                                           */
-/*****************************************************************************/
-
-static ssize_t show_version(struct device *cd,
-							struct device_attribute *attr, char *buf)
-{
-	return sprintf(buf, "%s\n", SOMAGIC_DRIVER_VERSION);
-}
-
-static DEVICE_ATTR(version, S_IRUGO, show_version, NULL);
-
-static ssize_t show_isoc_count(struct device *cd,
-							struct device_attribute *attr, char *buf)
-{
-	struct video_device *vdev = container_of(cd, struct video_device, dev);
-	struct usb_somagic *somagic = video_get_drvdata(vdev);
-	return sprintf(buf, "%d\n", somagic->received_urbs); 
-}
-
-static DEVICE_ATTR(received_isocs, S_IRUGO, show_isoc_count, NULL);
-
-static void somagic_video_create_sysfs(struct video_device *vdev)
-{
-	int res;
-	if (!vdev) {
-		return;
-	}
-
-	do {
-		res = device_create_file(&vdev->dev, &dev_attr_version);
-		if (res < 0) {
-			break;
-		}
-		res = device_create_file(&vdev->dev, &dev_attr_received_isocs);
-		if (res >= 0) {
-			return;
-		}
-	} while(0);
-
-	dev_err(&vdev->dev, "%s error: %d\n", __func__, res);
-}
-
-static void somagic_video_remove_sysfs(struct video_device *vdev)
-{
-	if (vdev) {
-		device_remove_file(&vdev->dev, &dev_attr_version);
-		device_remove_file(&vdev->dev, &dev_attr_received_isocs);
-	}
-}
 
 /*****************************************************************************/
 /*                                                                           */
@@ -1308,8 +1245,6 @@ int somagic_v4l2_init(struct usb_somagic *somagic /*, bool default_ntsc*/)
 	printk(KERN_INFO "Somagic[%d]: registered Somagic Video device %s [v4l2]\n",
 					somagic->video.nr, video_device_node_name(somagic->video.vdev));
 
-	somagic_video_create_sysfs(somagic->video.vdev);
-
 	return 0;
 
 	err_exit:
@@ -1329,8 +1264,6 @@ void somagic_v4l2_exit(struct usb_somagic *somagic)
 	v4l2_device_disconnect(&somagic->video.v4l2_dev);
 	usb_put_dev(somagic->dev);
 	mutex_unlock(&somagic->video.v4l2_lock);
-
-	somagic_video_remove_sysfs(somagic->video.vdev);
 
 	if (somagic->video.vdev) {
 		if (video_is_registered(somagic->video.vdev)) {

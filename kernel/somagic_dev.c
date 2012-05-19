@@ -2,6 +2,63 @@
 
 /*****************************************************************************/
 /*                                                                           */
+/* SYSFS Code	- Copied from the stv680.c usb module.												 */
+/* Device information is located at /sys/class/video4linux/videoX/device     */
+/* Device parameters information is located at /sys/module/somagic_easycap   */
+/* Device USB information is located at /sys/bus/usb/drivers/somagic_easycap */
+/*                                                                           */
+/*****************************************************************************/
+
+static ssize_t show_isoc_count(struct device *cd,
+							struct device_attribute *attr, char *buf)
+{
+	struct usb_interface *intf = container_of(cd, struct usb_interface, dev);
+	struct usb_somagic *somagic = usb_get_intfdata(intf);
+	return sprintf(buf, "%d\n", somagic->received_urbs); 
+}
+
+static DEVICE_ATTR(isocs, S_IRUGO, show_isoc_count, NULL);
+
+static ssize_t test_sysfs(struct device *char_dev,
+													struct device_attribute *attr, char *buf)
+{
+	return sprintf(buf, "Test fra somagic\n");
+}
+
+static DEVICE_ATTR(test, S_IRUGO, test_sysfs, NULL);
+
+static void create_sysfs(struct usb_device *dev)
+{
+	int res;
+	if (!dev) {
+		return;
+	}
+
+	do {
+		res = device_create_file(&dev->dev, &dev_attr_test);
+		if (res < 0) {
+			break;
+		}
+		res = device_create_file(&dev->dev, &dev_attr_isocs);
+		if (res >= 0) {
+			return;
+		}
+	} while(0);
+
+	dev_err(&dev->dev, "somagic::%s error: %d\n", __func__, res);
+}
+
+static void remove_sysfs(struct usb_device *dev)
+{
+	if (dev) {
+		device_remove_file(&dev->dev, &dev_attr_test);
+		device_remove_file(&dev->dev, &dev_attr_isocs);
+	}
+}
+
+
+/*****************************************************************************/
+/*                                                                           */
 /*            Frame Buffers                                                  */
 /*                                                                           */
 /*            The frames are passed between kernelspace & userspace          */
@@ -673,6 +730,8 @@ int __devinit somagic_dev_init(struct usb_interface *intf)
 		goto err_exit;
 	}
 
+	create_sysfs(somagic->dev);
+
 	return 0;
 
 	err_exit: {
@@ -688,6 +747,8 @@ void __devexit somagic_dev_exit(struct usb_interface *intf)
 	if (somagic == NULL) {
 		return;
 	}
+	
+	remove_sysfs(somagic->dev);
 
 	free_isoc_buffer(somagic);
 
