@@ -64,9 +64,11 @@ static int scratch_len(struct usb_somagic *somagic)
  * Returns the free space left in buffer
  *
  * NOT USED, UNCOMMENT IF NEEDED!
+ */
+/*
 static int scratch_free(struct usb_somagic *somagic)
 {
-	int free = somagic->scratch_read_ptr - somagic->scratch_write_ptr;
+	int free = somagic->video.scratch_read_ptr - somagic->video.scratch_write_ptr;
 	if (free <= 0) {
 		free += SOMAGIC_SCRATCH_BUF_SIZE;
 	}
@@ -80,7 +82,6 @@ static int scratch_free(struct usb_somagic *somagic)
 	return free;
 }
 */
-
 /*
  * somagic_video_put
  *
@@ -265,8 +266,9 @@ static int alloc_frame_buffer(struct usb_somagic *somagic,
                                    int number_of_frames)
 {
 	int i;
-
-	somagic->video.max_frame_size = PAGE_ALIGN(720 * 2 * 627 * 2);
+	
+	// HARDCODED
+	somagic->video.max_frame_size = PAGE_ALIGN(720 * 2 * 288);
 	somagic->video.num_frames = number_of_frames;
 
 	while (somagic->video.num_frames > 0) {
@@ -581,8 +583,20 @@ static int vidioc_querybuf(struct file *file, void *priv,
 	}
 	vb->memory = V4L2_MEMORY_MMAP;
 	vb->m.offset = vb->index * PAGE_ALIGN(somagic->video.max_frame_size);
-	vb->field = V4L2_FIELD_INTERLACED;
-	vb->length = 720 * 2 * 627 * 2;
+	switch (frame->field) {
+		case FIELD_TOP : {
+			vb->field = V4L2_FIELD_TOP;
+			break;
+		}
+		case FIELD_BOTTOM : {
+			vb->field = V4L2_FIELD_BOTTOM;
+			break;
+		}
+		default : {
+			vb->field = SOMAGIC_PIX_FMT_FIELD;
+		}
+	}
+	vb->length = somagic->video.max_frame_size; //frame->length; //720 * 2 * 627 * 2;
 	vb->timestamp = frame->timestamp;
 	vb->sequence = frame->sequence;
 
@@ -600,21 +614,24 @@ static int vidioc_qbuf(struct file *file, void *priv,
 	// printk(KERN_ERR "somagic:: %s Called\n", __func__);
 	
 	if (vb->index >= somagic->video.num_frames) {
+		printk(KERN_ERR "somagic::%s: Request for invalid frame number %d",
+					 __func__, vb->index);
 		return -EINVAL;
 	}
 
 	frame = &somagic->video.frame[vb->index];
 
 	if (frame->grabstate != FRAME_STATE_UNUSED) {
+		// We are not done with this frame yet!
 		return -EAGAIN;
 	}
 
 	frame->grabstate = FRAME_STATE_READY;
 	frame->length = 0;
-	frame->line = 0;
-	frame->col = 0;
+	frame->field = FIELD_NOT_SET;
 
-	vb->flags &= ~V4L2_BUF_FLAG_DONE;
+	//vb->flags &= ~V4L2_BUF_FLAG_DONE;
+	vb->flags = V4L2_BUF_FLAG_QUEUED;
 
 	spin_lock_irqsave(&somagic->video.queue_lock, lock_flags);
 	list_add_tail(&frame->list_index, &somagic->video.inqueue);	
@@ -623,7 +640,7 @@ static int vidioc_qbuf(struct file *file, void *priv,
 	return 0;
 }
 
-// Send a buffer to userspace
+// Userspace request a buffer
 static int vidioc_dqbuf(struct file *file, void *priv,
 							struct v4l2_buffer *vb)
 {
@@ -638,6 +655,8 @@ static int vidioc_dqbuf(struct file *file, void *priv,
 		rc = wait_event_interruptible(somagic->video.wait_frame,
 																	!list_empty(&(somagic->video.outqueue)));
 		if (rc) {
+			printk(KERN_ERR "somagic::%s: wait event interruptible failed, "
+						 "returned %d!\n", __func__, rc);
 			return rc;
 		}
 	}
@@ -647,6 +666,7 @@ static int vidioc_dqbuf(struct file *file, void *priv,
 										 struct somagic_frame, list_index);
 	list_del(somagic->video.outqueue.next);
 	spin_unlock_irqrestore(&somagic->video.queue_lock, lock_flags);
+
 	f->grabstate = FRAME_STATE_UNUSED;
 
 /*
@@ -655,12 +675,27 @@ static int vidioc_dqbuf(struct file *file, void *priv,
 */
 
 	vb->memory = V4L2_MEMORY_MMAP;
-	vb->flags = V4L2_BUF_FLAG_MAPPED | V4L2_BUF_FLAG_QUEUED | V4L2_BUF_FLAG_DONE;
+	vb->flags = V4L2_BUF_FLAG_MAPPED | V4L2_BUF_FLAG_TIMECODE; // | V4L2_BUF_FLAG_QUEUED | V4L2_BUF_FLAG_DONE;
 	vb->index = f->index;
 	vb->sequence = f->sequence;
 	vb->timestamp = f->timestamp;
-	vb->field = V4L2_FIELD_INTERLACED;
+	switch (f->field) {
+		case FIELD_TOP : {
+			vb->field = V4L2_FIELD_TOP;
+			break;
+		}
+		case FIELD_BOTTOM : {
+			vb->field = V4L2_FIELD_BOTTOM;
+			break;
+		}
+		default : {
+			printk(KERN_WARNING "somagic::%s: "
+						 "about to send frame without field info\n", __func__);
+			vb->field = SOMAGIC_PIX_FMT_FIELD;
+		}
+	}
 	vb->bytesused = f->length;
+	vb->length = somagic->video.max_frame_size;
 
 	return 0;
 }
@@ -671,6 +706,7 @@ static int vidioc_streamon(struct file *file, void *priv, enum v4l2_buf_type i)
 	unsigned long lock_flags;
 
 	somagic->video.cur_frame = NULL;
+	somagic->video.cur_sync_state = SYNC_STATE_SEARCHING;
 	scratch_reset(somagic);
 	spin_lock_irqsave(&somagic->streaming_flags_lock, lock_flags);
 	somagic->streaming_flags |= SOMAGIC_STREAMING_CAPTURE_VIDEO;
@@ -691,7 +727,7 @@ static int vidioc_streamoff(struct file *file, void *priv, enum v4l2_buf_type ty
 	spin_unlock_irqrestore(&somagic->streaming_flags_lock, lock_flags);
 	somagic_stop_stream(somagic);
 
-	somagic->video.framecounter = 0;
+	somagic->video.cur_sequence = 0;
 	somagic->video.cur_sync_state = SYNC_STATE_SEARCHING;
 
 	return 0;
@@ -722,7 +758,8 @@ static int vidioc_g_fmt_vid_cap(struct file *file, void *priv,
 	printk(KERN_ERR "somagic:: %s Called\n", __func__);
 
 	pix->width = SOMAGIC_LINE_WIDTH; 
-	pix->height = 2 * somagic->video.field_lines;
+	// HARDCODED, should be a format struct with this info.
+	pix->height = 576; //somagic->video.field_lines; //2 * somagic->video.field_lines;
 	pix->pixelformat = V4L2_PIX_FMT_UYVY;
 	pix->field = SOMAGIC_PIX_FMT_FIELD;
 	pix->bytesperline = SOMAGIC_BYTES_PER_LINE;
@@ -735,7 +772,21 @@ static int vidioc_g_fmt_vid_cap(struct file *file, void *priv,
 static int vidioc_try_fmt_vid_cap(struct file *file, void *priv,
 							struct v4l2_format *vf)
 {
+	struct usb_somagic *somagic = video_drvdata(file);
+	struct v4l2_pix_format *pix = &vf->fmt.pix;
+
 	printk(KERN_ERR "somagic:: %s Called\n", __func__);
+	if (pix->field != SOMAGIC_PIX_FMT_FIELD) {
+		printk(KERN_INFO "somagic::%s: Tried to set field member to: %d\n",
+					 __func__, pix->field);
+		return -EINVAL;
+	}
+
+	if (pix->sizeimage != somagic->video.frame_size) {
+		printk(KERN_INFO "somagic::%s: Tried to set sizeimage member to: %d\n",
+					 __func__, pix->sizeimage);
+		return -EINVAL;
+	}
 	return 0;
 }
 
@@ -789,7 +840,6 @@ static int somagic_v4l2_close(struct file *file)
 
 
 	if (!somagic->video.open_instances) {
-
 		somagic_stop_stream(somagic);
 		free_frame_buffer(somagic);
 		somagic->video.cur_frame = NULL;
@@ -799,10 +849,8 @@ static int somagic_v4l2_close(struct file *file)
 		spin_unlock_irqrestore(&somagic->streaming_flags_lock, lock_flags);
 		somagic_stop_stream(somagic);
 
-		somagic->video.framecounter = 0;
+		somagic->video.cur_sequence = 0;
 		somagic->video.cur_sync_state = SYNC_STATE_SEARCHING;
-
-		printk(KERN_INFO "somagic::%s: Freed frames!\n", __func__);
 	}
 
 	printk(KERN_INFO "somagic::%s: %d open instances\n",
@@ -867,7 +915,6 @@ static ssize_t somagic_v4l2_read(struct file *file, char __user *buf,
 			// Mark frame as ready and enqueue the frame!
 			frame->grabstate = FRAME_STATE_READY;
 			frame->length = 0;
-			frame->line = 0;
 			frame->bytes_read = 0;
 
 			spin_lock_irqsave(&somagic->video.queue_lock, lock_flags);
@@ -902,10 +949,12 @@ static ssize_t somagic_v4l2_read(struct file *file, char __user *buf,
 		frame = somagic->video.cur_read_frame;
 	}
 
+/*
 	if (frame->grabstate == FRAME_STATE_ERROR) {
 		frame->bytes_read = 0;
 		return 0;
 	}
+*/
 
 	if ((count + frame->bytes_read) > (unsigned long)frame->length) {
 		count = frame->length - frame->bytes_read;
@@ -1040,7 +1089,8 @@ static struct video_device somagic_video_template = {
 	.name = SOMAGIC_DRIVER_NAME,														// V4L2 Driver Name
 	.release = video_device_release,
 	.tvnorms = SOMAGIC_NORMS,   														// Supported TV Standards
-	.vfl_type = VFL_TYPE_GRABBER
+	.vfl_type = VFL_TYPE_GRABBER,
+//	.debug = V4L2_DEBUG_IOCTL | V4L2_DEBUG_IOCTL_ARG
 };
 
 /*****************************************************************************/
@@ -1048,205 +1098,158 @@ static struct video_device somagic_video_template = {
 /*            Video-parsing                                                  */
 /*                                                                           */
 /*****************************************************************************/
-static void find_sync(struct usb_somagic *somagic)
-{
-	int look_ahead;
-	u16 check;
-	u8 c;
-	u8 trc[3];
-
-	u8 cur_vbi, cur_field;
-
-	while(1) {
-		if (scratch_len(somagic) < 1) {
-			break;
-		}
-
-		scratch_get(somagic, &c, 1);
-		if (c != 0xff) {
-			continue;
-		}
-
-		if (scratch_len(somagic) < sizeof(trc)) {
-			break;
-		}
-
-		scratch_create_custom_pointer(somagic, &look_ahead, 0);
-		scratch_get_custom(somagic, &look_ahead, (unsigned char *)&check, sizeof(check));
-		if (check != 0x0000) {
-			continue;
-		}
-
-		// We have found [0xff 0x00 0x00]. Now find SAV/EAV
-		scratch_get(somagic, trc, sizeof(trc));
-		if (trc[2] == 0x00 || (trc[2] & 0x10) == 0x10) { // This is EAV (or SDID)
-			continue;
-		}
-
-		cur_vbi = (trc[2] & 0x20) >> 5;
-		cur_field = (trc[2] & 0x40) >> 6;
-
-		if (somagic->video.cur_sync_state == SYNC_STATE_SEARCHING) {
-			somagic->video.prev_field = cur_field;
-			somagic->video.cur_sync_state = SYNC_STATE_UNSTABLE;
-			continue;
-		}
-		
-		if (cur_field == 0 && somagic->video.prev_field == 1) {
-			somagic->video.cur_sync_state = SYNC_STATE_STABLE;
-			return;
-		}
-
-		somagic->video.prev_field = cur_field;
-	}
-}
-
-/* One PAL frame is 905000 Bytes, including TRC - (625 Lines).
- * An ODD Field is 4517756 Bytes, including TRC - (312 Lines). (288 Active video lines + 24 Lines of VBI)
- * An EVEN Field is 453224 Bytes, including TRC - (313 Lines). (288 Actice video lines + 25 Lines of VBI)
+/*
+ * parse_field
  *
- * VLC allocates: 831488 pr frame!
- *
- * mplayer expects one PAL frame to be: 829440
- * That is 576 (288 * 2) lines of 1440 (720 * 2)Bytes
- *
+ * New parser,
+ * return 1 when we have an complete v4l2_buffer
  */
-static u8 parse_lines(struct usb_somagic *somagic)
+static int parse_field(struct usb_somagic *somagic)
 {
-	struct somagic_frame *frame;
-	u8 c;
-	int look_ahead;
-	u8 check[8];
+	struct somagic_frame *frame = somagic->video.cur_frame;
+	int look_ahead_ptr;
+	u8 data;
+	u8 check[4];
+	enum frame_field line_field;
+	/* Ugly hack, should probably just move the scratchptr */
+	u8 unused[1448];
+	
+	/* One Active Video line = 2*720 bytes
+   *  + 4 Bytes of EAV and 4 Bytes of SAV
+   */
+	u8 sync = 0;
 
-	frame = somagic->video.cur_frame;
+	/* DEBUG */
+	int dropped_bytes = 0;
+	int held_sync = 0;
 
 	while(scratch_len(somagic) >= 1448) {
-		scratch_create_custom_pointer(somagic, &look_ahead, 1440);
-		scratch_get_custom(somagic, &look_ahead, check, 8);
-		if (check[0] == 0xff && check[1] == 0x00 && check[2] == 0x00) {
-			int line_pos = (2 * frame->line + frame->field) * (720 * 2) + frame->col;
-			scratch_get(somagic, frame->data + line_pos, 1440);
-			frame->length += 1440;
-
-			/*
-       * Just grab the TRC including EAV of this line, and handle it here!
-       * check is already holding this info when we reach this part.
-       * But we need to increment the regular scratch_read_ptr,
-       * so we just grab the code again.
-       *
-       * Notice: We only read 4 bytes,
-       * the last 4 bytes of check is containing data from the last call
-       * to scratch_get_custom
-			 */
-			scratch_get(somagic, check, 4);
-
-			if ((check[3] & 0x10) == 0x10)	{ // Double check that this actually is EAV
-					
-				frame->line++;
-				frame->col = 0;
-				if (frame->line > 313) {
-					printk(KERN_WARNING "somagic::%s: SYNC Error, got line number %d\n", __func__, frame->line);						
-					frame->line = 313;
+		if (somagic->video.cur_sync_state == SYNC_STATE_SEARCHING) {
+			scratch_get(somagic, &data, 1);
+			dropped_bytes++;
+			switch (sync) {
+				case 0 : {
+					if (data == 0xff) {
+						sync++;
+					}
+					break;
 				}
 
-				// Now we check that the scratch containes the SAV of the next line
-				if (check[4] == 0xff && check[5] == 0x00 && check[6] == 0x00) {
-					/* SAV
- 					 * 
- 					 * F (Field bit) = Bit 6 (mask 0x40)
- 					 * 0: Odd Field;
- 					 * 1: Even Field;
- 					 *
- 					 * V (Vertical blanking bit) = Bit 5 (mask 0x20)
- 					 * 0: in VBI
- 					 * 1: in Active video
- 					 */
-					u8 field_edge;
-					u8 blank_edge;
+				case 1 : {
+					if (data == 0x00) {
+						sync++;
+					} else {
+						sync = 0;
+					}
+					break;
+				}
 
-					// Again, we do this to increment the scratch_read_ptr!
-					scratch_get(somagic, check + 4, 4);
-					c = check[7];
+				case 2 : {
+					if (data == 0x00) {
+						sync++;
+					} else {
+						sync = 0;
+					}
+					break;				
+				}
 
-					field_edge = frame->field;
-					blank_edge = frame->blank;
-
-					frame->field = (c & 0x40) >> 6;
-					frame->blank = (c & 0x20) >> 5;
-
-					field_edge = frame->field ^ field_edge;
-					blank_edge = frame->blank ^ blank_edge;
-
-					if (frame->field == 0 && field_edge) {
-						if (frame->length < somagic->video.frame_size) {
-							// This frame is not a full frame, something went wrong!
-							if (printk_ratelimit())	{
-								printk(KERN_INFO "somagic::%s: Got partial video, "\
-                       "resetting sync state!\n", __func__);
-							}
-							somagic->video.cur_sync_state = SYNC_STATE_SEARCHING;
+				case 3 : {
+					sync = 0;
+					if ((data & 0x10) == 0x10) { // EAV
+						somagic->video.cur_sync_state = SYNC_STATE_STABLE;
+						held_sync = 0;
+/* DEBUG
+						if (printk_ratelimit()) {
+							printk(KERN_INFO "somagic::%s: Found sync after %d bytes",
+										 __func__, dropped_bytes);
 						}
-						return 1;
+*/
 					}
-
-					if (frame->blank == 0 && blank_edge) {
-						frame->line = 0;
-						frame->col = 0;
-					}
-					// We have sync, so we try to read next line!
-					continue;	
 				}
-			} // Data is not followed by EAV
-		} else {// We dont have FF 00 00 at 1440
-			if (printk_ratelimit()) {
-				printk(KERN_INFO "somagic::%s: Lost sync on line %d, "\
-  	                     "swapping out current frame & resetting sync state!\n", __func__, frame->line);
 			}
-			somagic->video.cur_sync_state = SYNC_STATE_SEARCHING;
-			return 1;
+			continue;
+		}
+		if (somagic->video.cur_sync_state == SYNC_STATE_STABLE) {
+			scratch_create_custom_pointer(somagic, &look_ahead_ptr, 0);
+			scratch_get_custom(somagic, &look_ahead_ptr, check, 4);
+			if (check[0] != 0xff || check[1] != 0x00 || check[2] != 0x00) {
+/* DEBUG
+				if (printk_ratelimit()) {
+					printk(KERN_WARNING "somagic::%s: Expected TRC-SAV, TRC-SAV not found,\n\t"
+								 "Lost Sync after %d lines, frame->length = %d\n\t"
+								 "write=%d, read=%d", __func__,
+								 held_sync,
+								 frame->length,
+								 somagic->video.scratch_write_ptr,
+								 somagic->video.scratch_read_ptr);
+				}
+*/ 
+				somagic->video.cur_sync_state = SYNC_STATE_SEARCHING;
+
+				if (frame->length > 1) {
+					return 1;
+				} else {
+					dropped_bytes = 0;
+					continue;
+				}
+			}
+			if ((check[3] & 0x10) != 0x00) {
+/* DEBUG
+				printk(KERN_WARNING "somagic::%s: Expected SAV, SAV not found, "
+							 "Lost Sync\n", __func__);
+				somagic->video.cur_sync_state = SYNC_STATE_SEARCHING;
+*/
+				if (frame->length > 1) {
+					return 1;
+				} else {
+					continue;
+				}
+			}
+			// We have SAV
+			line_field = ((check[3] & 0x40) == 0x40) ? FIELD_BOTTOM : FIELD_TOP;
+			if (frame->field == FIELD_NOT_SET) {
+				frame->field = line_field;
+			} else if (frame->field != line_field){
+				// Probably complete frame!
+				return 1;
+			}
+			
+			/*
+ 			 * HACK:
+ 			 * Should probably just move the scratchpointer
+ 			 */ 
+			if (check[3] & 0x20) {
+				// Discard VBI lines!
+				scratch_get(somagic, unused, 1448);
+				held_sync++;
+				continue;
+			} else {
+				// Discard SAV
+				scratch_get(somagic, unused, 4);
+			}
+		
+			if (frame->length + 1440 > somagic->video.max_frame_size) {
+				printk(KERN_WARNING "somagic::%s: Forced dump of current frame, "
+							 "not room for %d, more bytes in the buffer",
+							 __func__, 1440);
+				return 1;
+			}
+			scratch_get(somagic, frame->data + frame->length, 1440);
+			frame->length += 1440;
+			held_sync++;
+
+			scratch_get(somagic, check, 4);
+			if (check[0] != 0xff || check[1] != 0x00 || check[2] != 0x00) {
+/* DEBUG
+				printk(KERN_WARNING "somagic::%s: Expected TRC-EAV, TRC-EAV not found, "
+							 " Lost Sync after %d lines\n", __func__, held_sync);
+				somagic->video.cur_sync_state = SYNC_STATE_SEARCHING;
+*/
+				return 1;
+			}
 		}
 	}
 	return 0;
-}
- 
-/*
- * parse_data
- *
- * Parse the data we have in the scratch_buffer, and put it into
- * the frame_buffer so it can be passed to userspace.
- *
- * When we start receiving data from the device, we have no way of knowing
- * what scanline we are receiving.
- * We solve this by reding and discarding the bytes until we
- * find the beginning of a field.
- *
- */
-static enum parse_state parse_data(struct usb_somagic *somagic)
-{
-	struct somagic_frame *frame;
-	frame = somagic->video.cur_frame;
-
-	while(1) {
-		if (somagic->video.cur_sync_state != SYNC_STATE_STABLE) {
-			find_sync(somagic);
-			if (somagic->video.cur_sync_state != SYNC_STATE_STABLE) {
-				return PARSE_STATE_OUT;
-			}	
-			frame->col = 0;
-			frame->length = 0;
-			frame->line = 0;
-			frame->field = 0;
-			frame->blank = 1;
-		}
-
-		if (parse_lines(somagic)) {
-			return PARSE_STATE_NEXT_FRAME;
-		} else {
-			return PARSE_STATE_OUT;
-		}
-	}
-
-	return PARSE_STATE_CONTINUE;
 }
 
 /*
@@ -1257,10 +1260,20 @@ static enum parse_state parse_data(struct usb_somagic *somagic)
  */
 static void process_video(unsigned long somagic_addr)
 {
-	enum parse_state state;
+/* DEBUG
+	struct timeval now;
+	int debug;
+*/
+
 	struct somagic_frame **f;
 	unsigned long lock_flags;
+
 	struct usb_somagic *somagic = (struct usb_somagic *)somagic_addr;
+
+/* DEBUG
+	do_gettimeofday(&now);
+	debug = now.tv_usec - somagic->video.idle.tv_usec;
+*/
 
 	if (!(somagic->streaming_flags & SOMAGIC_STREAMING_CAPTURE_VIDEO)) {
 		return;
@@ -1268,35 +1281,35 @@ static void process_video(unsigned long somagic_addr)
 
 	// We check if we have a v4l2_framebuffer to fill!
 	f = &somagic->video.cur_frame;
-	if (scratch_len(somagic) > 0x800 && !list_empty(&(somagic->video.inqueue))) {
-
-		//printk(KERN_INFO "somagic::%s: Parsing Data", __func__);
-
+	while (scratch_len(somagic) > 0x400 && !list_empty(&(somagic->video.inqueue))) {
+		
 		if (!(*f)) { // cur_frame == NULL
 			(*f) = list_entry(somagic->video.inqueue.next,
 												struct somagic_frame, list_index);
 			(*f)->length = 0;
 		}
-	
-		state = parse_data(somagic);
 
-		if (state == PARSE_STATE_NEXT_FRAME) {
-
+		if (parse_field(somagic)) {
 			if ((*f)->length > somagic->video.frame_size) {
 				// This should never occur, don't know if we need to check this here?
 				(*f)->length = somagic->video.frame_size;
 			}
 
+			if ((*f)->field == FIELD_TOP) {
+				somagic->video.cur_sequence++;
+				do_gettimeofday(&somagic->video.cur_ts);
+			}
+
+			(*f)->timestamp = somagic->video.cur_ts;
+			//do_gettimeofday(&((*f)->timestamp));
+			(*f)->sequence = somagic->video.cur_sequence;
+
 			(*f)->grabstate = FRAME_STATE_DONE;
-			do_gettimeofday(&((*f)->timestamp));
-			(*f)->sequence = somagic->video.framecounter;
 
 			spin_lock_irqsave(&somagic->video.queue_lock, lock_flags);
 			list_move_tail(&((*f)->list_index), &somagic->video.outqueue);
 			somagic->video.cur_frame = NULL;
 			spin_unlock_irqrestore(&somagic->video.queue_lock, lock_flags);
-
-			somagic->video.framecounter++;
 
 			// Wake up any threads waiting for frames in outqueue
 			if (waitqueue_active(&somagic->video.wait_frame)) {
@@ -1304,6 +1317,14 @@ static void process_video(unsigned long somagic_addr)
 			}
 		}
 	}
+
+/* DEBUG
+	if (printk_ratelimit()) {
+		printk(KERN_INFO "somagic::%s: Returning!\n\t"
+					 "last idle = %d\n", __func__, debug);
+	}
+	do_gettimeofday(&somagic->video.idle);
+*/
 }
 
 

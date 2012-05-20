@@ -99,14 +99,14 @@
 #define SOMAGIC_NORMS (V4L2_STD_PAL | V4L2_STD_NTSC) // | V4L2_STD_SECAM | V4L2_STD_PAL_M) 
 #define SOMAGIC_NUM_FRAMES 4				/* Maximum number of v4l2_buffers supported */
 
-#define SOMAGIC_SCRATCH_BUF_SIZE 0x20000 // 128kB
+#define SOMAGIC_SCRATCH_BUF_SIZE 0x21000 // 132kB  //0x18000 // 96Kb //0x20000 // 128kB
 
 #define SOMAGIC_LINE_WIDTH 720
 #define SOMAGIC_STD_FIELD_LINES_PAL 288
-#define SOMAGIC_STD_FIELD_LINES_NTSC 240
+#define SOMAGIC_STD_FIELD_LINES_NTSC 244 // Bottom = 243
 #define SOMAGIC_BYTES_PER_LINE 1440
 
-#define SOMAGIC_PIX_FMT_FIELD V4L2_FIELD_INTERLACED // V4L2_FIELD_INTERLACED || V4L2_FIELD_ALTERNATE
+#define SOMAGIC_PIX_FMT_FIELD V4L2_FIELD_ALTERNATE // V4L2_FIELD_INTERLACED || V4L2_FIELD_ALTERNATE
 #define SOMAGIC_PIX_FMT_COLORSPACE V4L2_COLORSPACE_SMPTE170M
 
 /* V4L2 Device Inputs */
@@ -117,11 +117,11 @@ enum somagic_inputs {
 };
 
 enum {
-	FRAME_STATE_GRABBING,				/* ??? */
+//	FRAME_STATE_GRABBING,				/* ??? */
 	FRAME_STATE_UNUSED,				/* Frame is mapped to user space */
 	FRAME_STATE_READY,				/* Frame in Ingoing Queue */
 	FRAME_STATE_DONE,				/* Frame in Outgoing Queue */
-	FRAME_STATE_ERROR				/* An error occured */
+//	FRAME_STATE_ERROR				/* An error occured */
 };
 
 enum parse_state {
@@ -144,6 +144,12 @@ enum sync_state {
 	SYNC_STATE_STABLE
 };
 
+enum frame_field {
+	FIELD_NOT_SET,
+	FIELD_TOP,
+	FIELD_BOTTOM
+};
+
 /* USB - Isochronous Buffer */
 struct somagic_isoc_buffer {
 	char *data;
@@ -161,15 +167,11 @@ struct somagic_frame {
 	int sequence;                 /* Sequence number of frame, for user space  */
 	struct timeval timestamp;     /* Time, when frame was captured */
 
-	volatile int grabstate;       /* State of grabbing */
+	volatile int grabstate;       /* Frame Flags - Done, Queued , etc. */
 
 	/* Used by parser */
+	enum frame_field field;
 	enum line_sync_state line_sync;
-	u16 line;
-	u16 col;
-	u8 field;
-	u8 blank;
-
 };
 
 struct somagic_audio {
@@ -219,14 +221,16 @@ struct somagic_video {
 	struct somagic_frame *cur_frame;      /* Pointer to frame beeing filled */
 	struct somagic_frame frame[SOMAGIC_NUM_FRAMES];
 
+	/* Make sure two fields get same sequence & timestamp */
+	struct timeval cur_ts;
+	int cur_sequence;
+	
 	/* Pointer to frame beeing read by v4l2_read */
 	struct somagic_frame *cur_read_frame;
 
-	int framecounter;				/* For sequencing of frames sent to user space */
-
 	/* PAL/NTSC toggle handling */
 	v4l2_std_id cur_std;		/* Current Video standard NTSC/PAL */
-	u16 field_lines;				/* Lines per field NTSC:240 PAL:288 */
+	u16 field_lines;				/* Lines per field NTSC:244/243 PAL:288 */
 	int frame_size;					/* Size of one completed frame */
 
 	/* Input selection */
@@ -237,6 +241,9 @@ struct somagic_video {
 	s8 cur_contrast;
 	s8 cur_saturation;
 	s8 cur_hue;
+
+	/* Debug */
+	struct timeval idle;
 };
 
 #define SOMAGIC_STREAMING_STARTED 0x01
