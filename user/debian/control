@@ -19,7 +19,8 @@ Description: Somagic EasyCAP video capture
 	* EasyCAP Model 002 (or EasyCAP002), with 1, 2, 3, 4, and 
           unlabeled microphone inputs. The uninitialized device shows in
           lsusb as "1c88:0007 Somagic, Inc.". Once initialized, it shows
-          as "1c88:003e Somagic, Inc".
+          as either "1c88:003e Somagic, Inc" or 
+          "1c88:003f Somagic, Inc".
 	. 
 	This package provides somagic-init (performs user space firmware
         upload to the device), and somagic-capture (performs user space

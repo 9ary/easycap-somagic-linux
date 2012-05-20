@@ -39,19 +39,33 @@
  * Index  Firmware 
  * -----  --------                               
  *     0  SmiUsbGrabber3C.sys, EasyCAP DC60   
- *     1  SmiUsbGrabber3E.sys, EasyCAP 002    
+ *     1  SmiUsbGrabber3E.sys, EasyCAP002    
+ *     2  SmiUsbGrabber3F.sys, EasyCAP002    
  */
-static const int SOMAGIC_FIRMWARE_LENGTH[2] = {
+
+/*
+ *                      Unintialized  Initialized  62-byte  Firmware                                   Offset 
+ * Firmware Filename    Device        Device       blocks   Length    Firmware Offsets                 Difference
+ * -------------------  ------------  -----------  -------  ------    ------------------------------   ----------
+ * SmiUsbGrabber3C.sys  1c88:0007     1c88:003c    121      7502      0xbafdc 0xbcd2c 0xbea7c 0xc07cc  7504
+ * SmiUsbGrabber3E.sys  1c88:0007     1c88:003e    107      6634      0xbac48 0xbc628 0xbe008 0xbf9e8  6624
+ * SmiUsbGrabber3F.sys  1c88:0007     1c88:003f    107      6634      0x18570 0x19f50 0x1b930 0x1d310  6624
+ */
+#define PRODUCT_COUNT 3
+static const int SOMAGIC_FIRMWARE_LENGTH[PRODUCT_COUNT] = {
 	7502, 
+	6634,
 	6634
 };
-static const unsigned char SOMAGIC_FIRMWARE_MAGIC[2][4] = {
+static const unsigned char SOMAGIC_FIRMWARE_MAGIC[PRODUCT_COUNT][4] = {
 	{'\x0c', '\x94', '\xce', '\x00'}, 
+	{'\x0c', '\x94', '\xcc', '\x00'},
 	{'\x0c', '\x94', '\xcc', '\x00'}
 };
-static const unsigned char SOMAGIC_FIRMWARE_CRC32[2][4] = {
+static const unsigned char SOMAGIC_FIRMWARE_CRC32[PRODUCT_COUNT][4] = {
 	{'\x34', '\x89', '\xf7', '\x7b'}, 
-	{'\x9d', '\x91', '\x8a', '\x92'}
+	{'\x9d', '\x91', '\x8a', '\x92'}, 
+	{'\xea', '\x90', '\x14', '\xa9'}
 };
 
 void version()
@@ -155,7 +169,7 @@ int main(int argc, char **argv)
 		last4[3] = c;
 
 		/* Check firmware magic */
-		for (i = 0; i < 2; i++) {
+		for (i = 0; i < PRODUCT_COUNT; i++) {
 			if (memcmp(last4, SOMAGIC_FIRMWARE_MAGIC[i], 4) == 0) {
 				/* Found, save file position */
 				pos = ftell(infile);

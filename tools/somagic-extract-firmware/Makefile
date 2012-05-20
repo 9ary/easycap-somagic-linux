@@ -22,26 +22,31 @@
 # You should have received a copy of the GNU General Public License
 # along with this program; if not, see <http://www.gnu.org/licenses/>.
 
-PREFIX=/usr/local
-BINDIR=$(PREFIX)/bin
-MANDIR=$(PREFIX)/share/man
-PROGRAMS=somagic-extract-firmware
-MANUALS=man/somagic-extract-firmware.1
-CFLAGS=-s -W -Wall
-LFLAGS=-lgcrypt
+SHELL = /bin/sh
+PREFIX = /usr/local
+BINDIR = $(PREFIX)/bin
+MANDIR = $(PREFIX)/share/man
+PROGRAMS = somagic-extract-firmware
+MANUALS = man/somagic-extract-firmware.1
+CFLAGS = -s -W -Wall
+LFLAGS = -lgcrypt
 
+.SUFFIXES:
+.SUFFIXES: .c
+
+.PHONY: all
 all: $(PROGRAMS)
 
 .c:
 	$(CC) $(CFLAGS) $< -o $@ $(LFLAGS)
 
+.PHONY: install
 install: $(PROGRAMS) $(MANUALS)
 	mkdir -p $(BINDIR)
 	install $(PROGRAMS) $(BINDIR)/
 	mkdir -p $(MANDIR)/man1
 	install $(MANUALS) $(MANDIR)/man1/
 
+.PHONY: clean
 clean:
-	rm -f $(PROGRAMS)
-
-.PHONY: all install clean
+	-rm -f $(PROGRAMS)

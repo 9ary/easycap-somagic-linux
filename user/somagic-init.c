@@ -5,7 +5,8 @@
  * USB ID 1c88:0007                                                            *
  *                                                                             *
  * This user space program will upload the firmware for the Somagic chip, and  *
- * reconnect the USB dongle with new product id: 1c88:003c or 1c88:003e.       *
+ * reconnect the USB dongle with new product id: 1c88:003c, 1c88:003e, or      *
+ * 1c88:003f.                                                                  *
  * *****************************************************************************
  *
  * Copyright 2011, 2012 Tony Brown, Jeffry Johnston
@@ -44,15 +45,18 @@
 #define PROGRAM_NAME "somagic-init"
 #define VERSION "1.1"
 #define SOMAGIC_FIRMWARE_PATH "/lib/firmware/somagic_firmware.bin"
-static const unsigned char SOMAGIC_FIRMWARE_CRC32[2][4] = {
+#define PRODUCT_COUNT 3
+static const unsigned char SOMAGIC_FIRMWARE_CRC32[PRODUCT_COUNT][4] = {
 	{'\x34', '\x89', '\xf7', '\x7b'}, 
-	{'\x9d', '\x91', '\x8a', '\x92'}
+	{'\x9d', '\x91', '\x8a', '\x92'},
+	{'\xea', '\x90', '\x14', '\xa9'}
 };
 #define VENDOR 0x1c88
 #define ORIGINAL_PRODUCT 0x0007
-static const int NEW_PRODUCT[2] = {
+static const int NEW_PRODUCT[PRODUCT_COUNT] = {
 	0x003c,
-	0x003e
+	0x003e,
+	0x003f
 };
 
 struct libusb_device_handle *devh;
@@ -236,12 +240,12 @@ int main(int argc, char **argv)
 
 	/* Identify firmware */
 	gcry_md_hash_buffer(GCRY_MD_CRC32, digest, firmware, firmware_length);
-	for (p = 0; p < 2; p++) {
+	for (p = 0; p < PRODUCT_COUNT; p++) {
 		if (memcmp(digest, SOMAGIC_FIRMWARE_CRC32[p], 4) == 0) {
 			break;
 		}
 	}
-	if (p >= 2) {
+	if (p >= PRODUCT_COUNT) {
 		fprintf(stderr, "Firmware file '%s' was not recognized\n", firmware_path);
 		return 1;
 	}

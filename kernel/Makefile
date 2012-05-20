@@ -4,7 +4,7 @@
 # Makefile for kernel USB Driver for Somagic EasyCAP DC60                      #
 # ##############################################################################
 #
-# Copyright 2011 Jon Arne Jørgensen
+# Copyright 2011, 2012 Jon Arne Jørgensen
 # 
 # This file is part of somagic_dc60
 # http://code.google.com/p/easycap-somagic-linux/
@@ -22,22 +22,23 @@
 # You should have received a copy of the GNU General Public License
 # along with this program; if not, see <http://www.gnu.org/licenses/>.
 
+SHELL = /bin/sh
 obj-m += somagic.o
-
 somagic-y += somagic_dev.o \
-						 somagic_video.o \
-						 somagic_audio.o \
+             somagic_video.o \
+             somagic_audio.o \
              somagic_bootloader.o \
              somagic_main.o
-
-
 KDIR ?= /lib/modules/$(shell uname -r)/build
 PWD := $(shell pwd)
 
+.SUFFIXES:
 
+.PHONY: all
 all:
 	$(MAKE) -C $(KDIR) M=$(PWD) modules
 
+.PHONY: clean
 clean:
-	@rm -rf *.o *~ core .depend .*.cmd *.ko *.mod.c .tmp_versions modules.order Module.symvers
-
+	-rm -f *.o *~ core .depend .*.cmd *.ko *.mod.c modules.order Module.symvers
+	-rm -rf .tmp_versions

@@ -2,7 +2,7 @@
  * somagic-capture.c                                                           *
  *                                                                             *
  * USB Driver for Somagic EasyCAP DC60 and Somagic EasyCAP002                  *
- * USB ID 1c88:003c or 1c88:003e                                               *
+ * USB ID 1c88:003c, 1c88:003e, or 1c88:003f                                   *
  *                                                                             *
  * Initializes the Somagic EasyCAP registers and performs video capture.       *
  * *****************************************************************************
@@ -48,9 +48,11 @@
 #define PROGRAM_NAME "somagic-capture"
 #define VERSION "1.1"
 #define VENDOR 0x1c88
-static const int PRODUCT[2] = {
+#define PRODUCT_COUNT 3
+static const int PRODUCT[PRODUCT_COUNT] = {
 	0x003c,
-	0x003e
+	0x003e,
+	0x003f
 };
 #define MIN(a, b) (((a) < (b)) ? (a) : (b))
 
@@ -910,14 +912,14 @@ int main(int argc, char **argv)
 	libusb_init(NULL);
 	libusb_set_debug(NULL, 0);
 
-	for (p = 0; p < 2; p++) {
+	for (p = 0; p < PRODUCT_COUNT; p++) {
 		dev = find_device(VENDOR, PRODUCT[p]);
 		if (dev) {
 			break;
 		}
 	}	
-	if (p >= 2) {
-		for (p = 0; p < 2; p++) {
+	if (p >= PRODUCT_COUNT) {
+		for (p = 0; p < PRODUCT_COUNT; p++) {
 			fprintf(stderr, "USB device %04x:%04x was not found.\n", VENDOR, PRODUCT[p]);
 		}	
 		fprintf(stderr, "Has device initialization been performed?\n");
