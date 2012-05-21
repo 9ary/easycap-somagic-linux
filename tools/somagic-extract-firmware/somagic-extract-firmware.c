@@ -44,12 +44,21 @@
  */
 
 /*
- *                      Unintialized  Initialized  62-byte  Firmware                                   Offset 
- * Firmware Filename    Device        Device       blocks   Length    Firmware Offsets                 Difference
- * -------------------  ------------  -----------  -------  ------    ------------------------------   ----------
- * SmiUsbGrabber3C.sys  1c88:0007     1c88:003c    121      7502      0xbafdc 0xbcd2c 0xbea7c 0xc07cc  7504
- * SmiUsbGrabber3E.sys  1c88:0007     1c88:003e    107      6634      0xbac48 0xbc628 0xbe008 0xbf9e8  6624
- * SmiUsbGrabber3F.sys  1c88:0007     1c88:003f    107      6634      0x18570 0x19f50 0x1b930 0x1d310  6624
+ *                               File    Initialized  62-byte  Firmware                                   Offset 
+ * Firmware Filename             Size    Device       blocks   Length    Firmware Offsets                 Difference
+ * ----------------------------  ------  -----------  -------  --------  -------------------------------  ----------
+ * vista/SmiUsbGrabber3C.sys     805888  1c88:003c    121      7502      0xbb0d8 0xbce28 0xbeb78 0xc08c8  7504
+ * vista64/SmiUsbGrabber3C.sys   821888  1c88:003c    121      7502      0x12aa0 0x147f0 0x16540 0x18290  7504
+ * wind7_32/SmiUsbGrabber3C.sys  805888  1c88:003c    121      7502      0xbb0d8 0xbce28 0xbeb78 0xc08c8  7504
+ * wind7_64/SmiUsbGrabber3C.sys  821888  1c88:003c    121      7502      0x12aa0 0x147f0 0x16540 0x18290  7504
+ * xp/SmiUsbGrabber3C.sys        805632  1c88:003c    121      7502      0xbafd8 0xbcd28 0xbea78 0xc07c8  7504
+ * xp/SmiUsbGrabber3E.sys        805376  1c88:003e    107      6634      0xbac48 0xbc628 0xbe008 0xbf9e8  6624
+ * vista/SmiUsbGrabber3F.sys     109568  1c88:003f    107      6634      0x10b28 0x12508 0x13ee8 0x158c8  6624
+ * vista64/SmiUsbGrabber3F.sys   127872  1c88:003f    107      6634      0x14270 0x15c50 0x17630 0x19010  6624
+ * wind7_32/SmiUsbGrabber3F.sys  109568  1c88:003f    107      6634      0x10b28 0x12508 0x13ee8 0x158c8  6624
+ * wind7_64/SmiUsbGrabber3F.sys  127872  1c88:003f    107      6634      0x14270 0x15c50 0x17630 0x19010  6624
+ * xp/SmiUsbGrabber3F.sys        109568  1c88:003f    107      6634      0x10b28 0x12508 0x13ee8 0x158c8  6624
+ * xp/SmiUsbGrabber3F.sys        147328  1c88:003f    107      6634      0x18570 0x19f50 0x1b930 0x1d310  6624
  */
 #define PRODUCT_COUNT 3
 static const int SOMAGIC_FIRMWARE_LENGTH[PRODUCT_COUNT] = {
@@ -64,8 +73,8 @@ static const unsigned char SOMAGIC_FIRMWARE_MAGIC[PRODUCT_COUNT][4] = {
 };
 static const unsigned char SOMAGIC_FIRMWARE_CRC32[PRODUCT_COUNT][4] = {
 	{'\x34', '\x89', '\xf7', '\x7b'}, 
-	{'\x9d', '\x91', '\x8a', '\x92'}, 
-	{'\xea', '\x90', '\x14', '\xa9'}
+	{'\x1f', '\xfe', '\xde', '\xbb'}, 
+	{'\x60', '\x1d', '\x37', '\x5f'}
 };
 
 void version()
@@ -185,7 +194,7 @@ int main(int argc, char **argv)
 				/* Check CRC32 */
 				gcry_md_hash_buffer(GCRY_MD_CRC32, digest, firmware, SOMAGIC_FIRMWARE_LENGTH[i]);
 				#ifdef DEBUG
-				fprintf(stderr, "{'\\x%02x', '\\x%02x', '\\x%02x', '\\x%02x'}\n", digest[0], digest[1], digest[2], digest[3]);
+				fprintf(stderr, "Product: %i, Expected: %02x %02x %02x %02x, Found: %02x %02x %02x %02x, Offset: %lx\n", i, SOMAGIC_FIRMWARE_CRC32[i][0], SOMAGIC_FIRMWARE_CRC32[i][1], SOMAGIC_FIRMWARE_CRC32[i][2], SOMAGIC_FIRMWARE_CRC32[i][3], digest[0], digest[1], digest[2], digest[3], (pos - 4));
 				#endif 
 				if (memcmp(digest, SOMAGIC_FIRMWARE_CRC32[i], 4) == 0) {
 					/* CRC32 matched */
@@ -208,6 +217,7 @@ int main(int argc, char **argv)
 						return 1;
 					}
 			  		fprintf(stderr, "Firmware written to '%s'.\n", firmware_path);
+					break;
 				} else {
 					/* False positive, return to previous file position and keep looking */
 					ret = fseek(infile, pos, SEEK_SET);
