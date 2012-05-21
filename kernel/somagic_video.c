@@ -268,7 +268,7 @@ static int alloc_frame_buffer(struct usb_somagic *somagic,
 	int i;
 	
 	// HARDCODED
-	somagic->video.max_frame_size = PAGE_ALIGN(720 * 2 * 288);
+	somagic->video.max_frame_size = PAGE_ALIGN(SOMAGIC_BYTES_PER_LINE * 288);
 	somagic->video.num_frames = number_of_frames;
 
 	while (somagic->video.num_frames > 0) {
@@ -582,7 +582,8 @@ static int vidioc_querybuf(struct file *file, void *priv,
 		}
 	}
 	vb->memory = V4L2_MEMORY_MMAP;
-	vb->m.offset = vb->index * PAGE_ALIGN(somagic->video.max_frame_size);
+	/* HARDCODED */
+	vb->m.offset = vb->index * PAGE_ALIGN(288 * SOMAGIC_BYTES_PER_LINE); //PAGE_ALIGN(somagic->video.max_frame_size);
 	switch (frame->field) {
 		case FIELD_TOP : {
 			vb->field = V4L2_FIELD_TOP;
@@ -596,7 +597,8 @@ static int vidioc_querybuf(struct file *file, void *priv,
 			vb->field = SOMAGIC_PIX_FMT_FIELD;
 		}
 	}
-	vb->length = somagic->video.max_frame_size; //frame->length; //720 * 2 * 627 * 2;
+	/* HARDCODED */
+	vb->length = PAGE_ALIGN(288 * SOMAGIC_BYTES_PER_LINE); // somagic->video.max_frame_size; //frame->length; //720 * 2 * 627 * 2;
 	vb->timestamp = frame->timestamp;
 	vb->sequence = frame->sequence;
 
@@ -695,7 +697,8 @@ static int vidioc_dqbuf(struct file *file, void *priv,
 		}
 	}
 	vb->bytesused = f->length;
-	vb->length = somagic->video.max_frame_size;
+	/* HARDCODED */
+	vb->length = PAGE_ALIGN(288 * SOMAGIC_BYTES_PER_LINE); // somagic->video.max_frame_size;
 
 	return 0;
 }
@@ -757,13 +760,13 @@ static int vidioc_g_fmt_vid_cap(struct file *file, void *priv,
 
 	printk(KERN_ERR "somagic:: %s Called\n", __func__);
 
-	pix->width = SOMAGIC_LINE_WIDTH; 
-	// HARDCODED, should be a format struct with this info.
+	/* HARDCODED */
+	pix->width = 720; //SOMAGIC_LINE_WIDTH; 
 	pix->height = 576; //somagic->video.field_lines; //2 * somagic->video.field_lines;
 	pix->pixelformat = V4L2_PIX_FMT_UYVY;
 	pix->field = SOMAGIC_PIX_FMT_FIELD;
 	pix->bytesperline = SOMAGIC_BYTES_PER_LINE;
-	pix->sizeimage = somagic->video.frame_size;
+	pix->sizeimage = 2 * 576 * 720; //288 * SOMAGIC_LINE_WIDTH; //somagic->video.frame_size;
 	pix->colorspace = SOMAGIC_PIX_FMT_COLORSPACE;
 	return 0;
 }
@@ -781,12 +784,13 @@ static int vidioc_try_fmt_vid_cap(struct file *file, void *priv,
 					 __func__, pix->field);
 		return -EINVAL;
 	}
-
-	if (pix->sizeimage != somagic->video.frame_size) {
+/*
+	if (pix->sizeimage != (288 * SOMAGIC_LINE_WIDTH)) { //somagic->video.max_frame_size) {
 		printk(KERN_INFO "somagic::%s: Tried to set sizeimage member to: %d\n",
 					 __func__, pix->sizeimage);
 		return -EINVAL;
 	}
+*/
 	return 0;
 }
 
@@ -1090,7 +1094,7 @@ static struct video_device somagic_video_template = {
 	.release = video_device_release,
 	.tvnorms = SOMAGIC_NORMS,   														// Supported TV Standards
 	.vfl_type = VFL_TYPE_GRABBER,
-//	.debug = V4L2_DEBUG_IOCTL | V4L2_DEBUG_IOCTL_ARG
+	.debug = V4L2_DEBUG_IOCTL | V4L2_DEBUG_IOCTL_ARG
 };
 
 /*****************************************************************************/
