@@ -48,8 +48,8 @@
 #define PRODUCT_COUNT 3
 static const unsigned char SOMAGIC_FIRMWARE_CRC32[PRODUCT_COUNT][4] = {
 	{'\x34', '\x89', '\xf7', '\x7b'}, 
-	{'\x9d', '\x91', '\x8a', '\x92'},
-	{'\xea', '\x90', '\x14', '\xa9'}
+	{'\x1f', '\xfe', '\xde', '\xbb'}, 
+	{'\x60', '\x1d', '\x37', '\x5f'}
 };
 #define VENDOR 0x1c88
 #define ORIGINAL_PRODUCT 0x0007
