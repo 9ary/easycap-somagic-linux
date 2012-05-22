@@ -262,26 +262,27 @@ static void rvfree(void *mem, unsigned long size)
  * but if we don't have the memory we decrease by 
  * one frame and try again.
  */
-static int alloc_frame_buffer(struct usb_somagic *somagic,
-                                   int number_of_frames)
+static int alloc_frame_buffer(struct usb_somagic *somagic, int frame_count)
 {
 	int i;
-	
-	// HARDCODED
-	somagic->video.max_frame_size = PAGE_ALIGN(SOMAGIC_BYTES_PER_LINE * 288);
-	somagic->video.num_frames = number_of_frames;
+	int buf_size;
 
-	while (somagic->video.num_frames > 0) {
-		somagic->video.frame_buf_size = somagic->video.num_frames *
-				somagic->video.max_frame_size;
+	/* HARDCODED */
+	int frame_size = PAGE_ALIGN(1440 * 2 * 288); // 576 Lines of PAL
 
-		somagic->video.frame_buf = rvmalloc(somagic->video.frame_buf_size);
+	while (frame_count > 0) {
+		buf_size = frame_count * frame_size;
+
+		somagic->video.frame_buf = rvmalloc(buf_size);
 		if (somagic->video.frame_buf) {
 			// Success, we managed to allocate a frame buffer
 			break;
 		}
-		somagic->video.num_frames--;
+		frame_count--;
 	}
+
+	somagic->video.available_frames = frame_count;
+	somagic->video.cur_frame_size = frame_size;
 
 	// Initialize locks and waitqueue
 	spin_lock_init(&somagic->video.queue_lock);
@@ -289,23 +290,29 @@ static int alloc_frame_buffer(struct usb_somagic *somagic,
 	init_waitqueue_head(&somagic->video.wait_stream);
 
 	// Setup the frames
-	for (i = 0; i < somagic->video.num_frames; i++) {
+	for (i = 0; i < somagic->video.available_frames; i++) {
 		somagic->video.frame[i].index = i;	
 		somagic->video.frame[i].grabstate = FRAME_STATE_UNUSED;
-		somagic->video.frame[i].data = somagic->video.frame_buf + 
-			(i * somagic->video.max_frame_size);
+		somagic->video.frame[i].data = somagic->video.frame_buf + frame_size;
 	}
 
-	return somagic->video.num_frames;
+	return somagic->video.available_frames;
 }
 
 static void free_frame_buffer(struct usb_somagic *somagic)
 {
-	if (somagic->video.frame_buf != NULL) {
-		rvfree(somagic->video.frame_buf, somagic->video.frame_buf_size);
-		somagic->video.frame_buf = NULL;
+	int i;
+	int frame_size = somagic->video.cur_frame_size;
+	int buf_size = somagic->video.available_frames * frame_size;
 
-		somagic->video.num_frames = 0;
+	for (i=0; i< somagic->video.available_frames; i++) {
+		somagic->video.frame[i].data = NULL;
+	}
+
+	if (somagic->video.frame_buf != NULL) {
+		rvfree(somagic->video.frame_buf, buf_size);
+		somagic->video.frame_buf = NULL;
+		somagic->video.available_frames = 0;
 	}
 }
 
@@ -315,7 +322,7 @@ static void reset_frame_buffer(struct usb_somagic *somagic)
 	INIT_LIST_HEAD(&(somagic->video.inqueue));
 	INIT_LIST_HEAD(&(somagic->video.outqueue));
 
-	for (i = 0; i < somagic->video.num_frames; i++) {
+	for (i = 0; i < somagic->video.available_frames; i++) {
 		somagic->video.frame[i].grabstate = FRAME_STATE_UNUSED;
 		somagic->video.frame[i].bytes_read = 0;	
 	}
@@ -536,8 +543,8 @@ static int vidioc_reqbufs(struct file *file, void *priv,
 
 	if (vr->count < 2) {
 		vr->count = 2;
-	} else if (vr->count > SOMAGIC_NUM_FRAMES) {
-		vr->count = SOMAGIC_NUM_FRAMES;
+	} else if (vr->count > SOMAGIC_NUM_MAX_FRAMES) {
+		vr->count = SOMAGIC_NUM_MAX_FRAMES;
 	}
 
 	free_frame_buffer(somagic);
@@ -560,7 +567,7 @@ static int vidioc_querybuf(struct file *file, void *priv,
 
 	// printk(KERN_ERR "somagic:: %s Called\n", __func__);
 
-	if (vb->index >= somagic->video.num_frames) {
+	if (vb->index >= somagic->video.available_frames) {
 		return -EINVAL;
 	}
 
@@ -582,8 +589,7 @@ static int vidioc_querybuf(struct file *file, void *priv,
 		}
 	}
 	vb->memory = V4L2_MEMORY_MMAP;
-	/* HARDCODED */
-	vb->m.offset = vb->index * PAGE_ALIGN(288 * SOMAGIC_BYTES_PER_LINE); //PAGE_ALIGN(somagic->video.max_frame_size);
+	vb->m.offset = vb->index * somagic->video.cur_frame_size;
 	switch (frame->field) {
 		case FIELD_TOP : {
 			vb->field = V4L2_FIELD_TOP;
@@ -597,8 +603,7 @@ static int vidioc_querybuf(struct file *file, void *priv,
 			vb->field = SOMAGIC_PIX_FMT_FIELD;
 		}
 	}
-	/* HARDCODED */
-	vb->length = PAGE_ALIGN(288 * SOMAGIC_BYTES_PER_LINE); // somagic->video.max_frame_size; //frame->length; //720 * 2 * 627 * 2;
+	vb->length = somagic->video.cur_frame_size;
 	vb->timestamp = frame->timestamp;
 	vb->sequence = frame->sequence;
 
@@ -615,7 +620,7 @@ static int vidioc_qbuf(struct file *file, void *priv,
 
 	// printk(KERN_ERR "somagic:: %s Called\n", __func__);
 	
-	if (vb->index >= somagic->video.num_frames) {
+	if (vb->index >= somagic->video.available_frames) {
 		printk(KERN_ERR "somagic::%s: Request for invalid frame number %d",
 					 __func__, vb->index);
 		return -EINVAL;
@@ -697,8 +702,7 @@ static int vidioc_dqbuf(struct file *file, void *priv,
 		}
 	}
 	vb->bytesused = f->length;
-	/* HARDCODED */
-	vb->length = PAGE_ALIGN(288 * SOMAGIC_BYTES_PER_LINE); // somagic->video.max_frame_size;
+	vb->length = somagic->video.cur_frame_size;
 
 	return 0;
 }
@@ -719,6 +723,10 @@ static int vidioc_streamon(struct file *file, void *priv, enum v4l2_buf_type i)
 	return 0;
 }
 
+/* TODO:
+ * Make sure we pass all buffers back to userspace
+ * when vidioc_streamoff is called!
+ */
 static int vidioc_streamoff(struct file *file, void *priv, enum v4l2_buf_type type)
 {
 	struct usb_somagic *somagic = video_drvdata(file);
@@ -842,23 +850,18 @@ static int somagic_v4l2_close(struct file *file)
 	struct usb_somagic *somagic = video_drvdata(file);
 	somagic->video.open_instances--;
 
-
 	if (!somagic->video.open_instances) {
-		somagic_stop_stream(somagic);
-		free_frame_buffer(somagic);
-		somagic->video.cur_frame = NULL;
-
 		spin_lock_irqsave(&somagic->streaming_flags_lock, lock_flags);
 		somagic->streaming_flags &= ~SOMAGIC_STREAMING_CAPTURE_VIDEO;
 		spin_unlock_irqrestore(&somagic->streaming_flags_lock, lock_flags);
 		somagic_stop_stream(somagic);
 
+		free_frame_buffer(somagic);
+		somagic->video.cur_frame = NULL;
+
 		somagic->video.cur_sequence = 0;
 		somagic->video.cur_sync_state = SYNC_STATE_SEARCHING;
 	}
-
-	printk(KERN_INFO "somagic::%s: %d open instances\n",
-         __func__, somagic->video.open_instances);
 
 	return 0;
 }
@@ -896,11 +899,11 @@ static ssize_t somagic_v4l2_read(struct file *file, char __user *buf,
 	/* We setup the frames, just like a regular v4l2 call to vidioc_reqbufs
    * would do
    */
-	if (!somagic->video.num_frames) {
+	if (!somagic->video.available_frames) {
 		somagic->video.cur_read_frame = NULL;
 		free_frame_buffer(somagic);
 		reset_frame_buffer(somagic);
-		alloc_frame_buffer(somagic, SOMAGIC_NUM_FRAMES);
+		alloc_frame_buffer(somagic, SOMAGIC_NUM_MAX_FRAMES);
 		printk(KERN_INFO "somagic::%s: Allocated frames!\n", __func__);
 	}
 
@@ -912,7 +915,7 @@ static ssize_t somagic_v4l2_read(struct file *file, char __user *buf,
 	somagic_start_stream(somagic);
 
 	// Enqueue Videoframes
-	for (i = 0; i < somagic->video.num_frames; i++) {
+	for (i = 0; i < somagic->video.available_frames; i++) {
 		frame = &somagic->video.frame[i];
 
 		if (frame->grabstate == FRAME_STATE_UNUSED) {
@@ -1004,23 +1007,23 @@ static int somagic_v4l2_mmap(struct file *file, struct vm_area_struct *vma)
 	printk(KERN_ERR "somagic:: %s Called\n", __func__);
 
 	if (!(vma->vm_flags & VM_WRITE) ||
-			size != PAGE_ALIGN(somagic->video.max_frame_size)) {
+			size != PAGE_ALIGN(somagic->video.cur_frame_size)) {
 
 		printk(KERN_ERR "somagic::%s: VM_Write not set Or wrong size!\n"\
 										"max_frame_size=%d, size=%ld",
-										__func__, somagic->video.max_frame_size, size);
+										__func__, somagic->video.cur_frame_size, size);
 		
 		return -EFAULT;
 	}
 
-	for (i = 0; i < somagic->video.num_frames; i++) {
-		if (((PAGE_ALIGN(somagic->video.max_frame_size)*i) >> PAGE_SHIFT) ==
+	for (i = 0; i < somagic->video.available_frames; i++) {
+		if (((PAGE_ALIGN(somagic->video.cur_frame_size)*i) >> PAGE_SHIFT) ==
 				vma->vm_pgoff) {
 			break;
 		}
 	}
 
-	if (i == somagic->video.num_frames) {
+	if (i == somagic->video.available_frames) {
 		printk(KERN_ERR "somagic::%s: mmap:" \
 										"user supplied mapping address is out of range!\n",
 					 __func__ );
@@ -1094,7 +1097,7 @@ static struct video_device somagic_video_template = {
 	.release = video_device_release,
 	.tvnorms = SOMAGIC_NORMS,   														// Supported TV Standards
 	.vfl_type = VFL_TYPE_GRABBER,
-	.debug = V4L2_DEBUG_IOCTL | V4L2_DEBUG_IOCTL_ARG
+//	.debug = V4L2_DEBUG_IOCTL | V4L2_DEBUG_IOCTL_ARG
 };
 
 /*****************************************************************************/
@@ -1110,6 +1113,7 @@ static struct video_device somagic_video_template = {
  */
 static int parse_field(struct usb_somagic *somagic)
 {
+	int i;
 	struct somagic_frame *frame = somagic->video.cur_frame;
 	int look_ahead_ptr;
 	u8 data;
@@ -1232,15 +1236,28 @@ static int parse_field(struct usb_somagic *somagic)
 				scratch_get(somagic, unused, 4);
 			}
 		
-			if (frame->length + 1440 > somagic->video.max_frame_size) {
+			if (frame->length + (1440 * 2) > somagic->video.cur_frame_size) {
 				printk(KERN_WARNING "somagic::%s: Forced dump of current frame, "
 							 "not room for %d, more bytes in the buffer",
-							 __func__, 1440);
+							 __func__, (1440 * 2));
 				return 1;
+			}
+			if (line_field == FIELD_BOTTOM) {
+				for (i = 0; i < 720; i++) {
+					frame->data[frame->length++] = 0x80;	
+					frame->data[frame->length++] = 0x00;	
+				}
 			}
 			scratch_get(somagic, frame->data + frame->length, 1440);
 			frame->length += 1440;
 			held_sync++;
+
+			if (line_field == FIELD_TOP) {
+				for (i = 0; i < 720; i++) {
+					frame->data[frame->length++] = 0x80;	
+					frame->data[frame->length++] = 0x00;	
+				}
+			}
 
 			scratch_get(somagic, check, 4);
 			if (check[0] != 0xff || check[1] != 0x00 || check[2] != 0x00) {

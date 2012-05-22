@@ -97,7 +97,7 @@
 #define SOMAGIC_ACK_READY_FOR_FIRMWARE 0x0701
 
 #define SOMAGIC_NORMS (V4L2_STD_PAL | V4L2_STD_NTSC) // | V4L2_STD_SECAM | V4L2_STD_PAL_M) 
-#define SOMAGIC_NUM_FRAMES 4				/* Maximum number of v4l2_buffers supported */
+#define SOMAGIC_NUM_MAX_FRAMES 4				/* Maximum number of v4l2_buffers supported */
 
 #define SOMAGIC_SCRATCH_BUF_SIZE 0x21000 // 132kB  //0x18000 // 96Kb //0x20000 // 128kB
 
@@ -158,7 +158,7 @@ struct somagic_isoc_buffer {
 
 struct somagic_frame {
 	char *data;                   /* Video data buffer */
-	int length;                   /* Size of buffer */
+	int length;                   /* Amount of data stored in buffer */
 	int index;                    /* Frame index */
 
 	struct list_head list_index;  /* linked_list index */
@@ -209,9 +209,8 @@ struct somagic_video {
 	/* v4l2 Frame buffer handling */
 	spinlock_t queue_lock;                /* Protecting inqueue and outqueue */
 	struct list_head inqueue, outqueue;   /* Frame lists */
-	int max_frame_size;
-	int num_frames;
-	int frame_buf_size;
+
+	int cur_frame_size;
 	char *frame_buf;                      /* Main video buffer */
 	wait_queue_head_t wait_frame;         /* Waiting for completion of frame */
 	wait_queue_head_t wait_stream;        /* Processes waiting */
@@ -219,7 +218,8 @@ struct somagic_video {
 	struct tasklet_struct process_video;
 
 	struct somagic_frame *cur_frame;      /* Pointer to frame beeing filled */
-	struct somagic_frame frame[SOMAGIC_NUM_FRAMES];
+	struct somagic_frame frame[SOMAGIC_NUM_MAX_FRAMES];
+	int available_frames;
 
 	/* Make sure two fields get same sequence & timestamp */
 	struct timeval cur_ts;
