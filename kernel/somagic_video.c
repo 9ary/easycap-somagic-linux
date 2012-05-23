@@ -1251,7 +1251,7 @@ static int parse_field(struct usb_somagic *somagic)
 			if (line_field == FIELD_BOTTOM) {
 				for (i = 0; i < 720; i++) {
 					frame->data[frame->length++] = 0x80;	
-					frame->data[frame->length++] = 0x00;	
+					frame->data[frame->length++] = 0x00;
 				}
 			}
 			scratch_get(somagic, frame->data + frame->length, 1440);

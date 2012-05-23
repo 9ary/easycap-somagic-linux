@@ -116,26 +116,12 @@ enum somagic_inputs {
 	INPUT_MANY
 };
 
-enum {
-//	FRAME_STATE_GRABBING,				/* ??? */
+enum frame_state {
 	FRAME_STATE_UNUSED,				/* Frame is mapped to user space */
 	FRAME_STATE_READY,				/* Frame in Ingoing Queue */
 	FRAME_STATE_DONE,				/* Frame in Outgoing Queue */
-//	FRAME_STATE_ERROR				/* An error occured */
 };
 
-enum parse_state {
-	PARSE_STATE_OUT,
-	PARSE_STATE_CONTINUE,
-	PARSE_STATE_NEXT_FRAME,
-	PARSE_STATE_END_OF_PARSE
-};
-
-enum line_sync_state {
-	HSYNC,
-	SYNCZ1,
-	SYNCZ2,
-	SYNCAV
 enum process_state {
 	PROCESS_STOPPED,
 	PROCESS_IDLE,
@@ -145,7 +131,6 @@ enum process_state {
 
 enum sync_state {
 	SYNC_STATE_SEARCHING,
-	SYNC_STATE_UNSTABLE,
 	SYNC_STATE_STABLE
 };
 
@@ -172,11 +157,10 @@ struct somagic_frame {
 	int sequence;                 /* Sequence number of frame, for user space  */
 	struct timeval timestamp;     /* Time, when frame was captured */
 
-	volatile int grabstate;       /* Frame Flags - Done, Queued , etc. */
+	volatile enum frame_state grabstate;       /* Frame Flags - Done, Queued , etc. */
 
 	/* Used by parser */
 	enum frame_field field;
-	enum line_sync_state line_sync;
 };
 
 struct somagic_audio {
@@ -197,7 +181,7 @@ struct somagic_video {
 	struct v4l2_device v4l2_dev;
 	struct video_device *vdev;            /* This is the actual V4L2 Device */
 
-	struct mutex v4l2_lock;						
+	struct mutex v4l2_lock;
 	unsigned int nr;                      /* Dev number */
 
 	/* Scratch-space for storing raw SAA7113 Data */
@@ -206,10 +190,8 @@ struct somagic_video {
 	int scratch_write_ptr;
 
 	unsigned int open_instances;
-	u8 setup_sent;
 
 	volatile enum sync_state cur_sync_state;
-	volatile u8 prev_field;	
 	volatile enum process_state cur_process_state;
 
 	/* v4l2 Frame buffer handling */
@@ -237,7 +219,13 @@ struct somagic_video {
 	/* PAL/NTSC toggle handling */
 	v4l2_std_id cur_std;		/* Current Video standard NTSC/PAL */
 	u16 field_lines;				/* Lines per field NTSC:244/243 PAL:288 */
+
+	/* DEPRECATED
+   * Used in somagic_dev.c,
+   * consider move/rename/delete
+   */
 	int frame_size;					/* Size of one completed frame */
+	u8 setup_sent;
 
 	/* Input selection */
 	enum somagic_inputs cur_input;
