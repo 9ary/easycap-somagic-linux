@@ -709,11 +709,16 @@ static int vidioc_dqbuf(struct file *file, void *priv,
 
 static int vidioc_streamon(struct file *file, void *priv, enum v4l2_buf_type i)
 {
-	struct usb_somagic *somagic = video_drvdata(file);
 	unsigned long lock_flags;
+	struct usb_somagic *somagic = video_drvdata(file);
+	
+	printk(KERN_INFO "somagic::%s Called\n", __func__);
 
 	somagic->video.cur_frame = NULL;
+	somagic->video.cur_sequence = 0;
 	somagic->video.cur_sync_state = SYNC_STATE_SEARCHING;
+	somagic->video.cur_process_state = PROCESS_RUNNING;
+
 	scratch_reset(somagic);
 	spin_lock_irqsave(&somagic->streaming_flags_lock, lock_flags);
 	somagic->streaming_flags |= SOMAGIC_STREAMING_CAPTURE_VIDEO;
@@ -723,23 +728,24 @@ static int vidioc_streamon(struct file *file, void *priv, enum v4l2_buf_type i)
 	return 0;
 }
 
-/* TODO:
- * Make sure we pass all buffers back to userspace
- * when vidioc_streamoff is called!
- */
 static int vidioc_streamoff(struct file *file, void *priv, enum v4l2_buf_type type)
 {
-	struct usb_somagic *somagic = video_drvdata(file);
 	unsigned long lock_flags;
+	struct usb_somagic *somagic = video_drvdata(file);
 
-	printk(KERN_ERR "somagic:: %s Called\n", __func__);
+	printk(KERN_INFO "somagic::%s Called\n", __func__);
+
+	somagic->video.cur_process_state = PROCESS_INTERRUPT;
+	wait_event_timeout(somagic->video.wait_stream,
+										 (somagic->video.cur_process_state == PROCESS_IDLE),
+										 msecs_to_jiffies(64));
+
+	reset_frame_buffer(somagic);
+				
 	spin_lock_irqsave(&somagic->streaming_flags_lock, lock_flags);
 	somagic->streaming_flags &= ~SOMAGIC_STREAMING_CAPTURE_VIDEO;
 	spin_unlock_irqrestore(&somagic->streaming_flags_lock, lock_flags);
 	somagic_stop_stream(somagic);
-
-	somagic->video.cur_sequence = 0;
-	somagic->video.cur_sync_state = SYNC_STATE_SEARCHING;
 
 	return 0;
 }
@@ -1302,8 +1308,10 @@ static void process_video(unsigned long somagic_addr)
 
 	// We check if we have a v4l2_framebuffer to fill!
 	f = &somagic->video.cur_frame;
-	while (scratch_len(somagic) > 0x400 && !list_empty(&(somagic->video.inqueue))) {
-		
+	while (somagic->video.cur_process_state == PROCESS_RUNNING
+				 && scratch_len(somagic) > 0x400
+				 && !list_empty(&(somagic->video.inqueue))) {
+	
 		if (!(*f)) { // cur_frame == NULL
 			(*f) = list_entry(somagic->video.inqueue.next,
 												struct somagic_frame, list_index);
@@ -1337,6 +1345,14 @@ static void process_video(unsigned long somagic_addr)
 				wake_up_interruptible(&somagic->video.wait_frame);
 			}
 		}
+	}
+
+	if (somagic->video.cur_process_state == PROCESS_INTERRUPT) {
+		somagic->video.cur_process_state = PROCESS_IDLE;
+		if (!(*f)) {
+			(*f)->grabstate = FRAME_STATE_DONE;
+		}
+		wake_up_interruptible(&somagic->video.wait_stream);
 	}
 
 /* DEBUG

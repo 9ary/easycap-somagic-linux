@@ -136,6 +136,11 @@ enum line_sync_state {
 	SYNCZ1,
 	SYNCZ2,
 	SYNCAV
+enum process_state {
+	PROCESS_STOPPED,
+	PROCESS_IDLE,
+	PROCESS_RUNNING,
+	PROCESS_INTERRUPT
 };
 
 enum sync_state {
@@ -205,6 +210,7 @@ struct somagic_video {
 
 	volatile enum sync_state cur_sync_state;
 	volatile u8 prev_field;	
+	volatile enum process_state cur_process_state;
 
 	/* v4l2 Frame buffer handling */
 	spinlock_t queue_lock;                /* Protecting inqueue and outqueue */
