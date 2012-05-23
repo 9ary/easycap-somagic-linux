@@ -56,12 +56,12 @@ static const int PRODUCT[PRODUCT_COUNT] = {
 };
 #define MIN(a, b) (((a) < (b)) ? (a) : (b))
 
-int frames_generated = 0;
-int stop_sending_requests = 0;
-int pending_requests = 0;
-int lines_per_field;
+static int frames_generated = 0;
+static int stop_sending_requests = 0;
+static int pending_requests = 0;
+static int lines_per_field;
 
-struct libusb_device_handle *devh;
+static struct libusb_device_handle *devh;
 
 enum tv_standards {
 	NTSC,         /* 525/60 */
@@ -81,48 +81,48 @@ enum tv_standards {
 
 /* Options */
 /* Control the number of frames to generate: -1 = unlimited (default) */
-int frame_count = -1;
+static int frame_count = -1;
 
 /* Television standard (see tv_standards) */
-int tv_standard = PAL;
+static int tv_standard = PAL;
 
 /* Input select (see Input types) */
-int input_type = CVBS;
+static int input_type = CVBS;
 
 /* Luminance mode (CVBS only): 0 = 4.1 MHz, 1 = 3.8 MHz, 2 = 2.6 MHz, 3 = 2.9 MHz */
-int luminance_mode = 0;
+static int luminance_mode = 0;
 
 /* Luminance prefilter: 0 = bypassed, 1 = active */
-int luminance_prefilter = 0;
+static int luminance_prefilter = 0;
 
 /* Hue phase in degrees: -128 to 127 (-180 to 178.59375), increments of 1.40625 degrees */
-uint8_t hue = 0;
+static uint8_t hue = 0;
 
 /* Chrominance saturation: -128 to 127 (1.984375 to -2.000000), increments of 0.015625 */
-uint8_t saturation = 64;
+static uint8_t saturation = 64;
 
 /* Luminance contrast: -128 to 127 (1.984375 to -2.000000), increments of 0.015625 */
-uint8_t contrast = 71;
+static uint8_t contrast = 71;
 
 /* Luminance brightness: 0 to 255 */
-uint8_t brightness = 128;
+static uint8_t brightness = 128;
 
 /* Luminance aperture factor: 0 = 0, 1 = 0.25, 2 = 0.5, 3 = 1.0 */
-int luminance_aperture = 1;
+static int luminance_aperture = 1;
 
-/* Video sync and processing algorithm: 1 (Tony Brown), 2 (Michal Demin) */ 
-int sync_algorithm = 2;
+/* Video sync and processing algorithm: 1 (Tony Brown), 2 (Michal Demin) */
+static int sync_algorithm = 2;
 
 /* Video output file descriptor: 1 = stdout (default) */
-int video_fd = 1; 
+static int video_fd = 1;
 
 /* Control the number of concurrent ISO transfers we have running */
-int num_iso_transfers = 4;
+static int num_iso_transfers = 4;
 
-/* Test-only mode (no capture): 0 = capture, 1 = test-only */ 
-int test_only = 0;
+/* Test-only mode (no capture): 0 = capture, 1 = test-only */
+static int test_only = 0;
 
-void release_usb_device(int ret)
+static void release_usb_device(int ret)
 {
 	fprintf(stderr, "Emergency exit\n");
 	ret = libusb_release_interface(devh, 0);
@@ -134,7 +134,7 @@ void release_usb_device(int ret)
 	exit(1);
 }
 
-struct libusb_device *find_device(int vendor, int product)
+static struct libusb_device *find_device(int vendor, int product)
 {
 	struct libusb_device **list;
 	struct libusb_device *dev = NULL;
@@ -156,7 +156,7 @@ struct libusb_device *find_device(int vendor, int product)
 	return dev;
 }
 
-void print_bytes(unsigned char *bytes, int len)
+static void print_bytes(unsigned char *bytes, int len)
 {
 	int i;
 	if (len > 0) {
@@ -171,7 +171,8 @@ void print_bytes(unsigned char *bytes, int len)
 	}
 }
 
-void print_bytes_only(char *bytes, int len)
+#ifdef DEBUG
+static void print_bytes_only(char *bytes, int len)
 {
 	int i;
 	if (len > 0) {
@@ -183,9 +184,10 @@ void print_bytes_only(char *bytes, int len)
 		}
 	}
 }
+#endif
 
 #ifdef DEBUG
-void trace()
+static void trace()
 {
 	void *array[10];
 	size_t size;
@@ -203,7 +205,7 @@ void trace()
  * Write a number of bytes from the iso transfer buffer to the appropriate line and field of the frame buffer.
  * Returns the number of bytes actually used from the buffer
  */
-int write_buffer(unsigned char *data, unsigned char *end, int count, unsigned char *frame, int line, int field)
+static int write_buffer(unsigned char *data, unsigned char *end, int count, unsigned char *frame, int line, int field)
 {
 	int dowrite;
 	int line_pos;
@@ -241,7 +243,7 @@ struct alg1_video_state_t {
 
 static struct alg1_video_state_t alg1_vs = { .line_remaining = 0, .active_line_count = 0, .vblank_found = 0, .field = 0, .state = HSYNC, .frame = { 0 } };
 
-void alg1_process(struct alg1_video_state_t *vs, unsigned char *buffer, int length)
+static void alg1_process(struct alg1_video_state_t *vs, unsigned char *buffer, int length)
 {
 	unsigned char *next = buffer;
 	unsigned char *end = buffer + length;
@@ -323,7 +325,7 @@ void alg1_process(struct alg1_video_state_t *vs, unsigned char *buffer, int leng
 					next++;
 					break;
 				}
-				
+
 				/*
 				 * H = Bit 4 (mask 0x10).
 				 * 0: in SAV, 1: in EAV.
@@ -355,7 +357,6 @@ void alg1_process(struct alg1_video_state_t *vs, unsigned char *buffer, int leng
 								if (frames_generated >= frame_count && frame_count != -1) {
 									stop_sending_requests = 1;
 								}
-								
 							}
 							vs->vblank_found = 0;
 						}
@@ -414,7 +415,7 @@ static void alg2_put_data(struct alg2_video_state_t *vs, uint8_t c)
 	int line_pos;
 
 	line_pos = (2 * vs->line + vs->field) * (720 * 2) + vs->col;
-	vs->col ++;
+	vs->col++;
 
 	/* sanity check */
 	if (vs->col > 720 * 2)
@@ -516,7 +517,6 @@ static void alg2_process(struct alg2_video_state_t *vs, uint8_t c)
 					write(video_fd, vs->frame, 720 * 2 * lines_per_field * 2);
 					frames_generated++;
 				}
-				
 				if (frames_generated >= frame_count && frame_count != -1) {
 					stop_sending_requests = 1;
 				}
@@ -530,7 +530,7 @@ static void alg2_process(struct alg2_video_state_t *vs, uint8_t c)
 	}
 }
 
-void gotdata(struct libusb_transfer *tfr)
+static void gotdata(struct libusb_transfer *tfr)
 {
 	int ret;
 	int num = tfr->num_iso_packets;
@@ -549,7 +549,7 @@ void gotdata(struct libusb_transfer *tfr)
 
 		while (pos < length) {
 			/*
-			 * Within each packet of the transfer, the video data is divided 
+			 * Within each packet of the transfer, the video data is divided
 			 * into blocks of 0x400 bytes beginning with [0xaa 0xaa 0x00 0x00].
 			 * Check for this signature and process each block of data individually.
 			 */
@@ -623,7 +623,7 @@ static int somagic_write_i2c(uint8_t dev_addr, uint8_t reg, uint8_t val)
 	return ret;
 }
 
-void version()
+static void version()
 {
 	fprintf(stderr, PROGRAM_NAME" "VERSION"\n");
 	fprintf(stderr, "Copyright 2011, 2012 Tony Brown, Michal Demin, Jeffry Johnston,\n");
@@ -633,7 +633,7 @@ void version()
 	fprintf(stderr, "There is NO WARRANTY, to the extent permitted by law.\n");
 }
 
-void usage()
+static void usage()
 {
 	fprintf(stderr, "Usage: "PROGRAM_NAME" [options]\n");
 	fprintf(stderr, "  -B, --brightness=VALUE     Luminance brightness control,\n");
@@ -723,16 +723,16 @@ int main(int argc, char **argv)
 {
 	int ret;
 	int i = 0;
-	uint8_t work; 
+	uint8_t work;
 	struct libusb_device *dev;
 
 	/* buffer for control messages */
 	unsigned char buf[65535];
-	
+
 	/* buffers and transfer pointers for isochronous data */
 	struct libusb_transfer **tfr;
 	unsigned char (*isobuf)[64 * 3072];
-	
+
 	/* parsing */
 	int c;
 	int option_index = 0;
@@ -774,7 +774,7 @@ int main(int argc, char **argv)
 		}
 		switch (c) {
 		case 0:
-			switch (option_index) {	
+			switch (option_index) {
 			case 0: /* --help */
 				usage();
 				return 0;
@@ -839,7 +839,7 @@ int main(int argc, char **argv)
 			case 15: /* --vo */
 				video_fd = open(optarg, O_CREAT | O_WRONLY | O_TRUNC, S_IRUSR | S_IWUSR | S_IRGRP | S_IROTH);
 				if (video_fd == -1) {
-					fprintf(stderr, "%s: Error opening video output file '%s': %s\n", argv[0], optarg, strerror(errno));
+					fprintf(stderr, "%s: Failed to open video output file '%s': %s\n", argv[0], optarg, strerror(errno));
 					return 1;
 				}
 				break;
@@ -917,11 +917,11 @@ int main(int argc, char **argv)
 		if (dev) {
 			break;
 		}
-	}	
+	}
 	if (p >= PRODUCT_COUNT) {
 		for (p = 0; p < PRODUCT_COUNT; p++) {
 			fprintf(stderr, "USB device %04x:%04x was not found.\n", VENDOR, PRODUCT[p]);
-		}	
+		}
 		fprintf(stderr, "Has device initialization been performed?\n");
 		return 1;
 	}
@@ -932,14 +932,17 @@ int main(int argc, char **argv)
 		return 1;
 	}
 	libusb_unref_device(dev);
-	
+
 	signal(SIGTERM, release_usb_device);
 	ret = libusb_claim_interface(devh, 0);
 	if (ret) {
-		fprintf(stderr, "Claim failed with error %d\n", ret);
+		perror("Failed to claim device interface");
+		if (ret == LIBUSB_ERROR_BUSY) {
+			fprintf(stderr, "Is "PROGRAM_NAME" already running?\n");
+		}
 		return 1;
 	}
-	
+
 	ret = libusb_set_interface_alt_setting(devh, 0, 0);
 	if (ret) {
 		perror("Failed to set active alternate setting for interface");
@@ -1037,25 +1040,25 @@ int main(int argc, char **argv)
 	work = 0xc0 | input_type;
 	somagic_write_i2c(0x4a, 0x02, work);
 
-	/* Subaddress 0x03, Analog input control 2 */ 
+	/* Subaddress 0x03, Analog input control 2 */
 	if (input_type != SVIDEO) {
 		/* Static gain control channel 1 (GAI18), sign bit of gain control = 1 */
 		/* Static gain control channel 2 (GAI28), sign bit of gain control = 1 */
 		/* Gain control fix (GAFIX) = Automatic gain controlled by MODE3 to MODE0 */
 		/* Automatic gain control integration (HOLDG) = AGC active */
-		/* White peak off (WPOFF) = White peak off */ 
+		/* White peak off (WPOFF) = White peak off */
 		/* AGC hold during vertical blanking period (VBSL) = Long vertical blanking (AGC disabled from start of pre-equalization pulses until start of active video (line 22 for 60 Hz, line 24 for 50 Hz) */
 		/* Normal clamping if decoder is in unlocked state */
-		somagic_write_i2c(0x4a, 0x03, 0x33); 
+		somagic_write_i2c(0x4a, 0x03, 0x33);
 	} else {
 		/* Static gain control channel 1 (GAI18), sign bit of gain control = 1 */
 		/* Static gain control channel 2 (GAI28), sign bit of gain control = 0 */
 		/* Gain control fix (GAFIX) = Automatic gain controlled by MODE3 to MODE0 */
 		/* Automatic gain control integration (HOLDG) = AGC active */
-		/* White peak off (WPOFF) = White peak off */ 
+		/* White peak off (WPOFF) = White peak off */
 		/* AGC hold during vertical blanking period (VBSL) = Long vertical blanking (AGC disabled from start of pre-equalization pulses until start of active video (line 22 for 60 Hz, line 24 for 50 Hz) */
 		/* Normal clamping if decoder is in unlocked state */
-		somagic_write_i2c(0x4a, 0x03, 0x31); 
+		somagic_write_i2c(0x4a, 0x03, 0x31);
 	}
 
 	/* Subaddress 0x04, Gain control analog/Analog input control 3 (AICO3); static gain control channel 1 GAI1 */
@@ -1074,7 +1077,7 @@ int main(int argc, char **argv)
 	/* Delay time (step size = 8/LLC) = Recommended value for raw data type */
 	somagic_write_i2c(0x4a, 0x07, 0x0d);
 
-	/* Subaddress 0x08, Sync control */ 
+	/* Subaddress 0x08, Sync control */
 	/* Automatic field detection (AUFD) = Automatic field detection */
 	/* Field selection (FSEL) = 50 Hz, 625 lines (Note: Ignored due to automatic field detection) */
 	/* Forced ODD/EVEN toggle FOET = ODD/EVEN signal toggles only with interlaced source */
@@ -1083,7 +1086,7 @@ int main(int argc, char **argv)
 	/* Vertical noise reduction (VNOI) = Normal mode (recommended setting) */
 	somagic_write_i2c(0x4a, 0x08, 0x98);
 
-	/* Subaddress 0x09, Luminance control */ 
+	/* Subaddress 0x09, Luminance control */
 	/* Update time interval for analog AGC value (UPTCV) = Horizontal update (once per line) */
 	/* Vertical blanking luminance bypass (VBLB) = Active luminance processing */
 	/* Chrominance trap bypass (BYPS) = Chrominance trap active; default for CVBS mode */
@@ -1103,7 +1106,7 @@ int main(int argc, char **argv)
 	somagic_write_i2c(0x4a, 0x0b, contrast);
 
 	/* Subaddress 0x0c, Chrominance saturation control */
-	somagic_write_i2c(0x4a, 0x0c, saturation); 
+	somagic_write_i2c(0x4a, 0x0c, saturation);
 
 	/* Subaddress 0x0d, Chrominance hue control */
 	somagic_write_i2c(0x4a, 0x0d, hue);
@@ -1161,7 +1164,7 @@ int main(int argc, char **argv)
 
 	/* Subaddress 0x12, RTS0 output control/Output control 2 */
 	/* RTS1 output control = 3-state, pin RTS1 is used as DOT input */
-	/* RTS0 output control = VIPB (subaddress 0x11, bit 1) = 0: reserved */ 
+	/* RTS0 output control = VIPB (subaddress 0x11, bit 1) = 0: reserved */
 	somagic_write_i2c(0x4a, 0x12, 0x01);
 
 	/* Subaddress 0x13, Output control 3 */
@@ -1286,7 +1289,8 @@ int main(int argc, char **argv)
 
 	ret = libusb_set_interface_alt_setting(devh, 0, 2);
 	if (ret != 0) {
-		fprintf(stderr, "192 set alternate setting returned %d\n", ret);
+		perror("Failed to activate alternate setting for interface");
+		return 1;
 	}
 
 	/* Disable sound - If this line is removed, we start to receive data with the header [0xaa 0xaa 0x00 0x01] */
@@ -1296,12 +1300,12 @@ int main(int argc, char **argv)
 	/* Allocate memory for tfr and isobuf */
 	tfr = malloc(num_iso_transfers * sizeof *tfr);
 	if (tfr == NULL) {
-		perror("Error allocating memory for tfr");
+		perror("Failed to allocate memory for tfr");
 		return 1;
 	}
 	isobuf = malloc(num_iso_transfers * sizeof *isobuf);
 	if (isobuf == NULL) {
-		perror("Error allocating memory for isobuf");
+		perror("Failed to allocate memory for isobuf");
 		return 1;
 	}
 
@@ -1309,28 +1313,28 @@ int main(int argc, char **argv)
 		for (i = 0; i < num_iso_transfers; i++)	{
 			tfr[i] = libusb_alloc_transfer(64);
 			if (tfr[i] == NULL) {
-				fprintf(stderr, "%s: Error allocating USB transfer #%d: %s\n", argv[0], i, strerror(errno));
+				fprintf(stderr, "%s: Failed to allocate USB transfer #%d: %s\n", argv[0], i, strerror(errno));
 				return 1;
 			}
 			libusb_fill_iso_transfer(tfr[i], devh, 0x00000082, isobuf[i], 64 * 3072, 64, gotdata, NULL, 2000);
 			libusb_set_iso_packet_lengths(tfr[i], 3072);
 		}
-	
+
 		pending_requests = num_iso_transfers;
 		for (i = 0; i < num_iso_transfers; i++) {
 			ret = libusb_submit_transfer(tfr[i]);
 			if (ret) {
-				fprintf(stderr, "%s: Error submitting request #%d for transfer: %s\n", argv[0], i, strerror(errno));
+				fprintf(stderr, "%s: Failed to submit request #%d for transfer: %s\n", argv[0], i, strerror(errno));
 				return 1;
 			}
 		}
-		
+
 		somagic_write_reg(0x1800, 0x0d);
 
 		while (pending_requests > 0) {
 			libusb_handle_events(NULL);
 		}
-	
+
 		for (i = 0; i < num_iso_transfers; i++) {
 			libusb_free_transfer(tfr[i]);
 		}
@@ -1348,7 +1352,7 @@ int main(int argc, char **argv)
 	if (video_fd != 1) {
 		ret = close(video_fd);
 		if (ret) {
-			perror("Error closing video output file");
+			perror("Failed to close video output file");
 			return 1;
 		}
 	}

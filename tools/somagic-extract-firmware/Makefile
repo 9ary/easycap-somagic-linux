@@ -4,8 +4,8 @@
 # Makefile for somagic-extract-firmware program                                #
 # ##############################################################################
 #
-# Copyright 2011, 2012 Jeffry Johnston 
-# 
+# Copyright 2011, 2012 Jeffry Johnston
+#
 # This file is part of somagic_easycap
 # http://code.google.com/p/easycap-somagic-linux/
 #

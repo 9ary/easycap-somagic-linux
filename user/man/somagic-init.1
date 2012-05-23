@@ -6,10 +6,8 @@ somagic-init \- Upload firmware to initialize the Somagic EasyCAP DC60 or Somagi
 [\fIOPTION\fR]...
 .SH DESCRIPTION
 .PP
-Uploads the firmware for the Somagic chip, and reconnects the USB dongle with 
-a new product ID. 
-This program must be run as root in order to interact with the USB capture
-device directly.
+Uploads the firmware for the Somagic chip, and reconnects the USB dongle with a new product ID.
+This program must be run as root in order to interact with the USB capture device directly.
 .SH OPTIONS
 .TP
 \fB\-f\fR, \fB\-\-firmware\fR=\fIFILENAME\fR
@@ -19,13 +17,17 @@ The default filename is "/lib/firmware/somagic_firmware.bin".
 \fB\-\-help\fR
 Print program usage and example.
 .TP
+\fB\-\-skip-check\fR
+To detect corrupt or incorrect firmware, the checksum of the firmware is normally compared against a list of checksums for known good firmware files.
+Setting this option skips the validation check.
+.TP
 \fB\-\-version\fR
 Print the program version, the program copyright, a list of authors, and a notice that there is no warranty.
 .SH "EXIT STATUS"
-The program exits with a status of zero on success. 
+The program exits with a status of zero on success.
 A status of one will be returned if any errors were encountered.
 .SH "SEE ALSO"
-\fBsomagic-extract-firmware\fR(1), \fBsomagic-capture\fR(1) 
+\fBsomagic-extract-firmware\fR(1), \fBsomagic-capture\fR(1)
 .SH "REPORTING BUGS"
 Report bugs to the easycap-somagic-linux project on Google Project Hosting:
 <http://code.google.com/p/easycap\-somagic\-linux/issues/list>

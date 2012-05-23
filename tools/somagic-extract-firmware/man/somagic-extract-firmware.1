@@ -9,8 +9,7 @@ somagic-extract-firmware \- Extract the Somagic EasyCAP DC60 or Somagic EasyCAP0
 Extracts the firmware for the Somagic EasyCAP from the Windows driver file named \fIDRIVER_FILENAME\fR, verifies its CRC32 signature, and writes it to a file.
 
 Before running this program, use Wine or Windows to run "Setup.exe", which should be found in the "Drivers" directory of the EasyCAP installation CD.
-This should create a driver file named either "SmiUsbGrabber3C.sys" or "SmiUsbGrabber3C.sys", 
-located in either the "Program Files/Common Files/Somagic/SmiUsbGrabber3C/xp/" or "Program Files/Common Files/Somagic/SmiUsbGrabber3E/xp/" directory. 
+This should create a driver file named either "SmiUsbGrabber3C.sys" or "SmiUsbGrabber3C.sys", located in either the "Program Files/Common Files/Somagic/SmiUsbGrabber3C/xp/" or "Program Files/Common Files/Somagic/SmiUsbGrabber3E/xp/" directory.
 .SH OPTIONS
 .TP
 \fB\-f\fR, \fB\-\-firmware\fR=\fIFILENAME\fR
@@ -23,7 +22,7 @@ Print program usage and example.
 \fB\-\-version\fR
 Print the program version, the program copyright, a list of authors, and a notice that there is no warranty.
 .SH "EXIT STATUS"
-The program exits with a status of zero on success. 
+The program exits with a status of zero on success.
 A status of one will be returned if any errors were encountered.
 .SH "SEE ALSO"
 \fBsomagic-init\fR(1), \fBsomagic-capture\fR(1)

@@ -35,16 +35,16 @@
 #define VERSION "1.1"
 #define SOMAGIC_FIRMWARE_PATH "/lib/firmware/somagic_firmware.bin"
 
-/* 
- * Index  Firmware 
- * -----  --------                               
- *     0  SmiUsbGrabber3C.sys, EasyCAP DC60   
- *     1  SmiUsbGrabber3E.sys, EasyCAP002    
- *     2  SmiUsbGrabber3F.sys, EasyCAP002    
+/*
+ * Index  Firmware
+ * -----  --------
+ *     0  SmiUsbGrabber3C.sys, EasyCAP DC60
+ *     1  SmiUsbGrabber3E.sys, EasyCAP002
+ *     2  SmiUsbGrabber3F.sys, EasyCAP002
  */
 
 /*
- *                               File    Initialized  62-byte  Firmware                                   Offset 
+ *                               File    Initialized  62-byte  Firmware                                   Offset
  * Firmware Filename             Size    Device       blocks   Length    Firmware Offsets                 Difference
  * ----------------------------  ------  -----------  -------  --------  -------------------------------  ----------
  * vista/SmiUsbGrabber3C.sys     805888  1c88:003c    121      7502      0xbb0d8 0xbce28 0xbeb78 0xc08c8  7504
@@ -62,22 +62,22 @@
  */
 #define PRODUCT_COUNT 3
 static const int SOMAGIC_FIRMWARE_LENGTH[PRODUCT_COUNT] = {
-	7502, 
+	7502,
 	6634,
 	6634
 };
 static const unsigned char SOMAGIC_FIRMWARE_MAGIC[PRODUCT_COUNT][4] = {
-	{'\x0c', '\x94', '\xce', '\x00'}, 
+	{'\x0c', '\x94', '\xce', '\x00'},
 	{'\x0c', '\x94', '\xcc', '\x00'},
 	{'\x0c', '\x94', '\xcc', '\x00'}
 };
 static const unsigned char SOMAGIC_FIRMWARE_CRC32[PRODUCT_COUNT][4] = {
-	{'\x34', '\x89', '\xf7', '\x7b'}, 
-	{'\x1f', '\xfe', '\xde', '\xbb'}, 
+	{'\x34', '\x89', '\xf7', '\x7b'},
+	{'\x1f', '\xfe', '\xde', '\xbb'},
 	{'\x60', '\x1d', '\x37', '\x5f'}
 };
 
-void version()
+static void version()
 {
 	fprintf(stderr, PROGRAM_NAME" "VERSION"\n");
 	fprintf(stderr, "Copyright 2011, 2012 Jeffry Johnston\n");
@@ -86,7 +86,7 @@ void version()
 	fprintf(stderr, "There is NO WARRANTY, to the extent permitted by law.\n");
 }
 
-void usage()
+static void usage()
 {
 	fprintf(stderr, "Usage: "PROGRAM_NAME" [options] DRIVER_FILENAME\n");
 	fprintf(stderr, "  -f, --firmware=FILENAME  Write to firmware file FILENAME\n");
@@ -129,7 +129,7 @@ int main(int argc, char **argv)
 		}
 		switch (c) {
 		case 0:
-			switch (option_index) {	
+			switch (option_index) {
 			case 0: /* --help */
 				usage();
 				return 0;
@@ -156,7 +156,7 @@ int main(int argc, char **argv)
 
 	infile = fopen(argv[optind], "r");
 	if (infile == NULL) {
-		fprintf(stderr, "%s: Error opening driver file '%s': %s\n", argv[0], argv[optind], strerror(errno));
+		fprintf(stderr, "%s: Failed to open driver file '%s': %s\n", argv[0], argv[optind], strerror(errno));
 		return 1;
 	}
 
@@ -167,7 +167,7 @@ int main(int argc, char **argv)
 		if (c == EOF) {
 			/* Either at EOF or a read error occurred */
 			if (!feof(infile)) {
-				perror("Error reading driver file");
+				perror("Failed to read driver file");
 				return 1;
 			}
 			break;
@@ -187,7 +187,7 @@ int main(int argc, char **argv)
 				memcpy(firmware, last4, 4);
 				ret = fread(firmware + 4, 1, SOMAGIC_FIRMWARE_LENGTH[i] - 4, infile);
 				if (ret != SOMAGIC_FIRMWARE_LENGTH[i] - 4) {
-					perror("Error reading driver file");
+					perror("Failed to read driver file");
 					return 1;
 				}
 
@@ -195,7 +195,7 @@ int main(int argc, char **argv)
 				gcry_md_hash_buffer(GCRY_MD_CRC32, digest, firmware, SOMAGIC_FIRMWARE_LENGTH[i]);
 				#ifdef DEBUG
 				fprintf(stderr, "Product: %i, Expected: %02x %02x %02x %02x, Found: %02x %02x %02x %02x, Offset: %lx\n", i, SOMAGIC_FIRMWARE_CRC32[i][0], SOMAGIC_FIRMWARE_CRC32[i][1], SOMAGIC_FIRMWARE_CRC32[i][2], SOMAGIC_FIRMWARE_CRC32[i][3], digest[0], digest[1], digest[2], digest[3], (pos - 4));
-				#endif 
+				#endif
 				if (memcmp(digest, SOMAGIC_FIRMWARE_CRC32[i], 4) == 0) {
 					/* CRC32 matched */
 					firmware_found = 1;
@@ -203,17 +203,17 @@ int main(int argc, char **argv)
 					/* Write firmware file */
 					outfile = fopen(firmware_path, "w+");
 					if (outfile == NULL) {
-						fprintf(stderr, "%s: Error opening firmware file '%s': %s\n", argv[0], firmware_path, strerror(errno));
+						fprintf(stderr, "%s: Failed to open firmware file '%s': %s\n", argv[0], firmware_path, strerror(errno));
 						return 1;
 					}
 					ret = fwrite(firmware, 1, SOMAGIC_FIRMWARE_LENGTH[i], outfile);
 					if (ret != SOMAGIC_FIRMWARE_LENGTH[i]) {
-						perror("Error writing firmware file");
+						perror("Failed to write firmware file");
 						return 1;
 					}
 					ret = fclose(outfile);
 					if (ret) {
-						perror("Error closing firmware file");
+						perror("Failed to close firmware file");
 						return 1;
 					}
 			  		fprintf(stderr, "Firmware written to '%s'.\n", firmware_path);
@@ -222,7 +222,7 @@ int main(int argc, char **argv)
 					/* False positive, return to previous file position and keep looking */
 					ret = fseek(infile, pos, SEEK_SET);
 					if (ret) {
-						perror("Error seeking driver file");
+						perror("Failed to seek in driver file");
 						return 1;
 					}
 				}
@@ -232,7 +232,7 @@ int main(int argc, char **argv)
 
 	ret = fclose(infile);
 	if (ret) {
-		perror("Error closing driver file");
+		perror("Failed to close driver file");
 		return 1;
 	}
 

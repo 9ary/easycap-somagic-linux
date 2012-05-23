@@ -12,7 +12,7 @@ This program must be run as root in order to interact with the USB capture devic
 .TP
 \fB\-B\fR, \fB\-\-brightness\fR=\fIVALUE\fR
 Luminance brightness control.
-The brightness \fIVALUE\fR must be between 0 and 255, inclusive. 
+The brightness \fIVALUE\fR must be between 0 and 255, inclusive.
 The default brightness is 128, which selects the ITU level.
 .TS
 allbox tab(;);
@@ -28,7 +28,7 @@ n l.
 .TP
 \fB\-C\fR, \fB\-\-contrast\fR=\fIVALUE\fR
 Luminance contrast control.
-The contrast \fIVALUE\fR must be between -128 and 127, inclusive. 
+The contrast \fIVALUE\fR must be between -128 and 127, inclusive.
 The default contrast is 71, which selects the ITU level.
 .TS
 allbox tab(;);
@@ -52,7 +52,7 @@ For the EasyCAP002, use the "2" input for video capture.
 This is the default.
 .TP
 \fB\-f\fR, \fB\-\-frames\fR=\fICOUNT\fR
-Maximum number of video frames to capture. 
+Maximum number of video frames to capture.
 The default is -1, which allows unlimited frames.
 .TP
 \fB\-\-help\fR
@@ -60,7 +60,7 @@ Print program usage and examples.
 .TP
 \fB\-H\fR, \fB\-\-hue\fR=\fIVALUE\fR
 Hue phase in degrees.
-The hue \fIVALUE\fR must be between -128 and 127, inclusive. 
+The hue \fIVALUE\fR must be between -128 and 127, inclusive.
 The default hue is 0.
 .TS
 allbox tab(;);
@@ -75,13 +75,13 @@ n n.
 
 .TP
 \fB\-\-iso-transfers\fR=\fICOUNT\fR
-Number of concurrent iso transfers. 
-Selecting a higher value might help alleviate sync artifacts. 
+Number of concurrent iso transfers.
+Selecting a higher value might help alleviate sync artifacts.
 The default is 4.
 .TP
 \fB\-\-lum-aperture\fR=\fIMODE\fR
 Luminance aperture factor.
-The aperture factor \fIMODE\fR must be between 0 and 3, inclusive. 
+The aperture factor \fIMODE\fR must be between 0 and 3, inclusive.
 Increasing this value can increase perceived sharpness.
 The default aperture factor is 1.
 .TS
@@ -97,13 +97,13 @@ n n.
 
 .TP
 \fB\-\-lum-prefilter\fR
-Activate the luminance prefilter. 
+Activate the luminance prefilter.
 This is bypassed (not active) by default.
 .TP
 \fB\-\-luminance\fR=\fIMODE\fR
-Luminance mode for the CVBS video input, selecting a center frequency in MHz. 
+Luminance mode for the CVBS video input, selecting a center frequency in MHz.
 Does not apply to the S-VIDEO video input.
-The \fIMODE\fR must be between 0 and 3, inclusive. 
+The \fIMODE\fR must be between 0 and 3, inclusive.
 Decreasing the MHz value can increase perceived sharpness.
 The default is 0.
 .TS
@@ -162,7 +162,7 @@ The output framerate is 25 Hz exactly.
 .TP
 \fB\-C\fR, \fB\-\-contrast\fR=\fIVALUE\fR
 Chrominance saturation control.
-The saturation \fIVALUE\fR must be between -128 and 127, inclusive. 
+The saturation \fIVALUE\fR must be between -128 and 127, inclusive.
 The default saturation is 64, which selects the ITU level.
 .TS
 allbox tab(;);
@@ -211,7 +211,7 @@ The default is to output video to standard output rather than a file.
 \fB\-\-version\fR
 Print the program version, the program copyright, a list of authors, and a notice that there is no warranty.
 .SH "EXIT STATUS"
-The program exits with a status of zero on success. 
+The program exits with a status of zero on success.
 A status of one will be returned if any errors were encountered.
 .SH EXAMPLES
 .PP
@@ -254,7 +254,7 @@ somagic-capture -n --luminance=2 --lum-aperture=3 --sync=1 | mplayer -vf yadif,s
 somagic-capture --secam | mplayer -vf yadif,screenshot -demuxer rawvideo -rawvideo "pal:format=uyvy:fps=25" -aspect 4:3 -
 .fi
 .SH "SEE ALSO"
-\fBsomagic-extract-firmware\fR(1), \fBsomagic-init\fR(1) 
+\fBsomagic-extract-firmware\fR(1), \fBsomagic-init\fR(1)
 .SH "REPORTING BUGS"
 Report bugs to the easycap-somagic-linux project on Google Project Hosting:
 <http://code.google.com/p/easycap\-somagic\-linux/issues/list>

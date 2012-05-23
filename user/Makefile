@@ -1,12 +1,12 @@
 ################################################################################
 # Makefile                                                                     #
 #                                                                              #
-# Makefile for user space initialization and capture programs for              # 
+# Makefile for user space initialization and capture programs for              #
 # Somagic EasyCAP DC60 and Somagic EasyCAP 002                                 #
 # ##############################################################################
 #
-# Copyright 2011, 2012 Jeffry Johnston 
-# 
+# Copyright 2011, 2012 Jeffry Johnston
+#
 # This file is part of somagic_easycap
 # http://code.google.com/p/easycap-somagic-linux/
 #
