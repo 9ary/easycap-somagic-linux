@@ -1349,7 +1349,7 @@ static void process_video(unsigned long somagic_addr)
 
 	if (somagic->video.cur_process_state == PROCESS_INTERRUPT) {
 		somagic->video.cur_process_state = PROCESS_IDLE;
-		if (!(*f)) {
+		if ((*f) != NULL) {
 			(*f)->grabstate = FRAME_STATE_DONE;
 		}
 		wake_up_interruptible(&somagic->video.wait_stream);
