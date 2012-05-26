@@ -216,6 +216,10 @@ struct somagic_video {
 	/* Pointer to frame beeing read by v4l2_read */
 	struct somagic_frame *cur_read_frame;
 
+	/* Buffer for holding one field */
+	unsigned char *prev_field;
+	int prev_field_ptr;
+
 	/* PAL/NTSC toggle handling */
 	v4l2_std_id cur_std;		/* Current Video standard NTSC/PAL */
 	u16 field_lines;				/* Lines per field NTSC:244/243 PAL:288 */

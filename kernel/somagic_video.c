@@ -711,6 +711,10 @@ static int vidioc_streamon(struct file *file, void *priv, enum v4l2_buf_type i)
 {
 	unsigned long lock_flags;
 	struct usb_somagic *somagic = video_drvdata(file);
+
+	/* HARDCODED */
+	somagic->video.prev_field = rvmalloc(288 * 1440);
+	somagic->video.prev_field_ptr = 0;
 	
 	printk(KERN_INFO "somagic::%s Called\n", __func__);
 
@@ -747,6 +751,9 @@ static int vidioc_streamoff(struct file *file, void *priv, enum v4l2_buf_type ty
 	spin_unlock_irqrestore(&somagic->streaming_flags_lock, lock_flags);
 	somagic_stop_stream(somagic);
 
+	/* HARDCODED */
+	rvfree(somagic->video.prev_field, (288 * 1440));
+
 	return 0;
 }
 
@@ -775,12 +782,12 @@ static int vidioc_g_fmt_vid_cap(struct file *file, void *priv,
 	printk(KERN_ERR "somagic:: %s Called\n", __func__);
 
 	/* HARDCODED */
-	pix->width = 720; //SOMAGIC_LINE_WIDTH; 
-	pix->height = 576; //somagic->video.field_lines; //2 * somagic->video.field_lines;
+	pix->width = 720; 
+	pix->height = 576; 
 	pix->pixelformat = V4L2_PIX_FMT_UYVY;
 	pix->field = SOMAGIC_PIX_FMT_FIELD;
 	pix->bytesperline = SOMAGIC_BYTES_PER_LINE;
-	pix->sizeimage = 2 * 576 * 720; //288 * SOMAGIC_LINE_WIDTH; //somagic->video.frame_size;
+	pix->sizeimage = 576 * 720 * 2; 
 	pix->colorspace = SOMAGIC_PIX_FMT_COLORSPACE;
 	return 0;
 }
@@ -1119,7 +1126,6 @@ static struct video_device somagic_video_template = {
  */
 static int parse_field(struct usb_somagic *somagic)
 {
-	int i;
 	struct somagic_frame *frame = somagic->video.cur_frame;
 	int look_ahead_ptr;
 	u8 data;
@@ -1242,28 +1248,40 @@ static int parse_field(struct usb_somagic *somagic)
 				scratch_get(somagic, unused, 4);
 			}
 		
-			if (frame->length + (1440 * 2) > somagic->video.cur_frame_size) {
+			if ((frame->length + 1440) > somagic->video.cur_frame_size) {
 				printk(KERN_WARNING "somagic::%s: Forced dump of current frame, "
 							 "not room for %d, more bytes in the buffer",
-							 __func__, (1440 * 2));
+							 __func__, (1440)); // * 2
 				return 1;
 			}
-			if (line_field == FIELD_BOTTOM) {
-				for (i = 0; i < 720; i++) {
-					frame->data[frame->length++] = 0x80;	
-					frame->data[frame->length++] = 0x00;
-				}
+
+			/* HARDCODED */
+			if ((somagic->video.prev_field_ptr + 1440) > (288 * 1440)) {
+				somagic->video.prev_field_ptr = 0;
+				printk(KERN_WARNING "somagic::%s: prev_field_ptr is overflowing, "
+							 "resetting!", __func__);
 			}
+
+			if (line_field == FIELD_BOTTOM) {
+				memcpy(frame->data + frame->length,
+							 somagic->video.prev_field + somagic->video.prev_field_ptr,
+							 1440);
+				frame->length += 1440;
+				somagic->video.prev_field_ptr += 1440;
+			}
+
 			scratch_get(somagic, frame->data + frame->length, 1440);
 			frame->length += 1440;
 			held_sync++;
 
 			if (line_field == FIELD_TOP) {
-				for (i = 0; i < 720; i++) {
-					frame->data[frame->length++] = 0x80;	
-					frame->data[frame->length++] = 0x00;	
-				}
+				memcpy(frame->data + frame->length,
+							 somagic->video.prev_field + somagic->video.prev_field_ptr,
+							 1440);
+				frame->length += 1440;
+				somagic->video.prev_field_ptr += 1440;
 			}
+
 
 			scratch_get(somagic, check, 4);
 			if (check[0] != 0xff || check[1] != 0x00 || check[2] != 0x00) {
@@ -1294,6 +1312,8 @@ static void process_video(unsigned long somagic_addr)
 
 	struct somagic_frame **f;
 	unsigned long lock_flags;
+	int copy_ptr_src = 0;
+	int copy_ptr_dest = 0;
 
 	struct usb_somagic *somagic = (struct usb_somagic *)somagic_addr;
 
@@ -1327,10 +1347,19 @@ static void process_video(unsigned long somagic_addr)
 			if ((*f)->field == FIELD_TOP) {
 				somagic->video.cur_sequence++;
 				do_gettimeofday(&somagic->video.cur_ts);
+			} else {
+				copy_ptr_src = 1440;
 			}
 
+			while((copy_ptr_src + 1440) <= (*f)->length) {
+				memcpy(somagic->video.prev_field + copy_ptr_dest,
+							 (*f)->data + copy_ptr_src, 1440);
+				copy_ptr_dest += 1440;
+				copy_ptr_src += 1440 * 2;
+			}
+			somagic->video.prev_field_ptr = 0;
+
 			(*f)->timestamp = somagic->video.cur_ts;
-			//do_gettimeofday(&((*f)->timestamp));
 			(*f)->sequence = somagic->video.cur_sequence;
 
 			(*f)->grabstate = FRAME_STATE_DONE;
