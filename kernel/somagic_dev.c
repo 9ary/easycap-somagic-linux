@@ -232,16 +232,16 @@ static const struct saa_setup {
 	{0x0d, SOMAGIC_DEFAULT_HUE}, // Chrominance Hue
 	{0x0e, 0x01}, // Chrominance CTRL // Chrominance Bandwidth = 800kHz - Colorstandard selection NTSC M/PAL BGHIN
 	{0x0f, 0x2a}, // Chrominance gain control
-	{0x10, 0x40}, // Format/Delay CTRL //pm
+	{0x10, 0x00}, // Format/Delay CTRL
 	{0x11, 0x0c}, // Output CTRL #1
 	{0x12, 0x01}, // RTS0/RTS1 Output CTRL
-	{0x13, 0x00}, // {0x13, 0x80}, // Output CTRL #2 //pm
+	{0x13, 0x00}, // Output CTRL #2
 	{0x14, 0x00}, // -- RESERVED
 	{0x15, 0x00}, // VGATE Start
 	{0x16, 0x00}, // VGATE Stop
 	{0x17, 0x00}, // VGATE MSB
 	// 0x18 - 0x3f   -- RESERVED
-	{0x40, 0x82}, // Slicer CTRL //pm
+	{0x40, 0x82}, // Slicer CTRL -- DIFFERENT FOR PAL
 	{0x41, 0x77}, // Line Control Register2
 	{0x42, 0x77}, // Line Control Register3
 	{0x43, 0x77}, // Line Control Register4
@@ -267,7 +267,7 @@ static const struct saa_setup {
 	{0x57, 0xFF}, // Line Control Register24
 	{0x58, 0x00}, // Programmable framing code
 	{0x59, 0x54}, // Horiz. offset
-	{0x5a, 0x0A}, // Vert. offset //pm
+	{0x5a, 0x0A}, // Vert. offset -- DIFFERENT FOR PAL
 	{0x5b, 0x83}, // Field offset
 	{0x5c, 0x00}, // -- RESERVED
 	{0x5d, 0x00}, // -- RESERVED
@@ -354,7 +354,7 @@ struct saa_setup saa_setupPAL[256] = {
 	{0x16, 0x00}, // VGATE Stop
 	{0x17, 0x00}, // VGATE MSB
 	// 0x18 - 0x3f   -- RESERVED
-	{0x40, 0x02}, // Slicer CTRL
+	{0x40, 0x02}, // Slicer CTRL -- DIFFERENT FOR NTSC
 	{0x41, 0x77}, // Line Control Register2
 	{0x42, 0x77}, // Line Control Register3
 	{0x43, 0x77}, // Line Control Register4
@@ -380,7 +380,7 @@ struct saa_setup saa_setupPAL[256] = {
 	{0x57, 0xFF}, // Line Control Register24
 	{0x58, 0x00}, // Programmable framing code
 	{0x59, 0x54}, // Horiz. offset
-	{0x5a, 0x07}, // Vert. offset
+	{0x5a, 0x07}, // Vert. offset -- DIFFERENT FOR NTSC
 	{0x5b, 0x83}, // Field offset
 	{0x5c, 0x00}, // -- RESERVED
 	{0x5d, 0x00}, // -- RESERVED
@@ -626,14 +626,12 @@ int somagic_dev_video_set_std(struct usb_somagic *somagic, v4l2_std_id id)
 		int reg;
 		int val;
 	}	ntsc[] = {
-		{0x10, 0x40}, // Format/Delay CTRL
 		{0x40, 0x82}, // Slicer CTRL
 		{0x5a, 0x0A}, // Vert. offset
 		{0xff, 0xff} // END MARKER
 	};
 
 	static const struct v_std pal[] = {
-		{0x10, 0x00}, // Format/Delay CTRL
 		{0x40, 0x02}, // Slicer CTRL
 		{0x5a, 0x07}, // Vert. offset
 		{0xff, 0xff} // END MARKER

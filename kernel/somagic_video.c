@@ -1399,6 +1399,15 @@ static void process_video(unsigned long somagic_addr)
 			}
 			somagic->video.prev_field_ptr = 0;
 
+			// The bottom NTSC field is one line shorter than 
+			// the top field, correct the size so
+			// userspace applications don't complain
+			if ((*f)->field == FIELD_BOTTOM
+					&& ((*f)->length + SOMAGIC_BYTES_PER_LINE
+							== somagic->video.cur_fmt->frame_size)) {
+				(*f)->length = somagic->video.cur_fmt->frame_size;
+			}
+
 			(*f)->timestamp = somagic->video.cur_ts;
 			(*f)->sequence = somagic->video.cur_sequence;
 
