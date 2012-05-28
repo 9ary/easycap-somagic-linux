@@ -1492,7 +1492,7 @@ int somagic_v4l2_init(struct usb_somagic *somagic, v4l2_std_id default_std)
 		goto err_exit;
 	}
 	
-	somagic->video.cur_process_state == PROCESS_STOPPED;
+	somagic->video.cur_process_state = PROCESS_STOPPED;
 	if (default_std == V4L2_STD_PAL) {
 		somagic->video.cur_fmt = &VIDEO_PAL_FMT;
 	} else if (default_std == V4L2_STD_NTSC) {
