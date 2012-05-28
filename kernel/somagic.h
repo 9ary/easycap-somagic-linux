@@ -102,9 +102,16 @@
 #define SOMAGIC_SCRATCH_BUF_SIZE 0x21000 // 132kB  //0x18000 // 96Kb //0x20000 // 128kB
 
 #define SOMAGIC_LINE_WIDTH 720
-#define SOMAGIC_STD_FIELD_LINES_PAL 288
-#define SOMAGIC_STD_FIELD_LINES_NTSC 244 // Bottom = 243
 #define SOMAGIC_BYTES_PER_LINE 1440
+
+#define SOMAGIC_FIELD_LINES_PAL 288
+#define SOMAGIC_FRAME_LINES_PAL (288 * 2)
+#define SOMAGIC_FIELD_LINES_NTSC 244
+#define SOMAGIC_FRAME_LINES_NTSC (244 + 243)
+#define SOMAGIC_FIELD_SIZE_PAL (288 * SOMAGIC_BYTES_PER_LINE)
+#define SOMAGIC_FRAME_SIZE_PAL (SOMAGIC_FRAME_LINES_PAL * SOMAGIC_BYTES_PER_LINE)
+#define SOMAGIC_FIELD_SIZE_NTSC (244 * SOMAGIC_BYTES_PER_LINE)
+#define SOMAGIC_FRAME_SIZE_NTSC (SOMAGIC_FRAME_LINES_NTSC * SOMAGIC_BYTES_PER_LINE)
 
 #define SOMAGIC_PIX_FMT_FIELD V4L2_FIELD_ALTERNATE // V4L2_FIELD_INTERLACED || V4L2_FIELD_ALTERNATE
 #define SOMAGIC_PIX_FMT_COLORSPACE V4L2_COLORSPACE_SMPTE170M
@@ -144,6 +151,12 @@ enum frame_field {
 struct somagic_isoc_buffer {
 	char *data;
 	struct urb *urb;	
+};
+
+struct somagic_video_fmt {
+	const int field_size;
+	const int frame_size;
+	const int height;
 };
 
 struct somagic_frame {
@@ -221,15 +234,8 @@ struct somagic_video {
 	int prev_field_ptr;
 
 	/* PAL/NTSC toggle handling */
-	v4l2_std_id cur_std;		/* Current Video standard NTSC/PAL */
-	u16 field_lines;				/* Lines per field NTSC:244/243 PAL:288 */
-
-	/* DEPRECATED
-   * Used in somagic_dev.c,
-   * consider move/rename/delete
-   */
-	int frame_size;					/* Size of one completed frame */
-	u8 setup_sent;
+	v4l2_std_id cur_std;
+	const struct somagic_video_fmt *cur_fmt;
 
 	/* Input selection */
 	enum somagic_inputs cur_input;
@@ -276,7 +282,7 @@ void somagic_alsa_exit(struct usb_somagic *somagic);
 void somagic_audio_put(struct usb_somagic *somagic, u8 *data, int size);
 
 // Function declarations for somagic_video.c
-int somagic_v4l2_init(struct usb_somagic *somagic /*, bool default_ntsc*/);
+int somagic_v4l2_init(struct usb_somagic *somagic, v4l2_std_id default_std);
 void somagic_v4l2_exit(struct usb_somagic *somagic);
 void somagic_video_put(struct usb_somagic *somagic, u8 *data, int size);
 

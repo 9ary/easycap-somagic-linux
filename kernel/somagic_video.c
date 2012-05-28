@@ -34,6 +34,20 @@ module_param(video_nr, int, 0444);
 // MODULE_PARAM_DESC(video_nr, "Set video device number (/dev/videoX).
 // Default: -1(autodetect)");
 
+// PAL (625 Lines / 50Hz Vertical Timing)
+static const struct somagic_video_fmt VIDEO_PAL_FMT = {
+	.field_size = SOMAGIC_FIELD_SIZE_PAL,
+	.frame_size = SOMAGIC_FRAME_SIZE_PAL,
+	.height = SOMAGIC_FRAME_LINES_PAL
+};
+
+// NTSC (525 Lines / 60Hz Vertical Timing)
+static const struct somagic_video_fmt VIDEO_NTSC_FMT = {
+	.field_size = SOMAGIC_FIELD_SIZE_NTSC,
+	.frame_size = SOMAGIC_FRAME_SIZE_NTSC,
+	.height = SOMAGIC_FRAME_LINES_NTSC
+};
+
 /*****************************************************************************/
 /*                                                                           */
 /*            Scratch Buffer                                                 */
@@ -267,8 +281,7 @@ static int alloc_frame_buffer(struct usb_somagic *somagic, int frame_count)
 	int i;
 	int buf_size;
 
-	/* HARDCODED */
-	int frame_size = PAGE_ALIGN(1440 * 2 * 288); // 576 Lines of PAL
+	int frame_size = PAGE_ALIGN(somagic->video.cur_fmt->frame_size);
 
 	while (frame_count > 0) {
 		buf_size = frame_count * frame_size;
@@ -421,7 +434,37 @@ static int vidioc_g_std(struct file *file, void *priv, v4l2_std_id *id)
 static int vidioc_s_std(struct file *file, void *priv, v4l2_std_id *id)
 {
 	struct usb_somagic *somagic = video_drvdata(file);
-	return somagic_dev_video_set_std(somagic, *id);
+	int rc;
+
+	if (somagic->video.cur_process_state != PROCESS_STOPPED) {
+		return -EBUSY;
+	}
+
+	if ((somagic->video.cur_std & *id) == *id) {
+		return 0;
+	}
+
+	rc = somagic_dev_video_set_std(somagic, *id);
+	if (rc != 0) {
+		return rc;
+	}
+
+	if ((*id & V4L2_STD_NTSC) == *id) {
+		somagic->video.cur_fmt = &VIDEO_NTSC_FMT;
+		somagic->video.cur_std = V4L2_STD_NTSC;
+	} else if ((*id & V4L2_STD_PAL) == *id) {
+		somagic->video.cur_fmt = &VIDEO_PAL_FMT; 
+		somagic->video.cur_std = V4L2_STD_PAL;
+	} else {
+		printk(KERN_INFO "somagic::%s: Cur std is %s, "
+					 "User requests unsupported standard %s!\n",
+					 __func__, v4l2_norm_to_name(somagic->video.cur_std),
+					 v4l2_norm_to_name(*id));
+		return -EINVAL;
+	}
+
+	return 0;
+
 }
 
 /*
@@ -712,8 +755,7 @@ static int vidioc_streamon(struct file *file, void *priv, enum v4l2_buf_type i)
 	unsigned long lock_flags;
 	struct usb_somagic *somagic = video_drvdata(file);
 
-	/* HARDCODED */
-	somagic->video.prev_field = rvmalloc(288 * 1440);
+	somagic->video.prev_field = rvmalloc(somagic->video.cur_fmt->field_size);
 	somagic->video.prev_field_ptr = 0;
 	
 	printk(KERN_INFO "somagic::%s Called\n", __func__);
@@ -751,9 +793,9 @@ static int vidioc_streamoff(struct file *file, void *priv, enum v4l2_buf_type ty
 	spin_unlock_irqrestore(&somagic->streaming_flags_lock, lock_flags);
 	somagic_stop_stream(somagic);
 
-	/* HARDCODED */
-	rvfree(somagic->video.prev_field, (288 * 1440));
+	rvfree(somagic->video.prev_field, somagic->video.cur_fmt->field_size);
 
+	somagic->video.cur_process_state = PROCESS_STOPPED;
 	return 0;
 }
 
@@ -781,13 +823,12 @@ static int vidioc_g_fmt_vid_cap(struct file *file, void *priv,
 
 	printk(KERN_ERR "somagic:: %s Called\n", __func__);
 
-	/* HARDCODED */
-	pix->width = 720; 
-	pix->height = 576; 
+	pix->width = SOMAGIC_LINE_WIDTH; 
+	pix->height = somagic->video.cur_fmt->height; 
 	pix->pixelformat = V4L2_PIX_FMT_UYVY;
 	pix->field = SOMAGIC_PIX_FMT_FIELD;
 	pix->bytesperline = SOMAGIC_BYTES_PER_LINE;
-	pix->sizeimage = 576 * 720 * 2; 
+	pix->sizeimage = somagic->video.cur_fmt->height * SOMAGIC_BYTES_PER_LINE; 
 	pix->colorspace = SOMAGIC_PIX_FMT_COLORSPACE;
 	return 0;
 }
@@ -1110,7 +1151,7 @@ static struct video_device somagic_video_template = {
 	.release = video_device_release,
 	.tvnorms = SOMAGIC_NORMS,   														// Supported TV Standards
 	.vfl_type = VFL_TYPE_GRABBER,
-//	.debug = V4L2_DEBUG_IOCTL | V4L2_DEBUG_IOCTL_ARG
+	.debug = V4L2_DEBUG_IOCTL | V4L2_DEBUG_IOCTL_ARG
 };
 
 /*****************************************************************************/
@@ -1255,8 +1296,7 @@ static int parse_field(struct usb_somagic *somagic)
 				return 1;
 			}
 
-			/* HARDCODED */
-			if ((somagic->video.prev_field_ptr + 1440) > (288 * 1440)) {
+			if ((somagic->video.prev_field_ptr + 1440) > somagic->video.cur_fmt->field_size) {
 				somagic->video.prev_field_ptr = 0;
 				printk(KERN_WARNING "somagic::%s: prev_field_ptr is overflowing, "
 							 "resetting!", __func__);
@@ -1339,9 +1379,9 @@ static void process_video(unsigned long somagic_addr)
 		}
 
 		if (parse_field(somagic)) {
-			if ((*f)->length > somagic->video.frame_size) {
+			if ((*f)->length > somagic->video.cur_fmt->frame_size) {
 				// This should never occur, don't know if we need to check this here?
-				(*f)->length = somagic->video.frame_size;
+				(*f)->length = somagic->video.cur_fmt->frame_size;
 			}
 
 			if ((*f)->field == FIELD_TOP) {
@@ -1426,11 +1466,9 @@ static struct video_device *vdev_init(struct usb_somagic *somagic,
 	return vdev;
 }
 
-int somagic_v4l2_init(struct usb_somagic *somagic /*, bool default_ntsc*/)
+int somagic_v4l2_init(struct usb_somagic *somagic, v4l2_std_id default_std)
 {
 	int rc;
-
-	//v4l2_std_id default_norm = (default_ntsc) ? V4L2_STD_NTSC : V4L2_STD_PAL;
 	mutex_init(&somagic->video.v4l2_lock);
 	
 	tasklet_init(&(somagic->video.process_video), process_video, (unsigned long)somagic);
@@ -1453,6 +1491,18 @@ int somagic_v4l2_init(struct usb_somagic *somagic /*, bool default_ntsc*/)
 	if (somagic->video.vdev == NULL) {
 		goto err_exit;
 	}
+	
+	somagic->video.cur_process_state == PROCESS_STOPPED;
+	if (default_std == V4L2_STD_PAL) {
+		somagic->video.cur_fmt = &VIDEO_PAL_FMT;
+	} else if (default_std == V4L2_STD_NTSC) {
+		somagic->video.cur_fmt = &VIDEO_NTSC_FMT;
+	} else {
+		printk(KERN_ERR "somagic::%s: Unknown default_std, "
+					 "can not register video device!", __func__);
+		goto err_exit;
+	}
+	somagic->video.cur_std = default_std;
 
 	// All setup done, we can register the v4l2 device.
 	if (video_register_device(somagic->video.vdev, VFL_TYPE_GRABBER, video_nr) < 0) {
@@ -1461,6 +1511,7 @@ int somagic_v4l2_init(struct usb_somagic *somagic /*, bool default_ntsc*/)
 
 	printk(KERN_INFO "Somagic[%d]: registered Somagic Video device %s [v4l2]\n",
 					somagic->video.nr, video_device_node_name(somagic->video.vdev));
+
 
 	return 0;
 

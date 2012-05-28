@@ -494,11 +494,6 @@ static int send_video_setup(struct usb_somagic *somagic, v4l2_std_id tvnorm)
 	u8 buf[2];
 	const struct saa_setup *setup;
 
-	// No need to send this more than once?	
-	if (somagic->video.setup_sent) {
-		return 0;
-	}
-	
 	rc = usb_control_msg(somagic->dev,
 									usb_rcvctrlpipe(somagic->dev, 0x80),
 									SOMAGIC_USB_STD_REQUEST,
@@ -527,7 +522,6 @@ static int send_video_setup(struct usb_somagic *somagic, v4l2_std_id tvnorm)
 	reg_write(somagic, 0x003b, 0x00);
 
 	somagic->video.cur_input = INPUT_CVBS;
-	somagic->video.cur_std = tvnorm;
 	somagic->video.cur_brightness = SOMAGIC_DEFAULT_BRIGHTNESS;
 	somagic->video.cur_contrast = SOMAGIC_DEFAULT_CONTRAST;
 	somagic->video.cur_saturation = SOMAGIC_DEFAULT_SATURATION;
@@ -535,15 +529,11 @@ static int send_video_setup(struct usb_somagic *somagic, v4l2_std_id tvnorm)
 
 	if (tvnorm == V4L2_STD_PAL) {
 		setup = saa_setupPAL;
-		somagic->video.field_lines = SOMAGIC_STD_FIELD_LINES_PAL;
 		printk("somagic::%s: Setup PAL!\n", __func__);
 	} else {
 		setup = saa_setupNTSC;
-		somagic->video.field_lines = SOMAGIC_STD_FIELD_LINES_NTSC;
 		printk("somagic::%s: Setup NTSC!\n", __func__);
 	}
-
-	somagic->video.frame_size = somagic->video.field_lines * 2 * SOMAGIC_BYTES_PER_LINE;
 
 	for(i=0; setup[i].reg != 0xff; i++) {
 		rc = saa_write(somagic, setup[i].reg, setup[i].val);
@@ -554,7 +544,6 @@ static int send_video_setup(struct usb_somagic *somagic, v4l2_std_id tvnorm)
 
 	printk(KERN_INFO "somagic:%s:: SAA7113 Setup sent!\n",
 										__func__);
-	somagic->video.setup_sent = 1;
 	return 0;
 }
 
@@ -588,7 +577,7 @@ int __devinit somagic_dev_init(struct usb_interface *intf)
 	// v4l2_std_id default_norm = (default_ntsc) ? V4L2_STD_NTSC : V4L2_STD_PAL;
 	send_video_setup(somagic, V4L2_STD_PAL);
 
-	rc = somagic_v4l2_init(somagic);
+	rc = somagic_v4l2_init(somagic, V4L2_STD_PAL);
 	if (rc != 0) {
 		goto err_exit;
 	}
@@ -652,41 +641,21 @@ int somagic_dev_video_set_std(struct usb_somagic *somagic, v4l2_std_id id)
 
 	const struct v_std *std;
 
-	printk(KERN_INFO "somagic::%s: Cur std is %s, User requests standard %s\n",
-         __func__,
-         v4l2_norm_to_name(somagic->video.cur_std),
-         v4l2_norm_to_name(id));
-
-	if ((somagic->video.cur_std & id) == id) {
-		return 0;
-	}
-
-	// Not sure what will happen if we change this while we are streaming!
-	// Could probably be tested!
 	if (somagic->streaming_flags & SOMAGIC_STREAMING_STARTED) {
-		printk(KERN_INFO "somagic::%s: Warning: application is trying to "\
+		printk(KERN_INFO "somagic::%s: Warning: application is trying to "
                      "change tv-standard while streaming!\n", __func__);	
-		return -EAGAIN;
+		return -EBUSY;
 	}
 
 	if ((id & V4L2_STD_NTSC) == id) {
-		printk(KERN_INFO "somagic::%s: Set device to NTSC!\n", __func__);
 		std = ntsc;
-		somagic->video.cur_std = V4L2_STD_NTSC;
-		somagic->video.field_lines = SOMAGIC_STD_FIELD_LINES_NTSC;
 	} else if ((id & V4L2_STD_PAL) == id) {
-		printk(KERN_INFO "somagic::%s: Set device to PAL!\n", __func__);
 		std = pal;
-		somagic->video.cur_std = V4L2_STD_PAL;
-		somagic->video.field_lines = SOMAGIC_STD_FIELD_LINES_PAL;
 	} else {
-		printk(KERN_INFO "somagic::%s: Warning: "\
-                     "Application tries to set unsupported tv-standard!\n",
-           __func__);	
+		printk(KERN_INFO "somagic::%s: Trying to change tv-standard to unknown norm!\n",
+					 __func__);
 		return -EINVAL;
 	}
-
-	somagic->video.frame_size = somagic->video.field_lines * 2 * SOMAGIC_BYTES_PER_LINE;
 
 	for(i=0; std[i].reg != 0xff; i++) {
 		rc = saa_write(somagic, std[i].reg, std[i].val);
