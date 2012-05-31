@@ -1247,6 +1247,8 @@ static int parse_field(struct usb_somagic *somagic)
 */ 
 				somagic->video.cur_sync_state = SYNC_STATE_SEARCHING;
 
+				// We lost sync, if we have some data in this frame,
+				// just pass this data out to user-space
 				if (frame->length > 1) {
 					return 1;
 				} else {
@@ -1260,6 +1262,8 @@ static int parse_field(struct usb_somagic *somagic)
 							 "Lost Sync\n", __func__);
 				somagic->video.cur_sync_state = SYNC_STATE_SEARCHING;
 */
+				// We lost sync, if we have some data in this frame,
+				// just pass this data out to user-space
 				if (frame->length > 1) {
 					return 1;
 				} else {
@@ -1276,11 +1280,13 @@ static int parse_field(struct usb_somagic *somagic)
 			}
 			
 			/*
+ 			 * This block of code is here to remove the whole line if the line is in VBI
+ 			 * or just discard the SAV-MARK if this is an ActiveVideo line.
+ 			 *
  			 * HACK:
  			 * Should probably just move the scratchpointer
  			 */ 
 			if (check[3] & 0x20) {
-				// Discard VBI lines!
 				scratch_get(somagic, unused, 1448);
 				held_sync++;
 				continue;
@@ -1390,7 +1396,8 @@ static void process_video(unsigned long somagic_addr)
 			} else {
 				copy_ptr_src = 1440;
 			}
-
+			
+			// Copy this field to prev_field.
 			while((copy_ptr_src + 1440) <= (*f)->length) {
 				memcpy(somagic->video.prev_field + copy_ptr_dest,
 							 (*f)->data + copy_ptr_src, 1440);
