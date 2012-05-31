@@ -1295,10 +1295,12 @@ static int parse_field(struct usb_somagic *somagic)
 				scratch_get(somagic, unused, 4);
 			}
 		
-			if ((frame->length + 1440) > somagic->video.cur_frame_size) {
+			// We must check that there is room for 2 complete lines,
+			// since we are going to copy in the lines from the previous field.
+			if ((frame->length + (1440 * 2)) > somagic->video.cur_frame_size) {
 				printk(KERN_WARNING "somagic::%s: Forced dump of current frame, "
 							 "not room for %d, more bytes in the buffer",
-							 __func__, (1440)); // * 2
+							 __func__, (1440 * 2));
 				return 1;
 			}
 
