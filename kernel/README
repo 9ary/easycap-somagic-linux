@@ -54,8 +54,20 @@ interleaved into the new frame.
 More info:
 http://v4l2spec.bytesex.org/spec/x6386.htm
 
---Jonarne
+TODO:
+-------------------------------------------------------------------------------
+* Make the capture abort/time-out and print some info if we cannot get sync on
+  the recieved video data.
+  This is often caused by an attempt to get video from a port
+  that is not connected to any video source.
+  Maybe create a "No Signal" screen to feed to the buffer.
 
+* Test/Fix all field_order settings with NTSC
+
+* Test/Fix yanking the device while streaming
+
+* Make 'vidioc_try_fmt_video_cap' operational, so v4l2 clients
+  can change some settings on the driver
 -------------------------------------------------------------------------------
 This driver has been tested and developed under 
 OpenSUSE 11.4 -> OpenSUSE 12.2 (Tumbleweed)
