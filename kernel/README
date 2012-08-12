@@ -1,9 +1,11 @@
-WARNING:
-This software is an alpha version, and may crash or permanently damage your
-computer and/or USB devices.
+********** WARNING ************************************************************
+-------------------------------------------------------------------------------
+THIS SOFTWARE IS IN ALPHA VERSION, AND MAY CRASH OR PERMANENTLY DAMAGE YOUR
+COMPUTER AND/OR USB DEVICES.
+*******************************************************************************
 
----------------------------------------------------------------------------
-
+ABOUT:
+-------------------------------------------------------------------------------
 This is a part of a USB driver implementation for the Easycap DC60
 video capture device with USB id 1c88:0007
 
@@ -15,45 +17,55 @@ complications, the firmware cannot be distributed with this package, but it
 can be extracted from UsbSnoop logs, that you can generate when you plug
 the device into a Windows machine. 
 
-Your log file should include many outgoing packets called "Control_URB".
-The packets are 128 Bytes long, and you are interested in the last 62 bytes
-of each packet.
-
-Example:
-0000  80 e6 ee 2e 01 88 ff ff 53 02 00 4f 02 00 00 00   ........S..O....
-0010  e3 e2 dc 4e 00 00 00 00 d0 41 0f 00 8d ff ff ff   ...N.....A......
-0020  40 00 00 00 40 00 00 00 40 01 05 00 00 00 40 00   @...@...@.....@.
-0030  00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00   ................
-0040  05 ff 0c 94 ce 00 ff ff ff ff ff ff ff ff ff ff   ................
-0050  ff ff ff ff ff ff ff ff ff ff ff ff ff ff ff ff   ................
-0060  ff ff ff ff ff ff ff ff ff ff ff ff ff ff 0c 94   ................
-0070  72 06 ff ff ff ff ff ff ff ff ff ff ff ff ff ff   r...............
-
-You will have to extract the bytes from offset 0x0042 to the end of each
-packet. You can identify the correct location by the two bytes "0x05 0xff",
-and extract the rest of the bytes.
-
-This should result in a file 7502 bytes in size. The resulting firmware
-file size must be evenly dividable by 62.
-
-The firmware file used for development has the following md5sum:
-90f78491e831e8db44cfdd6204a2b602
-The Windows driver CD used for development was Version 2.1C.
-
-The firmware should be named somagic_firmware.bin, and placed in
+The firmware should be named "somagic_firmware.bin", and placed in
 /lib/firmware
 
-USAGE:
-make
-sudo insmod somagic.ko
+more info here:
+http://code.google.com/p/easycap-somagic-linux/wiki/GettingStarted#Extracting_firmware
 
-This driver has been tested and developed on an OpenSUSE 11.4 (Tumbleweed) box
+USAGE:
+-------------------------------------------------------------------------------
+make
+sudo /sbin/insmod somagic.ko [video_field_order=(0|1|2)]
+
+CHANGELOG:
+-------------------------------------------------------------------------------
+12.08.2012:
+I've added the ability to choose how to handle interlaced video by changing the
+'video_field_order' parameter when loading the module.
+This should help you get a better control on deinterlacing of interlaced frames.
+
+The options are:
+
+V4L2_FIELD_INTERLACED (0 - default):
+This will make each frame received from the device contain
+both fields interleaved line by line.
+
+V4L2_FIELD_SEQ_TB (1):
+Each frame recieved from the device will contain both fields.
+Top field in the start of the frame, and the bottom field at the bottom.
+
+V4L2_FIELD_ALTERNATE (2):
+The device will deliver a full frame for each field.
+That is, for PAL video, you will get 50 frames per second.
+Each frame will contain just one new field, with the previous field
+interleaved into the new frame.
+
+More info:
+http://v4l2spec.bytesex.org/spec/x6386.htm
+
+--Jonarne
+
+-------------------------------------------------------------------------------
+This driver has been tested and developed under 
+OpenSUSE 11.4 -> OpenSUSE 12.2 (Tumbleweed)
 with at least the following kernels:
 * 3.1.0-46-desktop
 * 3.2.10-15-defaulti
+* 3.5.0-36-default
 
-
-The USBVision driver (linux/drivers/media/video/usbvision) is was used as a base in the initial development of this driver.
+The USBVision driver (linux/drivers/media/video/usbvision) was used as a base
+in the initial development of this driver.
 
 Jon Arne Jørgensen <jonjon.arnearne@gmail.com>
 
