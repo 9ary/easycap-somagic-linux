@@ -28,11 +28,19 @@
  */
 
 static int video_nr = -1;
+static int video_field_order = 4;
+
 /* Showing parameters under SYSFS */
 module_param(video_nr, int, 0444);
-// TODO: Find the right include for this macro
-// MODULE_PARAM_DESC(video_nr, "Set video device number (/dev/videoX).
-// Default: -1(autodetect)");
+MODULE_PARM_DESC(video_nr, "\n\tSet video device number (/dev/videoX)\n"\
+"\tDefault: -1(autodetect)\n");
+
+module_param(video_field_order, int, 0444);
+MODULE_PARM_DESC(video_field_order, "\n\tSet V4L2_FIELD_ORDER\n"\
+"\tDefault: 0 (V4L2_FIELD_INTERLACED)\n"\
+"\t         1 (V4L2_FIELD_SEQ_TB)\n"\
+"\t         2 (V4L2_FIELD_ALTERNATE) 50FPS!\n");
+
 
 // PAL (625 Lines / 50Hz Vertical Timing)
 static const struct somagic_video_fmt VIDEO_PAL_FMT = {
@@ -1571,10 +1579,19 @@ int somagic_v4l2_init(struct usb_somagic *somagic, v4l2_std_id default_std)
 	// PAL | NTSC | SECAM
 	somagic->video.cur_std = default_std;
 
-	// FIELDS_INTERLACED || FIELDS_ALTERNATE || FIELDS_SEQUENCED
-	// somagic->video.cur_field_order = FIELDS_INTERLACED;
-	// somagic->video.cur_field_order = FIELDS_SEQUENCED;
-	somagic->video.cur_field_order = FIELDS_ALTERNATE;
+	if (video_field_order == 2) {
+		somagic->video.cur_field_order = FIELDS_ALTERNATE;
+		printk(KERN_INFO "Somagic[%d]: Field-order set to V4L2_FIELD_ALTERNATE\n",
+					 somagic->video.nr);
+	} else if (video_field_order == 1) {
+		somagic->video.cur_field_order = FIELDS_SEQUENCED;
+		printk(KERN_INFO "Somagic[%d]: Field-order set to V4L2_FIELD_SEQ_TB\n",
+					 somagic->video.nr);
+	} else {
+		somagic->video.cur_field_order = FIELDS_INTERLACED;
+		printk(KERN_INFO "Somagic[%d]: Field-order set to V4L2_FIELD_INTERLACED\n",
+					 somagic->video.nr);
+	}
 
 	// All setup done, we can register the v4l2 device.
 	if (video_register_device(somagic->video.vdev, VFL_TYPE_GRABBER, video_nr) < 0) {
