@@ -1,5 +1,7 @@
 #include "somagic.h"
 
+static void reg_read(struct usb_somagic *somagic);
+
 /*****************************************************************************/
 /*                                                                           */
 /* SYSFS Code	- Copied from the stv680.c usb module.												 */
@@ -22,7 +24,10 @@ static DEVICE_ATTR(isocs, S_IRUGO, show_isoc_count, NULL);
 static ssize_t test_sysfs(struct device *char_dev,
 													struct device_attribute *attr, char *buf)
 {
-	return sprintf(buf, "Test fra somagic\n");
+	struct usb_interface *intf = container_of(char_dev, struct usb_interface, dev);
+	struct usb_somagic *somagic = usb_get_intfdata(intf);
+	reg_read(somagic);
+	return sprintf(buf, "Check dmesg\n");
 }
 
 static DEVICE_ATTR(test, S_IRUGO, test_sysfs, NULL);
@@ -35,12 +40,13 @@ static void create_sysfs(struct usb_device *dev)
 	}
 
 	do {
-		res = device_create_file(&dev->dev, &dev_attr_test);
+		res = device_create_file(&dev->dev, &dev_attr_isocs);
 		if (res < 0) {
 			break;
 		}
-		res = device_create_file(&dev->dev, &dev_attr_isocs);
+		res = device_create_file(&dev->dev, &dev_attr_test);
 		if (res >= 0) {
+			printk(KERN_INFO "somagic::%s: Created sysfs!\n", __func__);
 			return;
 		}
 	} while(0);
@@ -389,6 +395,48 @@ struct saa_setup saa_setupPAL[256] = {
 	{0xff, 0xff} // END MARKER
 };
 
+static int saa_status(struct usb_somagic *somagic)
+{
+	int rc;
+	struct saa_i2c_data_struct {
+		u8 magic;
+		u8 i2c_write_address;
+		u8 bmDevCtrl;
+		u8 bmDataPointer;
+		u8 loopCounter;
+		u8 reg;
+		u8 val;
+		u8 reserved;
+	} saa_i2c_write = {
+		.magic = 0x0b,
+		.i2c_write_address = 0x4b,
+		.bmDevCtrl = 0xe0, 					// 1110 0000  Maybe BIT 5 = Read?
+		.bmDataPointer = 0x01, 			// HighNibble = Control Bits
+		.loopCounter = 0x01,
+		.reg = 0x1f,
+		.val = 0x00,
+		.reserved = 0x00
+	};
+
+	rc = usb_control_msg(somagic->dev,
+											 usb_sndctrlpipe(somagic->dev, 0x00),
+											 SOMAGIC_USB_STD_REQUEST,
+											 USB_DIR_OUT | USB_TYPE_VENDOR | USB_RECIP_DEVICE,
+											 0x0b, // VALUE
+											 0x00, // INDEX
+											 (void *)&saa_i2c_write,
+											 sizeof(saa_i2c_write),
+											 1000);
+	if (rc < 0) {
+		printk(KERN_ERR "somagic:%s:: error while trying to read saa7113 " \
+                    "status-register, usb subsytem returned %d\n",
+										__func__, rc);
+		return -1;
+	}
+
+	return rc;
+}
+
 static int saa_write(struct usb_somagic *somagic, int reg, int val)
 {
 	int rc;
@@ -404,7 +452,7 @@ static int saa_write(struct usb_somagic *somagic, int reg, int val)
 	} saa_i2c_write = {
 		.magic = 0x0b,
 		.i2c_write_address = 0x4a,
-		.bmDevCtrl = 0xc0, 					// 1100 0000
+		.bmDevCtrl = 0xc0, 					// 1100 0000  Maybe BIT 5 = Read?
 		.bmDataPointer = 0x01, 			// HighNibble = Control Bits
 		.loopCounter = 0x01,
 		.reserved = 0x00
@@ -430,6 +478,26 @@ static int saa_write(struct usb_somagic *somagic, int reg, int val)
 	}
 
 	return rc;
+}
+
+static void reg_read(struct usb_somagic *somagic)
+{
+	unsigned char data[16] = { '\0','\0','\0','\0','\0','\0','\0','\0',
+														 '\0','\0','\0','\0','\0','\0','\0','\0' };
+
+	int rc = usb_control_msg(somagic->dev,
+													 usb_rcvctrlpipe(somagic->dev, 0x80),
+													 0x91,
+													 USB_DIR_IN | USB_TYPE_VENDOR | USB_RECIP_DEVICE,
+													 0x0b,
+													 0x00, data, 16, 1000);
+
+	printk(KERN_INFO "somagic::%s: Returned %d, with data:\n" \
+									 "\t0x%02x 0x%02x 0x%02x 0x%02x 0x%02x 0x%02x 0x%02x 0x%02x\n" \
+									 "\t0x%02x 0x%02x 0x%02x 0x%02x 0x%02x 0x%02x 0x%02x 0x%02x",
+									 __func__, rc, data[0], data[1], data[2], data[3], data[4], data[5],
+									 data[6], data[7], data[8], data[9], data[10], data[11], data[12],
+									 data[13], data[14], data[15]);
 }
 
 static int reg_write(struct usb_somagic *somagic, u16 reg, u8 val)
@@ -541,6 +609,9 @@ static int send_video_setup(struct usb_somagic *somagic, v4l2_std_id tvnorm)
 			return -1;
 		}
 	}
+
+	saa_status(somagic);
+	reg_read(somagic);
 
 	printk(KERN_INFO "somagic:%s:: SAA7113 Setup sent!\n",
 										__func__);

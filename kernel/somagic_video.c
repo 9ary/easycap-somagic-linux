@@ -618,10 +618,6 @@ static int vidioc_querybuf(struct file *file, void *priv,
 	frame = &somagic->video.frame[vb->index];
 
 	switch (frame->grabstate) {
-		case FRAME_STATE_READY : {
-			vb->flags |= V4L2_BUF_FLAG_QUEUED;
-			break;
-		}
 		case FRAME_STATE_DONE : {
 			vb->flags |= V4L2_BUF_FLAG_DONE;
 			break;
@@ -630,21 +626,30 @@ static int vidioc_querybuf(struct file *file, void *priv,
 			vb->flags |= V4L2_BUF_FLAG_MAPPED;
 			break;
 		}
+		default : { // FRAME_STATE_READY || FRAME_STATE_2ND_PASS
+			vb->flags |= V4L2_BUF_FLAG_QUEUED;
+		}
 	}
 	vb->memory = V4L2_MEMORY_MMAP;
 	vb->m.offset = vb->index * somagic->video.cur_frame_size;
-	switch (frame->field) {
-		case FIELD_TOP : {
-			vb->field = V4L2_FIELD_TOP;
-			break;
+	if (somagic->video.cur_field_order == FIELDS_ALTERNATE) { 
+		switch (frame->field) {
+			case FIELD_TOP : {
+				vb->field = V4L2_FIELD_TOP;
+				break;
+			}
+			case FIELD_BOTTOM : {
+				vb->field = V4L2_FIELD_BOTTOM;
+				break;
+			}
+			default : {
+				vb->field = V4L2_FIELD_ALTERNATE;
+			}
 		}
-		case FIELD_BOTTOM : {
-			vb->field = V4L2_FIELD_BOTTOM;
-			break;
-		}
-		default : {
-			vb->field = SOMAGIC_PIX_FMT_FIELD;
-		}
+	} else if (somagic->video.cur_field_order == FIELDS_INTERLACED) {
+		vb->field = V4L2_FIELD_INTERLACED;
+	} else {
+		vb->field = V4L2_FIELD_SEQ_TB;
 	}
 	vb->length = somagic->video.cur_frame_size;
 	vb->timestamp = frame->timestamp;
@@ -729,20 +734,26 @@ static int vidioc_dqbuf(struct file *file, void *priv,
 	vb->index = f->index;
 	vb->sequence = f->sequence;
 	vb->timestamp = f->timestamp;
-	switch (f->field) {
-		case FIELD_TOP : {
-			vb->field = V4L2_FIELD_TOP;
-			break;
+	if (somagic->video.cur_field_order == FIELDS_ALTERNATE) {
+		switch (f->field) {
+			case FIELD_TOP : {
+				vb->field = V4L2_FIELD_TOP;
+				break;
+			}
+			case FIELD_BOTTOM : {
+				vb->field = V4L2_FIELD_BOTTOM;
+				break;
+			}
+			default : {
+				printk(KERN_WARNING "somagic::%s: "
+							 "about to send frame without field info\n", __func__);
+				vb->field = V4L2_FIELD_NONE;
+			}
 		}
-		case FIELD_BOTTOM : {
-			vb->field = V4L2_FIELD_BOTTOM;
-			break;
-		}
-		default : {
-			printk(KERN_WARNING "somagic::%s: "
-						 "about to send frame without field info\n", __func__);
-			vb->field = SOMAGIC_PIX_FMT_FIELD;
-		}
+	} else if (somagic->video.cur_field_order == FIELDS_INTERLACED) {
+		vb->field = V4L2_FIELD_INTERLACED;
+	} else {
+		vb->field = V4L2_FIELD_SEQ_TB;
 	}
 	vb->bytesused = f->length;
 	vb->length = somagic->video.cur_frame_size;
@@ -823,10 +834,19 @@ static int vidioc_g_fmt_vid_cap(struct file *file, void *priv,
 
 	printk(KERN_ERR "somagic:: %s Called\n", __func__);
 
+	if (somagic->video.cur_field_order == FIELDS_ALTERNATE) {
+		pix->field = V4L2_FIELD_ALTERNATE;
+	} else if (somagic->video.cur_field_order == FIELDS_INTERLACED) {
+		pix->field = V4L2_FIELD_INTERLACED;
+	} else if (somagic->video.cur_field_order == FIELDS_SEQUENCED) {
+		pix->field = V4L2_FIELD_SEQ_TB;
+	} else {
+		return -EINVAL;
+	}
+	
 	pix->width = SOMAGIC_LINE_WIDTH; 
 	pix->height = somagic->video.cur_fmt->height; 
 	pix->pixelformat = V4L2_PIX_FMT_UYVY;
-	pix->field = SOMAGIC_PIX_FMT_FIELD;
 	pix->bytesperline = SOMAGIC_BYTES_PER_LINE;
 	pix->sizeimage = somagic->video.cur_fmt->height * SOMAGIC_BYTES_PER_LINE; 
 	pix->colorspace = SOMAGIC_PIX_FMT_COLORSPACE;
@@ -837,15 +857,10 @@ static int vidioc_g_fmt_vid_cap(struct file *file, void *priv,
 static int vidioc_try_fmt_vid_cap(struct file *file, void *priv,
 							struct v4l2_format *vf)
 {
-	struct usb_somagic *somagic = video_drvdata(file);
-	struct v4l2_pix_format *pix = &vf->fmt.pix;
+//	struct usb_somagic *somagic = video_drvdata(file);
+//	struct v4l2_pix_format *pix = &vf->fmt.pix;
 
 	printk(KERN_ERR "somagic:: %s Called\n", __func__);
-	if (pix->field != SOMAGIC_PIX_FMT_FIELD) {
-		printk(KERN_INFO "somagic::%s: Tried to set field member to: %d\n",
-					 __func__, pix->field);
-		return -EINVAL;
-	}
 /*
 	if (pix->sizeimage != (288 * SOMAGIC_LINE_WIDTH)) { //somagic->video.max_frame_size) {
 		printk(KERN_INFO "somagic::%s: Tried to set sizeimage member to: %d\n",
@@ -1151,7 +1166,7 @@ static struct video_device somagic_video_template = {
 	.release = video_device_release,
 	.tvnorms = SOMAGIC_NORMS,   														// Supported TV Standards
 	.vfl_type = VFL_TYPE_GRABBER,
-	.debug = V4L2_DEBUG_IOCTL | V4L2_DEBUG_IOCTL_ARG
+	.debug = 0 // V4L2_DEBUG_IOCTL | V4L2_DEBUG_IOCTL_ARG
 };
 
 /*****************************************************************************/
@@ -1162,8 +1177,8 @@ static struct video_device somagic_video_template = {
 /*
  * parse_field
  *
- * New parser,
- * return 1 when we have an complete v4l2_buffer
+ * New parser, the bread-and-butter function of the process_video function
+ * return 1 when we have parsed one field
  */
 static int parse_field(struct usb_somagic *somagic)
 {
@@ -1274,14 +1289,14 @@ static int parse_field(struct usb_somagic *somagic)
 			line_field = ((check[3] & 0x40) == 0x40) ? FIELD_BOTTOM : FIELD_TOP;
 			if (frame->field == FIELD_NOT_SET) {
 				frame->field = line_field;
-			} else if (frame->field != line_field){
-				// Probably complete frame!
+			} else if (frame->field != line_field) {
+				// We found the field transition
 				return 1;
 			}
 			
 			/*
- 			 * This block of code is here to remove the whole line if the line is in VBI
- 			 * or just discard the SAV-MARK if this is an ActiveVideo line.
+ 			 * Drop data if the line is VBI,
+ 			 * just discard the SAV-MARK if this is an ActiveVideo line.
  			 *
  			 * HACK:
  			 * Should probably just move the scratchpointer
@@ -1294,35 +1309,43 @@ static int parse_field(struct usb_somagic *somagic)
 				// Discard SAV
 				scratch_get(somagic, unused, 4);
 			}
-		
-			// We must check that there is room for 2 complete lines,
-			// since we are going to copy in the lines from the previous field.
-			if ((frame->length + (1440 * 2)) > somagic->video.cur_frame_size) {
-				printk(KERN_WARNING "somagic::%s: Forced dump of current frame, "
-							 "not room for %d, more bytes in the buffer",
-							 __func__, (1440 * 2));
-				return 1;
-			}
+			
+			if (somagic->video.cur_field_order != FIELDS_SEQUENCED) {
+				if ((somagic->video.prev_field_ptr + 1440) > somagic->video.cur_fmt->field_size) {
+					somagic->video.prev_field_ptr = 0;
+					printk(KERN_WARNING "somagic::%s: prev_field_ptr is overflowing, "
+								 "resetting!", __func__);
+				}
 
-			if ((somagic->video.prev_field_ptr + 1440) > somagic->video.cur_fmt->field_size) {
-				somagic->video.prev_field_ptr = 0;
-				printk(KERN_WARNING "somagic::%s: prev_field_ptr is overflowing, "
-							 "resetting!", __func__);
-			}
+				if (line_field == FIELD_BOTTOM) {
+					memcpy(frame->data + frame->length,
+								 somagic->video.prev_field + somagic->video.prev_field_ptr,
+								 1440);
+					frame->length += 1440;
+					somagic->video.prev_field_ptr += 1440;
+				}
 
-			if (line_field == FIELD_BOTTOM) {
-				memcpy(frame->data + frame->length,
-							 somagic->video.prev_field + somagic->video.prev_field_ptr,
-							 1440);
-				frame->length += 1440;
-				somagic->video.prev_field_ptr += 1440;
+				// We must check that there is room for 2 complete lines,
+				// since we are going to copy in the lines from the previous field.
+				if ((frame->length + (1440 * 2)) > somagic->video.cur_frame_size) {
+					printk(KERN_WARNING "somagic::%s: Forced dump of current frame, "
+								 "not room for %d, more bytes in the buffer",
+								 __func__, (1440 * 2));
+					return 1;
+				}
+			} else if ((frame->length + 1440) > somagic->video.cur_frame_size) {
+					printk(KERN_WARNING "somagic::%s: Forced dump of current frame, "
+								 "not room for %d, more bytes in the buffer",
+								 __func__, 1440);
+					return 1;
 			}
 
 			scratch_get(somagic, frame->data + frame->length, 1440);
 			frame->length += 1440;
 			held_sync++;
 
-			if (line_field == FIELD_TOP) {
+			if (somagic->video.cur_field_order == FIELDS_ALTERNATE
+					&& line_field == FIELD_TOP) {
 				memcpy(frame->data + frame->length,
 							 somagic->video.prev_field + somagic->video.prev_field_ptr,
 							 1440);
@@ -1330,14 +1353,18 @@ static int parse_field(struct usb_somagic *somagic)
 				somagic->video.prev_field_ptr += 1440;
 			}
 
+			if (somagic->video.cur_field_order == FIELDS_INTERLACED 
+					&& line_field == FIELD_TOP) {
+				// We don't need to copy anything!
+				frame->length += 1440;
+			}
+
 
 			scratch_get(somagic, check, 4);
 			if (check[0] != 0xff || check[1] != 0x00 || check[2] != 0x00) {
-/* DEBUG
 				printk(KERN_WARNING "somagic::%s: Expected TRC-EAV, TRC-EAV not found, "
 							 " Lost Sync after %d lines\n", __func__, held_sync);
 				somagic->video.cur_sync_state = SYNC_STATE_SEARCHING;
-*/
 				return 1;
 			}
 		}
@@ -1387,19 +1414,21 @@ static void process_video(unsigned long somagic_addr)
 		}
 
 		if (parse_field(somagic)) {
-			if ((*f)->length > somagic->video.cur_fmt->frame_size) {
-				// This should never occur, don't know if we need to check this here?
-				(*f)->length = somagic->video.cur_fmt->frame_size;
+			if (somagic->video.cur_field_order == FIELDS_ALTERNATE) {
+				if ((*f)->field == FIELD_TOP) {
+					somagic->video.cur_sequence++;
+					do_gettimeofday(&somagic->video.cur_ts);
+				} else {
+					copy_ptr_src = 1440;
+				}
 			}
 
-			if ((*f)->field == FIELD_TOP) {
-				somagic->video.cur_sequence++;
-				do_gettimeofday(&somagic->video.cur_ts);
-			} else {
-				copy_ptr_src = 1440;
-			}
-			
-			// Copy this field to prev_field.
+			/*
+ 			 * Copy this field to prev_field.
+ 			 * This is only needed by FIELDS_ALTERNATE
+ 			 * & FIELDS_INTERLACED, but I don't think
+ 			 * it's doing any harm here
+ 			 */
 			while((copy_ptr_src + 1440) <= (*f)->length) {
 				memcpy(somagic->video.prev_field + copy_ptr_dest,
 							 (*f)->data + copy_ptr_src, 1440);
@@ -1415,6 +1444,23 @@ static void process_video(unsigned long somagic_addr)
 					&& ((*f)->length + SOMAGIC_BYTES_PER_LINE
 							== somagic->video.cur_fmt->frame_size)) {
 				(*f)->length = somagic->video.cur_fmt->frame_size;
+			}
+
+			if (somagic->video.cur_field_order != FIELDS_ALTERNATE) {
+				if ((*f)->grabstate == FRAME_STATE_READY
+		 				&& (*f)->field == FIELD_TOP) {
+					// Run parse_field again on this frame, to get the other field
+					(*f)->grabstate = FRAME_STATE_2ND_PASS;
+					(*f)->field = FIELD_NOT_SET;
+
+					if (somagic->video.cur_field_order == FIELDS_INTERLACED) {
+						(*f)->length = 0;
+					}
+
+					continue;
+				}
+				somagic->video.cur_sequence++;
+				do_gettimeofday(&somagic->video.cur_ts);
 			}
 
 			(*f)->timestamp = somagic->video.cur_ts;
@@ -1520,7 +1566,15 @@ int somagic_v4l2_init(struct usb_somagic *somagic, v4l2_std_id default_std)
 					 "can not register video device!", __func__);
 		goto err_exit;
 	}
+
+	/* Setup default parser options */
+	// PAL | NTSC | SECAM
 	somagic->video.cur_std = default_std;
+
+	// FIELDS_INTERLACED || FIELDS_ALTERNATE || FIELDS_SEQUENCED
+	// somagic->video.cur_field_order = FIELDS_INTERLACED;
+	// somagic->video.cur_field_order = FIELDS_SEQUENCED;
+	somagic->video.cur_field_order = FIELDS_ALTERNATE;
 
 	// All setup done, we can register the v4l2 device.
 	if (video_register_device(somagic->video.vdev, VFL_TYPE_GRABBER, video_nr) < 0) {

@@ -113,7 +113,7 @@
 #define SOMAGIC_FIELD_SIZE_NTSC (244 * SOMAGIC_BYTES_PER_LINE)
 #define SOMAGIC_FRAME_SIZE_NTSC (SOMAGIC_FRAME_LINES_NTSC * SOMAGIC_BYTES_PER_LINE)
 
-#define SOMAGIC_PIX_FMT_FIELD V4L2_FIELD_ALTERNATE // V4L2_FIELD_INTERLACED || V4L2_FIELD_ALTERNATE
+//#define SOMAGIC_PIX_FMT_FIELD V4L2_FIELD_ALTERNATE // V4L2_FIELD_INTERLACED || V4L2_FIELD_ALTERNATE
 #define SOMAGIC_PIX_FMT_COLORSPACE V4L2_COLORSPACE_SMPTE170M
 
 /* V4L2 Device Inputs */
@@ -124,9 +124,10 @@ enum somagic_inputs {
 };
 
 enum frame_state {
-	FRAME_STATE_UNUSED,				/* Frame is mapped to user space */
-	FRAME_STATE_READY,				/* Frame in Ingoing Queue */
-	FRAME_STATE_DONE,				/* Frame in Outgoing Queue */
+	FRAME_STATE_UNUSED,          /* Frame is mapped to user space */
+	FRAME_STATE_READY,           /* Frame in Ingoing Queue */
+	FRAME_STATE_DONE,            /* Frame in Outgoing Queue */
+	FRAME_STATE_2ND_PASS         /* Frame needs second pass */
 };
 
 enum process_state {
@@ -145,6 +146,12 @@ enum frame_field {
 	FIELD_NOT_SET,
 	FIELD_TOP,
 	FIELD_BOTTOM
+};
+
+enum field_order {
+	FIELDS_ALTERNATE,            /* Double frame rate */
+	FIELDS_INTERLACED,
+	FIELDS_SEQUENCED
 };
 
 /* USB - Isochronous Buffer */
@@ -225,6 +232,7 @@ struct somagic_video {
 	/* Make sure two fields get same sequence & timestamp */
 	struct timeval cur_ts;
 	int cur_sequence;
+	enum field_order cur_field_order;
 	
 	/* Pointer to frame beeing read by v4l2_read */
 	struct somagic_frame *cur_read_frame;
