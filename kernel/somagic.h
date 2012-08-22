@@ -189,11 +189,15 @@ struct somagic_audio {
 
 	struct snd_pcm_substream *pcm_substream;
 	int dma_write_ptr;
+	int dma_offset;
 
 	struct tasklet_struct process_audio;
 
 	int users;					/* Open counter */
+
 	u8 elapsed_periode;
+	bool sync;
+	int bad;
 
 	unsigned long time;
 };

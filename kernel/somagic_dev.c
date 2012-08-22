@@ -610,8 +610,10 @@ static int send_video_setup(struct usb_somagic *somagic, v4l2_std_id tvnorm)
 		}
 	}
 
-	saa_status(somagic);
-	reg_read(somagic);
+/*
+ * saa_status(somagic);
+ * reg_read(somagic);
+ */
 
 	printk(KERN_INFO "somagic:%s:: SAA7113 Setup sent!\n",
 										__func__);
@@ -839,6 +841,7 @@ int somagic_start_stream(struct usb_somagic *somagic)
 										__func__);
 		return -1;
 	}
+
 
 	/*
 	 * Start Audio streaming
