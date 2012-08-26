@@ -1,6 +1,6 @@
 #include "somagic.h"
 
-static const check_audio_sync = SOMAGIC_AUDIO_CHECK_SYNC;
+static const int check_audio_sync = SOMAGIC_AUDIO_CHECK_SYNC;
 
 static const struct snd_pcm_hardware pcm_hardware = {
 	.info = SNDRV_PCM_INFO_BLOCK_TRANSFER |
