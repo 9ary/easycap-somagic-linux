@@ -117,6 +117,9 @@
 //#define SOMAGIC_PIX_FMT_FIELD V4L2_FIELD_ALTERNATE // V4L2_FIELD_INTERLACED || V4L2_FIELD_ALTERNATE
 #define SOMAGIC_PIX_FMT_COLORSPACE V4L2_COLORSPACE_SMPTE170M
 
+// Check for sync on every Nth package
+#define SOMAGIC_AUDIO_CHECK_SYNC 10
+
 /* V4L2 Device Inputs */
 enum somagic_inputs {
 	INPUT_CVBS,
@@ -196,8 +199,7 @@ struct somagic_audio {
 	int users;					/* Open counter */
 
 	u8 elapsed_periode;
-	bool sync;
-	int bad;
+	int packets; 				/* Packet counter */
 
 	unsigned long time;
 };

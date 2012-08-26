@@ -1,5 +1,7 @@
 #include "somagic.h"
 
+static const check_audio_sync = SOMAGIC_AUDIO_CHECK_SYNC;
+
 static const struct snd_pcm_hardware pcm_hardware = {
 	.info = SNDRV_PCM_INFO_BLOCK_TRANSFER |
 					SNDRV_PCM_INFO_MMAP |
@@ -36,9 +38,8 @@ static int somagic_pcm_open(struct snd_pcm_substream *substream)
 	snd_pcm_hw_constraint_integer(substream->runtime,
 																SNDRV_PCM_HW_PARAM_PERIODS);
 
-	somagic->audio.bad = 0;	
 	somagic->audio.dma_offset = 0;
-	somagic->audio.sync = false;
+	somagic->audio.packets = 0;
 	somagic_start_stream(somagic);
 
 	return 0;
@@ -105,9 +106,8 @@ static int somagic_pcm_trigger(struct snd_pcm_substream *substream, int cmd)
 			spin_lock_irqsave(&somagic->streaming_flags_lock, lock_flags);
 			somagic->streaming_flags |= SOMAGIC_STREAMING_CAPTURE_AUDIO;
 			spin_unlock_irqrestore(&somagic->streaming_flags_lock, lock_flags);
-			somagic->audio.bad = 0;	
 			somagic->audio.dma_offset = 0;
-			somagic->audio.sync = false;
+			somagic->audio.packets = 0;
 			return 0;
 		}
 		case SNDRV_PCM_TRIGGER_STOP: {
@@ -235,69 +235,65 @@ void __devexit somagic_alsa_exit(struct usb_somagic *somagic)
  *
  * WARNING: This function is called within an interrupt, don't let it sleep
  *
- * The audio data is received as Signed 32Bit from the device,
- * but it looks like LSB is always 0x00
+ * The audio data is received as Signed 32Bit from the device with LSB = 0x00
+ * We use this fact to detect the beginning of a sample.
  *
  */
 void somagic_audio_put(struct usb_somagic *somagic, u8 *data, int len)
 {
 	struct snd_pcm_runtime *runtime;
-	int len_part;
-	int original_len = len;
-	int offset = 0; // somagic->audio.dma_offset;
+	int len_part, i;
+	int offset = 0;
 
 	if (!(somagic->streaming_flags & SOMAGIC_STREAMING_CAPTURE_AUDIO)) {
 		return;
 	}
 
-	if (somagic->audio.bad < 64 && data[0] != 0x00 && data[4] != 0x00
-			&& data[1000] != 0x00 && data[1004] != 0x00) {
-		somagic->audio.bad++;
-		return;
-	} else if (somagic->audio.bad == 64) {
-		somagic->audio.bad++;
-		while (len > 1004 && data[0] != 0x00 && data[4] != 0x00
-					 && data[1000] != 0x00 && data[1004] != 0x00) {
-			data++;
-			len--;
-		}
-	}
-
-/*
-	while (!somagic->audio.sync && len > 1004 + offset
-				 && !(data[0 + offset] == 0x00 && data[4 + offset] == 0x00
-							&& data[1000 + offset] == 0x00 && data[1004 + offset] == 0x00)) {
-		data++;
-		len--;
-	}
-
-	if (len == 1004) {
-		return;
-	}
-
-//	somagic->audio.sync = true;
-*/
-/*
-	if (len == 1004) {
-		somagic->audio.dma_offset = 0;
-		if (printk_ratelimit()) {
-			printk(KERN_INFO "somagic::%s (%d): Cold not find offset!",
-						 __func__, __LINE__);
-		}
-		return;
-	}
-*/
-
-	somagic->audio.dma_offset = original_len - len;
-
-/*
-	if (printk_ratelimit()) {
-		printk(KERN_INFO "somagic::%s (%d): dma_offset = %d\n",
-					 __func__, __LINE__, somagic->audio.dma_offset);
-	}
-*/
-
 	runtime = somagic->audio.pcm_substream->runtime;
+
+	if (len != 1020 && printk_ratelimit()) {
+		printk(KERN_INFO "somagic::%s (%d): Got strange length of audio data: %d\n",
+					 __func__, __LINE__, len);
+	}
+
+	somagic->audio.packets++;
+
+	/* 
+ 	 * We check that we are feeding alsa clean audio on every Nth packet.
+ 	 * TODO: We should make the check with increased intervals if the audio is clean
+ 	 */
+	if (somagic->audio.packets % check_audio_sync && somagic->audio.dma_write_ptr > 4) {
+		if (data[0 + somagic->audio.dma_offset] != 0x00 && printk_ratelimit()) {
+			printk(KERN_INFO "somagic::%s (%d): Lost sync??\n",
+					 	 __func__, __LINE__);
+
+			i = 0;
+			while(len > 0 && *data != 0x00) {
+				i++;
+				data++;
+				len--;
+			}
+
+			if (len == 0) {
+				if (printk_ratelimit()) {
+					printk(KERN_INFO "somagic::%s (%d): Could not find sync!\n",
+							 	 __func__, __LINE__);
+				}
+				return;
+			}
+
+			offset = i % 4;
+			somagic->audio.dma_offset = offset;
+			// We reset the write pointer when we change the offset
+			somagic->audio.dma_write_ptr = 0;
+		
+			if (printk_ratelimit()) {
+					printk(KERN_INFO "somagic::%s (%d): Found sync at offset %d\n",
+							 	 __func__, __LINE__, somagic->audio.dma_offset);
+			}
+		}
+	}
+
 
 	if (somagic->audio.dma_write_ptr + len < runtime->dma_bytes) {
 		memcpy(runtime->dma_area + somagic->audio.dma_write_ptr, data, len);
@@ -314,16 +310,6 @@ void somagic_audio_put(struct usb_somagic *somagic, u8 *data, int len)
 		}
 	}
 
-/*
-	while (somagic->audio.dma_write_ptr > 4
-				 && *(runtime->dma_area + somagic->audio.dma_write_ptr - 4) != 0x00) {
-		if (printk_ratelimit()) {
-			printk(KERN_INFO "somagic::%s (%d): Moving dma_write_ptr\n",
-						 __func__, __LINE__);
-		}
-		somagic->audio.dma_write_ptr--;
-	}
-*/
 	somagic->audio.elapsed_periode = 1;
 }
 
