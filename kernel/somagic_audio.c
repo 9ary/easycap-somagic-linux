@@ -13,11 +13,11 @@ static const struct snd_pcm_hardware pcm_hardware = {
 	.rate_max = 48000,
 	.channels_min = 2,
 	.channels_max = 2,
-	.buffer_bytes_max = 32640, //24480, 	// 1020 Bytes * 32 Usb packets!
-	.period_bytes_min = 1020, // 1020 = 127,5 Frames //765, 		// 3060,
-	.period_bytes_max = 32640, // 32640 = 4080 Frames //24480, //  32640,
+	.buffer_bytes_max = 65280, // 1020Bytes * 32Packets * 2 Periods
+	.period_bytes_min = 32640, // 1020Bytes * 32Packets * 1 Periods
+	.period_bytes_max = 65280, // 1020Bytes * 32Packets * 2 Periods
 	.periods_min = 1,
-	.periods_max = 127
+	.periods_max = 2
 };
 
 static int somagic_pcm_open(struct snd_pcm_substream *substream)
@@ -196,7 +196,7 @@ int somagic_alsa_init(struct usb_somagic *somagic)
 
 	snd_pcm_lib_preallocate_pages_for_all(sound_pcm, SNDRV_DMA_TYPE_CONTINUOUS,
 																				snd_dma_continuous_data(GFP_KERNEL),
-																				64*1024, 64*1024);
+																				65280, 65280);
 	
 	strcpy(sound_card->driver, "ALSA driver");
 	strcpy(sound_card->shortname, "somagic audio");
