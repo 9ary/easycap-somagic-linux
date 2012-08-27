@@ -28,11 +28,17 @@ USAGE:
 make
 sudo /sbin/insmod somagic.ko [video_field_order=(0|1|2)]
 
-Play audio/video with mplayer: (Replace the letters in the sqarebrackets with your device number)
+* MPLAYER
+To play audio/video with mplayer: (Replace the number in squarebrackets with your device number)
 #> mplayer -vo x11 \
  > tv://norm=PAL \
  > -tv driver=v4l2:immediatemode=0:device=/dev/video[1]:norm=pal:forceaudio:alsa:audiorate=48000:amode=1:adevice=plughw.[2,0]
 
+* VLC
+(Replace the number in squarebrackets with your device number)
+Select "Media --> Open Capture Device"
+Video device name = "/dev/video[1]"
+Audio device name = "plughw:[2,0]"
 
 CHANGELOG:
 -------------------------------------------------------------------------------
