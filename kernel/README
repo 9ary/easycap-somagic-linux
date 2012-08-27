@@ -80,6 +80,12 @@ TODO:
 
 * Make 'vidioc_try_fmt_video_cap' operational, so v4l2 clients
   can change some settings on the driver
+
+* Consider making the pcm device deliver [SIGNED 24 BIT] audio
+  instead of the [SIGNED 32 BIT] audio (with LSB = 0x00) that
+  we are delivering at the moment.
+	I'm not sure of the driver overhead introduced by this change
+  is worth the savings in buffer sizes that we would get.
 -------------------------------------------------------------------------------
 This driver has been tested and developed under 
 OpenSUSE 11.4 -> OpenSUSE 12.2 (Tumbleweed)
