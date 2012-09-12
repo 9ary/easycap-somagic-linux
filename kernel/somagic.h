@@ -120,6 +120,11 @@
 // Check for sync on every Nth package
 #define SOMAGIC_AUDIO_CHECK_SYNC 10
 
+#define SOMAGIC_DEBUG(fmt, args...) {\
+  printk(KERN_INFO KBUILD_MODNAME ": [%s +%d]: " fmt "\n", \
+         __func__, __LINE__, ## args); \
+}
+
 /* V4L2 Device Inputs */
 enum somagic_inputs {
 	INPUT_CVBS,
