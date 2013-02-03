@@ -80,15 +80,10 @@ struct somagic_buffer *parse_trc(struct somagic_dev *dev, u8 trc)
 		}
 		if (buf->second_field && !is_field2(trc)) {
 			somagic_buffer_done(dev);
-			printk_ratelimited(KERN_INFO
-					"Buffer with %d lines, done!\n",
-					buf->video_line);
 			return NULL;
 		}
 	} else {
-		if (!is_vbi(trc)) {
-			buf->video_line++;
-		}
+		buf->in_blank = true;
 	}
 
 	return buf;
@@ -109,6 +104,8 @@ static inline void copy_video(struct somagic_dev *dev,
 	}
 
 	if (buf->pos_in_line == bytes_per_line) {
+		printk_ratelimited(KERN_INFO "Line overflow!, max: %d bytes\n",
+					bytes_per_line);
 		return;
 	}
 
@@ -117,20 +114,6 @@ static inline void copy_video(struct somagic_dev *dev,
 					buf->length);
 		return;
 	}
-
-/*
-	if (buf->pos_in_line == bytes_per_line) {
-		somagic_warn("Line-buffer overflow");
-		return;
-	}
-	if (buf->line >= dev->height) {
-		printk_ratelimited(KERN_INFO "Buffer overflow!, To many lines!\n");
-		return;
-	}
-	if (buf->second_field) {
-		dst += bytes_per_line; 
-	}
-*/
 
 	dst = buf->mem;
 

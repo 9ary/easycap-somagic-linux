@@ -55,6 +55,17 @@ static int somagic_start_streaming(struct somagic_dev *dev)
 
 	v4l2_device_call_all(&dev->v4l2_dev, 0, video, s_stream, 1);
 
+	/* The saa 7115 driver sets these wrong,
+ 	 * this leads to sync issues.
+	 * V_GATE1_START
+	 * V_GATE1_STOP
+	 * V_GATE1_MSB
+	 * All these should be 0x00 for this device.
+	 */
+	somagic_write_reg(dev, 0x4a, 0x15, 0x00);
+	somagic_write_reg(dev, 0x4a, 0x16, 0x00);
+	somagic_write_reg(dev, 0x4a, 0x17, 0x00);
+
 	rc = usb_control_msg(dev->udev, usb_sndctrlpipe(dev->udev, 0x00),
 			0x01, USB_DIR_OUT | USB_TYPE_VENDOR | USB_RECIP_DEVICE,
 			0x01, 0x00, data, sizeof(data), 1000);
@@ -412,9 +423,7 @@ static void buffer_queue(struct vb2_buffer *vb)
 
 		buf->in_blank = true;
 		buf->second_field = false;
-		buf->vbi_lines = 0;
 		buf->pos_in_line = 0;
-		buf->video_line = 0;
 
 		if (buf->length < 829440) {
 			vb2_buffer_done(&buf->vb, VB2_BUF_STATE_ERROR);

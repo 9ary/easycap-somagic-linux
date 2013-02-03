@@ -113,9 +113,8 @@ struct somagic_buffer {
 	 * this is different from bytes_used
 	 */
 	unsigned int			pos;
-	unsigned int			vbi_lines;
 	unsigned int			pos_in_line;
-	unsigned int			video_line;
+
 };
 
 struct somagic_isoc_ctl {
