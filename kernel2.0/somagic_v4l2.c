@@ -86,6 +86,7 @@ static int somagic_start_streaming(struct somagic_dev *dev)
 
 	
 	mutex_unlock(&dev->v4l2_lock);
+	somagic_dbg("Streaming started!");
 	return 0;
 
 out_uninit:
@@ -237,8 +238,7 @@ static int vidioc_querystd(struct file *file, void *priv, v4l2_std_id *norm)
 {
 	struct somagic_dev *dev = video_drvdata(file);
 
-	/* TODO: Debug this, somagic cannot read i2c values! */
-	v4l2_device_call_all(&dev->v4l2_dev, 0, video,querystd, norm);
+	v4l2_device_call_all(&dev->v4l2_dev, 0, video, querystd, norm);
 	return 0;
 }
 
@@ -409,6 +409,10 @@ static void buffer_queue(struct vb2_buffer *vb)
 		buf->bytes_used = 0;
 		buf->pos = 0;
 
+		buf->in_blank = false;
+		buf->second_field = false;
+		buf->vbi_lines = 0;
+
 		if (buf->length < 829440) {
 			vb2_buffer_done(&buf->vb, VB2_BUF_STATE_ERROR);
 		} else {
@@ -447,6 +451,7 @@ static struct video_device v4l2_template = {
 	.release = video_device_release_empty,
 };
 
+/* Must be called with both v4l2_lock and vb_queue_lock hold */
 void somagic_clear_queue(struct somagic_dev *dev)
 {
 	struct somagic_buffer *buf;

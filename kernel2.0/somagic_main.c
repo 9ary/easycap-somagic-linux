@@ -268,10 +268,9 @@ static int __devinit somagic_usb_probe(struct usb_interface *intf,
 			__func__, SOMAGIC_DRIVER_VERSION);
 
 	v4l2_device_call_all(&dev->v4l2_dev, 0, core, reset, 0);
-/*	v4l2_device_call_all(&dev->v4l2_dev, 0, video, s_routing,
-		SAA7115_COMPOSITE0, 0, 0);
-*/
 	v4l2_device_call_all(&dev->v4l2_dev, 0, video, s_stream, 0);
+	v4l2_device_call_all(&dev->v4l2_dev, 0, video, s_routing,
+		SAA7115_COMPOSITE0, 0, 0);
 
 	rc = somagic_video_register(dev);
 	if (rc < 0) {
@@ -310,11 +309,9 @@ static void __devexit somagic_usb_disconnect(struct usb_interface *intf)
 	mutex_lock(&dev->vb_queue_lock);
 	mutex_lock(&dev->v4l2_lock);
 
-	/* TODO:
- 	 * stk1160_uninit_isoc(dev)
- 	 * stk1160_ac97_unrgister(dev)
- 	 * stk1160_clear_queue(dev)
- 	 */
+ 	somagic_uninit_isoc(dev);
+ 	/*stk1160_ac97_unrgister(dev)*/
+  somagic_clear_queue(dev);
 
 	video_unregister_device(&dev->vdev);
 	v4l2_device_disconnect(&dev->v4l2_dev);

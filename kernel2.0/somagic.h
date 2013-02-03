@@ -105,13 +105,15 @@ struct somagic_buffer {
 	void 				*mem;
 	unsigned int 			length;
 	unsigned int 			bytes_used;
-	int 				odd;
 
+	bool 				second_field;
+	bool				in_blank;
 	/*
 	 * Since we interlace two fields per frame,
-	 * this is different from bytesused
+	 * this is different from bytes_used
 	 */
 	unsigned int			pos;
+	unsigned int			vbi_lines;
 };
 
 struct somagic_isoc_ctl {
@@ -151,6 +153,7 @@ struct somagic_dev {
 	unsigned int 			ctl_input;	/* selected input */
 	v4l2_std_id			norm;		/* current norm */
 	struct somagic_fmt 		*fmt;		/* selected format */
+	unsigned int			buf_count;	/* for buffers */
 
 	/* i2c i/o */
 	struct i2c_adapter 		i2c_adap;
