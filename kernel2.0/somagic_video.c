@@ -35,67 +35,69 @@ static inline void somagic_buffer_done(struct somagic_dev *dev)
 	dev->isoc_ctl.buf = NULL;
 }
 
+#define is_sav(trc)						\
+	((trc & SOMAGIC_TRC_EAV) == 0x00)
+#define is_field2(trc)						\
+	((trc & SOMAGIC_TRC_FIELD_2) == SOMAGIC_TRC_FIELD_2)
+#define is_vbi(trc)						\
+	((trc & SOMAGIC_TRC_VBI) == SOMAGIC_TRC_VBI)
 static inline 
 struct somagic_buffer *parse_trc(struct somagic_dev *dev, u8 trc)
 {
 	struct somagic_buffer *buf = dev->isoc_ctl.buf;
-	u8 start = SOMAGIC_TRC_EAV | SOMAGIC_TRC_VBI | SOMAGIC_TRC_FIELD_2;
+
 	if (buf == NULL) {
-		/* We are looking for first SAV for field 0 */
-		if ((trc & start) == 0x00) {
-			buf = somagic_next_buffer(dev);
-			dev->isoc_ctl.buf = buf;
+		if (trc & SOMAGIC_TRC_EAV) {
+			return NULL;
 		}
+
+		if ((trc & SOMAGIC_TRC_VBI) == SOMAGIC_TRC_VBI) {
+			return NULL;
+		}
+
+		if (trc & SOMAGIC_TRC_FIELD_2) {
+			return NULL;
+		}
+
+		buf = somagic_next_buffer(dev);
 		if (buf == NULL) {
 			return NULL;
 		}
-		printk_ratelimited(KERN_INFO "new_buffer!\n");
+
+		dev->isoc_ctl.buf = buf;
 	}
 
-	if ((trc & SOMAGIC_TRC_EAV) == 0x00) {
-		/* SAV */
-
-		if (trc & SOMAGIC_TRC_VBI) {
-			buf->in_blank = true;
-		} else {
+	if (is_sav(trc)) {
+		if (!is_vbi(trc)) {
 			buf->in_blank = false;
+			buf->pos_in_line = 0;
+		} else {
+			buf->in_blank = true;
 		}
 
-		if (!buf->second_field &&
-				(trc & SOMAGIC_TRC_FIELD_2) &&
-				buf->vbi_lines) {
+		if (is_field2(trc)) {
 			buf->second_field = true;
-			printk_ratelimited(KERN_INFO "found 2nd field after %d blanks\n",
-						buf->vbi_lines);
 		}
-
-		if ((trc & SOMAGIC_TRC_FIELD_2) == 0x00 && buf->second_field) {
-			printk_ratelimited(KERN_INFO "found 1st field after %d blanks\n",
-						buf->vbi_lines);
+		if (buf->second_field && !is_field2(trc)) {
 			somagic_buffer_done(dev);
-			buf = somagic_next_buffer(dev);
-			if (buf == NULL) {
-				return NULL;
-			}
-			dev->isoc_ctl.buf = buf;
+			printk_ratelimited(KERN_INFO
+					"Buffer with %d lines, done!\n",
+					buf->video_line);
+			return NULL;
 		}
-
 	} else {
-		/* EAV */
-		buf->in_blank = true;
-		if (trc & SOMAGIC_TRC_VBI) {
-			buf->vbi_lines++;
+		if (!is_vbi(trc)) {
+			buf->video_line++;
 		}
 	}
-
 
 	return buf;
-
 }
 
 static inline void copy_video(struct somagic_dev *dev,
 				struct somagic_buffer *buf, u8 p)
 {
+	int bytes_per_line = dev->width * 2;
 	u8 *dst;
 
 	if (buf == NULL) {
@@ -106,14 +108,15 @@ static inline void copy_video(struct somagic_dev *dev,
 		return;
 	}
 
-	if (buf->bytes_used >= buf->length) {
+	if (buf->pos_in_line == bytes_per_line) {
+		return;
+	}
+
+	if (buf->bytes_used > buf->length) {
 		printk_ratelimited(KERN_INFO "Buffer overflow!, max: %d bytes\n",
 					buf->length);
 		return;
 	}
-
-	dst = buf->mem;
-
 
 /*
 	if (buf->pos_in_line == bytes_per_line) {
@@ -128,11 +131,15 @@ static inline void copy_video(struct somagic_dev *dev,
 		dst += bytes_per_line; 
 	}
 */
+
+	dst = buf->mem;
+
 	dst += buf->pos;
 	*dst = p;
 
 	buf->bytes_used++;
 	buf->pos++;
+	buf->pos_in_line++;
 }
 
 /*
@@ -141,7 +148,7 @@ static inline void copy_video(struct somagic_dev *dev,
 static void parse_video_data(struct somagic_dev *dev, u8 **vptrs_v, int vptrs_c)
 {
 	int i, e, sync = 0;
-	struct somagic_buffer *buf = NULL;
+	struct somagic_buffer *buf = dev->isoc_ctl.buf;
 	u8 *p;
 
 	for (i = 0; i < vptrs_c; i++) {
@@ -179,16 +186,7 @@ static void parse_video_data(struct somagic_dev *dev, u8 **vptrs_v, int vptrs_c)
 			}
 			case 3: {
 				sync = 0;
-				if (p[e] & SOMAGIC_TRC) {
-					buf = parse_trc(dev, p[e]);
-				} else {
-					copy_video(dev, buf, 0xff);
-					copy_video(dev, buf, 0x00);
-					copy_video(dev, buf, 0x00);
-					copy_video(dev, buf, p[e]);
-					
-				}
-
+				buf = parse_trc(dev, p[e]);
 			}
 			}
 		}

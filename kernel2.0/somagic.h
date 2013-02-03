@@ -114,6 +114,8 @@ struct somagic_buffer {
 	 */
 	unsigned int			pos;
 	unsigned int			vbi_lines;
+	unsigned int			pos_in_line;
+	unsigned int			video_line;
 };
 
 struct somagic_isoc_ctl {

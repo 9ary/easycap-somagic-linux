@@ -47,6 +47,7 @@ static int somagic_start_streaming(struct somagic_dev *dev)
 		return -ENODEV;
 	}
 
+	dev->buf_count = 0;
 
 	if (mutex_lock_interruptible(&dev->v4l2_lock)) {
 		return -ERESTARTSYS;
@@ -409,9 +410,11 @@ static void buffer_queue(struct vb2_buffer *vb)
 		buf->bytes_used = 0;
 		buf->pos = 0;
 
-		buf->in_blank = false;
+		buf->in_blank = true;
 		buf->second_field = false;
 		buf->vbi_lines = 0;
+		buf->pos_in_line = 0;
+		buf->video_line = 0;
 
 		if (buf->length < 829440) {
 			vb2_buffer_done(&buf->vb, VB2_BUF_STATE_ERROR);
