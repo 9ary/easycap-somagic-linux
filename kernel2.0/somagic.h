@@ -63,6 +63,14 @@
 #define somagic_dbg(fmt, args...)
 #endif
 
+#define somagic_info(fmt, args...)		\
+	pr_info("somagic::%s: " fmt,		\
+		__func__, ##args)
+
+#define somagic_warn(fmt, args...)		\
+	pr_warn("somagic::%s: " fmt,		\
+		__func__, ##args)
+
 #define somagic_err(fmt, args...)		\
 	pr_err("somagic::%s: " fmt,		\
 		__func__, ##args)
