@@ -44,10 +44,15 @@
 #define SOMAGIC_DRIVER_VERSION "0.1"
 
 /* For ISOC */
-#define SOMAGIC_MAX_PKT_SIZE 3072
-#define SOMAGIC_NUM_PACKETS 64
-#define SOMAGIC_NUM_BUFS 16
-#define SOMAGIC_ISOC_EP 0x82
+#define SOMAGIC_MAX_PKT_SIZE 	3072
+#define SOMAGIC_NUM_PACKETS 	64
+#define SOMAGIC_NUM_BUFS 	16
+#define SOMAGIC_ISOC_EP 	0x82
+
+#define SOMAGIC_TRC_EAV 	0x10
+#define SOMAGIC_TRC_VBI 	0x20
+#define SOMAGIC_TRC_FIELD_2 	0x40
+#define SOMAGIC_TRC		0x80
 
 #define DEBUG
 #ifdef DEBUG
@@ -133,8 +138,8 @@ struct somagic_dev {
 	struct list_head 		avail_bufs;
 	struct somagic_isoc_ctl		isoc_ctl;
 
-	int				width;		/* current frame width */
-	int				height;		/* current frame height */
+	int				width;		/* current frm width */
+	int				height;		/* current frm height */
 	unsigned int 			ctl_input;	/* selected input */
 	v4l2_std_id			norm;		/* current norm */
 	struct somagic_fmt 		*fmt;		/* selected format */
