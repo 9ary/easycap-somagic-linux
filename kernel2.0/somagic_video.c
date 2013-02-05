@@ -130,17 +130,17 @@ static inline void copy_video(struct somagic_dev *dev,
  */
 static void parse_video_data(struct somagic_dev *dev, u8 **vptrs_v, int vptrs_c)
 {
-	int i, e, sync = 0;
+	int i, e, trc = 0;
 	struct somagic_buffer *buf = dev->isoc_ctl.buf;
 	u8 *p;
 
 	for (i = 0; i < vptrs_c; i++) {
 		p = vptrs_v[i];
 		for (e = 4; e < 0x400; e++) {
-			switch(sync) {
+			switch(trc) {
 			case 0: {
 				if (p[e] == 0xff) {
-					sync++;	
+					trc++;	
 				} else {
 					copy_video(dev, buf, p[e]);
 				}
@@ -148,9 +148,9 @@ static void parse_video_data(struct somagic_dev *dev, u8 **vptrs_v, int vptrs_c)
 			}
 			case 1: {
 				if (p[e] == 0x00) {
-					sync++;
+					trc++;
 				} else {
-					sync = 0;
+					trc = 0;
 					copy_video(dev, buf, 0xff);
 					copy_video(dev, buf, p[e]);
 				}
@@ -158,9 +158,9 @@ static void parse_video_data(struct somagic_dev *dev, u8 **vptrs_v, int vptrs_c)
 			}
 			case 2: {
 				if (p[e] == 0x00) {
-					sync++;
+					trc++;
 				} else {
-					sync = 0;
+					trc = 0;
 					copy_video(dev, buf, 0xff);
 					copy_video(dev, buf, 0x00);
 					copy_video(dev, buf, p[e]);
@@ -168,7 +168,7 @@ static void parse_video_data(struct somagic_dev *dev, u8 **vptrs_v, int vptrs_c)
 				break;
 			}
 			case 3: {
-				sync = 0;
+				trc = 0;
 				buf = parse_trc(dev, p[e]);
 			}
 			}
