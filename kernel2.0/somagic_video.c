@@ -35,14 +35,56 @@ static inline void somagic_buffer_done(struct somagic_dev *dev)
 	dev->isoc_ctl.buf = NULL;
 }
 
+static inline void copy_video(struct somagic_dev *dev,
+				struct somagic_buffer *buf, u8 p)
+{
+	int bytes_per_line = dev->width * 2;
+	u8 *dst;
+
+	if (buf == NULL) {
+		return;
+	}
+	
+	if (buf->in_blank) {
+		return;
+	}
+
+	if (buf->pos_in_line == bytes_per_line) {
+		printk_ratelimited(KERN_INFO "Line overflow!, max: %d bytes\n",
+					bytes_per_line);
+		return;
+	}
+
+	if (buf->bytes_used > buf->length) {
+		printk_ratelimited(KERN_INFO "Buffer overflow!, max: %d bytes\n",
+					buf->length);
+		return;
+	}
+
+	dst = buf->mem;
+
+	dst += buf->pos;
+	*dst = p;
+
+	buf->bytes_used++;
+	buf->pos++;
+	buf->pos_in_line++;
+}
+
 #define is_sav(trc)						\
 	((trc & SOMAGIC_TRC_EAV) == 0x00)
 #define is_field2(trc)						\
 	((trc & SOMAGIC_TRC_FIELD_2) == SOMAGIC_TRC_FIELD_2)
 #define is_vbi(trc)						\
 	((trc & SOMAGIC_TRC_VBI) == SOMAGIC_TRC_VBI)
-static inline 
-struct somagic_buffer *parse_trc(struct somagic_dev *dev, u8 trc)
+/*
+ * Parse the TRC.
+ * Grab a new buffer from the queue if don't have one
+ * and we are recieving the start of a video frame.
+ *
+ * Mark video buffers as done if we have one full frame.
+ */
+static inline struct somagic_buffer *parse_trc(struct somagic_dev *dev, u8 trc)
 {
 	struct somagic_buffer *buf = dev->isoc_ctl.buf;
 
@@ -89,159 +131,107 @@ struct somagic_buffer *parse_trc(struct somagic_dev *dev, u8 trc)
 	return buf;
 }
 
-static inline void copy_video(struct somagic_dev *dev,
-				struct somagic_buffer *buf, u8 p)
-{
-	int bytes_per_line = dev->width * 2;
-	u8 *dst;
-
-	if (buf == NULL) {
-		return;
-	}
-	
-	if (buf->in_blank) {
-		return;
-	}
-
-	if (buf->pos_in_line == bytes_per_line) {
-		printk_ratelimited(KERN_INFO "Line overflow!, max: %d bytes\n",
-					bytes_per_line);
-		return;
-	}
-
-	if (buf->bytes_used > buf->length) {
-		printk_ratelimited(KERN_INFO "Buffer overflow!, max: %d bytes\n",
-					buf->length);
-		return;
-	}
-
-	dst = buf->mem;
-
-	dst += buf->pos;
-	*dst = p;
-
-	buf->bytes_used++;
-	buf->pos++;
-	buf->pos_in_line++;
-}
-
 /*
- * Scan a chunk to find video data, and copy data to buffer
+ * Scan the saa7113 Active video data.
+ * This data is:
+ * 	4 bytes header (SAV) (0xff 0x00 0x00 TRC)
+ * 	1440 bytes of UYUV Video data
+ * 	4 bytes footer (EAV) (0xff 0x00 0x00 TRC)
+ *
+ * TRC = Time Reference Code.
+ * SAV = Start Active Video.
+ * EAV = End Active Video.
+ * This is described in the saa7113 datasheet.
  */
-static void parse_video_data(struct somagic_dev *dev, u8 **vptrs_v, int vptrs_c)
+static inline void parse_video(struct somagic_dev *dev, u8 *p, int len)
 {
-	int i, e, trc = 0;
 	struct somagic_buffer *buf = dev->isoc_ctl.buf;
-	u8 *p;
+	enum {
+		VIDEO_DATA,
+		ALMOST_TRC_1,
+		ALMOST_TRC_2,
+		TRC
+		
+	} trc = VIDEO_DATA;
+	int i;
 
-	for (i = 0; i < vptrs_c; i++) {
-		p = vptrs_v[i];
-		for (e = 4; e < 0x400; e++) {
-			switch(trc) {
-			case 0: {
-				if (p[e] == 0xff) {
-					trc++;	
-				} else {
-					copy_video(dev, buf, p[e]);
-				}
-				break;
+	for (i = 0; i < len; i++) {
+		switch(trc) {
+		case VIDEO_DATA: {
+			if (p[i] == 0xff)
+				trc = ALMOST_TRC_1;
+			else
+				copy_video(dev, buf, p[i]);
+			break;
+		}
+		case ALMOST_TRC_1: {
+			if (p[i] == 0x00) {
+				trc = ALMOST_TRC_2;
+			} else {
+				trc = VIDEO_DATA;
+				copy_video(dev, buf, 0xff);
+				copy_video(dev, buf, p[i]);
 			}
-			case 1: {
-				if (p[e] == 0x00) {
-					trc++;
-				} else {
-					trc = 0;
-					copy_video(dev, buf, 0xff);
-					copy_video(dev, buf, p[e]);
-				}
-				break;
+			break;
+		}
+		case ALMOST_TRC_2: {
+			if (p[i] == 0x00) {
+				trc = TRC;
+			} else {
+				trc = VIDEO_DATA;
+				copy_video(dev, buf, 0xff);
+				copy_video(dev, buf, 0x00);
+				copy_video(dev, buf, p[i]);
 			}
-			case 2: {
-				if (p[e] == 0x00) {
-					trc++;
-				} else {
-					trc = 0;
-					copy_video(dev, buf, 0xff);
-					copy_video(dev, buf, 0x00);
-					copy_video(dev, buf, p[e]);
-				}
-				break;
-			}
-			case 3: {
-				trc = 0;
-				buf = parse_trc(dev, p[e]);
-			}
-			}
+			break;
+		}
+		case TRC: {
+			buf = parse_trc(dev, p[i]);
+			trc = VIDEO_DATA;
+			break;
+		}
+		default: {
+			/* Just for safety */
+			trc = VIDEO_DATA;
+		}
 		}
 	}
 
 }
-
-static void somagic_process_isoc(struct somagic_dev *dev, struct urb *urb)
+/*
+ *
+ * The device delivers data in chunks of 0x400 bytes.
+ * The four first bytes is a magic header to identify the chunks.
+ *	0xaa 0xaa 0x00 0x00 = saa7113 Active Video Data
+ *	0xaa 0xaa 0x00 0x01 = PCM - 24Bit 2 Channel audio data
+ */
+static inline void process_packet(struct somagic_dev *dev, u8 *p, int len)
 {
-	int i, j, status, len, vptrs_c = 0;
-	u8 *p;
-	u8 *vptrs_v[200];
-
+	int i;
 	u32 *header;
 
-	if (!dev) {
-		somagic_warn("called with null device\n");
-		return;	
-	}
-
-	if (urb->status < 0) {
-		somagic_warn("Received urb with status: %d\n", urb->status);
+	if (len % 0x400 != 0) {
+		printk_ratelimited(KERN_INFO "somagic::%s: len: %d\n",
+				__func__, len);
 		return;
 	}
 
-	for (i = 0; i < urb->number_of_packets; i++) {
-		status = urb->iso_frame_desc[i].status;
-		if (status < 0) {
-			printk_ratelimited(KERN_INFO "somagic::%s: "
-					"Received urb with status: %d\n",
-					__func__, status);
-			continue;
+	for (i = 0; i < len; i += 0x400) {
+		header = (u32 *)(p + i);
+		switch(__cpu_to_be32(*header)) {
+		case 0xaaaa0000: {
+			parse_video(dev, p+i+4, 0x400-4);
+			break;
 		}
-
-		p = urb->transfer_buffer + urb->iso_frame_desc[i].offset;
-		len = urb->iso_frame_desc[i].actual_length;
-
-		/*
- 		 * The device deliver data in chunks of 0x400 (1024),
- 		 * We check the first four bytes of the chunk
- 		 * to see if it's video or audio data
- 		 */
-		if (len % 0x400) {
-			printk_ratelimited(KERN_INFO "somagic::%s: len: %d\n",
-					__func__, len);
-			continue;
+		case 0xaaaa0001: {
+			/*printk_ratelimited("%x\n", __cpu_to_be32(*test));*/
+			break;
 		}
-		for (j = 0; j < len; j += 0x400) {
-			header = (u32 *)(p + j);
-			switch(__cpu_to_be32(*header)) {
-			case 0xaaaa0000: {
-				if (vptrs_c == 200) {
-					printk_ratelimited(KERN_WARNING
-						"somagic::%s: "
-						"max video pointers reached\n",
-						__func__);
-					break;
-				}
-				vptrs_v[vptrs_c++] = p+j; /* +4; */
-				break;
-			}
-			case 0xaaaa0001: {
-				/*printk_ratelimited("%x\n", __cpu_to_be32(*test));*/
-				break;
-			}
-			default: {
-				/* Nothing */
-			}
-			}
+		default: {
+			/* Nothing */
+		}
 		}
 	}
-	parse_video_data(dev, vptrs_v, vptrs_c);
 }
 
 /*
@@ -249,8 +239,9 @@ static void somagic_process_isoc(struct somagic_dev *dev, struct urb *urb)
  */
 static void somagic_isoc_isr(struct urb *urb)
 {
-	int i, rc;
+	int i, rc, status, len;
 	struct somagic_dev *dev = urb->context;
+	u8 *p;
 
 	switch(urb->status) {
 	case 0:
@@ -264,7 +255,26 @@ static void somagic_isoc_isr(struct urb *urb)
 		return;
 	}
 
-	somagic_process_isoc(dev, urb);
+	if (dev == NULL) {
+		somagic_warn("called with null device\n");
+		return;	
+	}
+
+	for (i = 0; i < urb->number_of_packets; i++) {
+
+		status = urb->iso_frame_desc[i].status;
+		if (status < 0) {
+			printk_ratelimited(KERN_INFO "somagic::%s: "
+					"Received urb with status: %d\n",
+					__func__, status);
+			continue;
+		}
+
+		p = urb->transfer_buffer + urb->iso_frame_desc[i].offset;
+		len = urb->iso_frame_desc[i].actual_length;
+		process_packet(dev, p, len);
+
+	}
 
 	for (i = 0; i < urb->number_of_packets; i++) {
 		urb->iso_frame_desc[i].status = 0;
