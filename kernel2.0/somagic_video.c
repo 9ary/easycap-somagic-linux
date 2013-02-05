@@ -1,6 +1,5 @@
 #include "somagic.h"
-static inline
-struct somagic_buffer *somagic_next_buffer(struct somagic_dev *dev)
+static inline struct somagic_buffer *somagic_next_buffer(struct somagic_dev *dev)
 {
 	struct somagic_buffer *buf = NULL;
 	unsigned long flags = 0;
@@ -26,19 +25,23 @@ static inline void somagic_buffer_done(struct somagic_dev *dev)
 
 	buf->vb.v4l2_buf.sequence = dev->buf_count >> 1;
 	buf->vb.v4l2_buf.field = V4L2_FIELD_INTERLACED;
-	buf->vb.v4l2_buf.bytesused = buf->bytes_used;
+	buf->vb.v4l2_buf.bytesused = buf->pos;
 	do_gettimeofday(&buf->vb.v4l2_buf.timestamp);
 
-	vb2_set_plane_payload(&buf->vb, 0, buf->bytes_used);
+	vb2_set_plane_payload(&buf->vb, 0, buf->pos);
 	vb2_buffer_done(&buf->vb, VB2_BUF_STATE_DONE);
 
 	dev->isoc_ctl.buf = NULL;
 }
 
-static inline void copy_video(struct somagic_dev *dev,
-				struct somagic_buffer *buf, u8 p)
+static inline void copy_video(struct somagic_dev *dev, struct somagic_buffer *buf,
+			u8 p)
 {
 	int bytes_per_line = dev->width * 2;
+	int lines_per_field = dev->height / 2;
+	int line = 0;
+	int pos_in_line = 0;
+	unsigned int offset = 0;
 	u8 *dst;
 
 	if (buf == NULL) {
@@ -49,26 +52,33 @@ static inline void copy_video(struct somagic_dev *dev,
 		return;
 	}
 
-	if (buf->pos_in_line == bytes_per_line) {
-		printk_ratelimited(KERN_INFO "Line overflow!, max: %d bytes\n",
-					bytes_per_line);
-		return;
-	}
-
-	if (buf->bytes_used > buf->length) {
+	if (buf->pos >= buf->length) {
 		printk_ratelimited(KERN_INFO "Buffer overflow!, max: %d bytes\n",
 					buf->length);
 		return;
 	}
+	
+	line = buf->pos / bytes_per_line;
+	pos_in_line = buf->pos % bytes_per_line;
+	
+	if (buf->second_field) {
+		offset += bytes_per_line;
+		if (line >= lines_per_field)
+			line -= lines_per_field;
+	}
 
-	dst = buf->mem;
+	offset += (bytes_per_line * line * 2) + pos_in_line;
 
-	dst += buf->pos;
+	/* Will this ever happen? */
+	if (offset >= buf->length) {
+		printk_ratelimited(KERN_INFO "Buffer overflow!, field: %d, line: %d, pos_in_line: %d\n",
+					buf->second_field, line, pos_in_line);
+		return;
+	}
+
+	dst = buf->mem + offset;
 	*dst = p;
-
-	buf->bytes_used++;
 	buf->pos++;
-	buf->pos_in_line++;
 }
 
 #define is_sav(trc)						\
@@ -89,15 +99,15 @@ static inline struct somagic_buffer *parse_trc(struct somagic_dev *dev, u8 trc)
 	struct somagic_buffer *buf = dev->isoc_ctl.buf;
 
 	if (buf == NULL) {
-		if (trc & SOMAGIC_TRC_EAV) {
+		if (!is_sav(trc)) {
 			return NULL;
 		}
 
-		if ((trc & SOMAGIC_TRC_VBI) == SOMAGIC_TRC_VBI) {
+		if (is_vbi(trc)) {
 			return NULL;
 		}
 
-		if (trc & SOMAGIC_TRC_FIELD_2) {
+		if (is_field2(trc)) {
 			return NULL;
 		}
 
@@ -112,18 +122,20 @@ static inline struct somagic_buffer *parse_trc(struct somagic_dev *dev, u8 trc)
 	if (is_sav(trc)) {
 		if (!is_vbi(trc)) {
 			buf->in_blank = false;
-			buf->pos_in_line = 0;
 		} else {
 			buf->in_blank = true;
 		}
 
-		if (is_field2(trc)) {
+		if (!buf->second_field && is_field2(trc)) {
 			buf->second_field = true;
+			
 		}
+
 		if (buf->second_field && !is_field2(trc)) {
 			somagic_buffer_done(dev);
 			return NULL;
 		}
+
 	} else {
 		buf->in_blank = true;
 	}
@@ -134,9 +146,9 @@ static inline struct somagic_buffer *parse_trc(struct somagic_dev *dev, u8 trc)
 /*
  * Scan the saa7113 Active video data.
  * This data is:
- * 	4 bytes header (SAV) (0xff 0x00 0x00 TRC)
+ * 	4 bytes header (0xff 0x00 0x00 [TRC/SAV])
  * 	1440 bytes of UYUV Video data
- * 	4 bytes footer (EAV) (0xff 0x00 0x00 TRC)
+ * 	4 bytes footer (0xff 0x00 0x00 [TRC/EAV])
  *
  * TRC = Time Reference Code.
  * SAV = Start Active Video.

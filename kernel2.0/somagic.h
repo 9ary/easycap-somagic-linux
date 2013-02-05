@@ -104,16 +104,10 @@ struct somagic_buffer {
 
 	void 				*mem;
 	unsigned int 			length;
-	unsigned int 			bytes_used;
 
 	bool 				second_field;
 	bool				in_blank;
-	/*
-	 * Since we interlace two fields per frame,
-	 * this is different from bytes_used
-	 */
 	unsigned int			pos;
-	unsigned int			pos_in_line;
 
 };
 

@@ -418,12 +418,10 @@ static void buffer_queue(struct vb2_buffer *vb)
 	} else {
 		buf->mem = vb2_plane_vaddr(vb, 0);
 		buf->length = vb2_plane_size(vb, 0);
-		buf->bytes_used = 0;
-		buf->pos = 0;
 
+		buf->pos = 0;
 		buf->in_blank = true;
 		buf->second_field = false;
-		buf->pos_in_line = 0;
 
 		if (buf->length < 829440) {
 			vb2_buffer_done(&buf->vb, VB2_BUF_STATE_ERROR);
