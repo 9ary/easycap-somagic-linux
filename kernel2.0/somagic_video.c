@@ -1,5 +1,5 @@
 #include "somagic.h"
-static inline struct somagic_buffer *somagic_next_buffer(struct somagic_dev *dev)
+static struct somagic_buffer *somagic_next_buffer(struct somagic_dev *dev)
 {
 	struct somagic_buffer *buf = NULL;
 	unsigned long flags = 0;
@@ -17,7 +17,7 @@ static inline struct somagic_buffer *somagic_next_buffer(struct somagic_dev *dev
 	return buf;
 }
 
-static inline void somagic_buffer_done(struct somagic_dev *dev)
+static void somagic_buffer_done(struct somagic_dev *dev)
 {
 	struct somagic_buffer *buf = dev->isoc_ctl.buf;
 
@@ -34,7 +34,7 @@ static inline void somagic_buffer_done(struct somagic_dev *dev)
 	dev->isoc_ctl.buf = NULL;
 }
 
-static inline void copy_video(struct somagic_dev *dev, struct somagic_buffer *buf,
+static void copy_video(struct somagic_dev *dev, struct somagic_buffer *buf,
 			u8 p)
 {
 	int bytes_per_line = dev->width * 2;
@@ -94,7 +94,7 @@ static inline void copy_video(struct somagic_dev *dev, struct somagic_buffer *bu
  *
  * Mark video buffers as done if we have one full frame.
  */
-static inline struct somagic_buffer *parse_trc(struct somagic_dev *dev, u8 trc)
+static struct somagic_buffer *parse_trc(struct somagic_dev *dev, u8 trc)
 {
 	struct somagic_buffer *buf = dev->isoc_ctl.buf;
 
@@ -155,7 +155,7 @@ static inline struct somagic_buffer *parse_trc(struct somagic_dev *dev, u8 trc)
  * EAV = End Active Video.
  * This is described in the saa7113 datasheet.
  */
-static inline void parse_video(struct somagic_dev *dev, u8 *p, int len)
+static void parse_video(struct somagic_dev *dev, u8 *p, int len)
 {
 	struct somagic_buffer *buf = dev->isoc_ctl.buf;
 	enum {
@@ -217,7 +217,7 @@ static inline void parse_video(struct somagic_dev *dev, u8 *p, int len)
  *	0xaa 0xaa 0x00 0x00 = saa7113 Active Video Data
  *	0xaa 0xaa 0x00 0x01 = PCM - 24Bit 2 Channel audio data
  */
-static inline void process_packet(struct somagic_dev *dev, u8 *p, int len)
+static void process_packet(struct somagic_dev *dev, u8 *p, int len)
 {
 	int i;
 	u32 *header;
