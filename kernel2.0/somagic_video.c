@@ -286,9 +286,6 @@ static void somagic_isoc_isr(struct urb *urb)
 		len = urb->iso_frame_desc[i].actual_length;
 		process_packet(dev, p, len);
 
-	}
-
-	for (i = 0; i < urb->number_of_packets; i++) {
 		urb->iso_frame_desc[i].status = 0;
 		urb->iso_frame_desc[i].actual_length = 0;
 	}
