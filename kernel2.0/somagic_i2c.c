@@ -107,8 +107,7 @@ int somagic_i2c_register(struct somagic_dev *dev)
 
 	rc = i2c_add_adapter(&dev->i2c_adap);
 	if (rc < 0) {
-		printk(KERN_ERR "somagic::%s: Can not add i2c adapter (%d)\n",
-					 __func__, rc);
+		somagic_err("can't add i2c adapter, errno: %d\n", rc);
 		return rc;
 	}
 

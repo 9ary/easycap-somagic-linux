@@ -102,8 +102,8 @@ int somagic_write_reg(struct somagic_dev *dev, u8 addr, u16 reg, u8 val)
 
 	rc = transfer_usb_ctrl(dev, data);
 	if (rc < 0) {
-		printk(KERN_ERR "somagic::%s: Write failed on reg 0x%x (%d)\n",
-			__func__, reg, rc);
+		somagic_warn("write failed on register 0x%x, errno: %d\n",
+			reg, rc);
 		return rc;
 	}
 
@@ -132,16 +132,16 @@ int somagic_read_reg(struct somagic_dev *dev, u8 addr, u16 reg, u8 *val)
 
 	rc = transfer_usb_ctrl(dev, data);
 	if (rc < 0) {
-		printk(KERN_ERR "somagic::%s: Write failed 1st request on reg 0x%x (%d)\n",
-			__func__, reg, rc);
+		somagic_warn("1st pass failing to read reg 0x%x, usb-errno: %d \n",
+			reg, rc);
 		return rc;
 	}
 
 	data.bm_data_type = 0xa0;	/* 1010 0000 */
 	rc = transfer_usb_ctrl(dev, data);
 	if (rc < 0) {
-		printk(KERN_ERR "somagic::%s: Write failed 1nd request on reg 0x%x (%d)\n",
-			__func__, reg, rc);
+		somagic_warn("2nd pass failing to read reg 0x%x, usb-errno: %d\n",
+			reg, rc);
 		return rc;
 	}
 	
@@ -150,8 +150,8 @@ int somagic_read_reg(struct somagic_dev *dev, u8 addr, u16 reg, u8 *val)
 		USB_DIR_IN | USB_TYPE_VENDOR | USB_RECIP_DEVICE,
 		0x0b, 0x00, rcv_data, 13, 1000);
 	if (rc < 0) {
-		printk(KERN_ERR "somagic::%s: Read failed on reg 0x%x (%d)\n",
-			__func__, reg, rc);
+		somagic_warn("Failed to read reg 0x%x, usb-errno: %d\n",
+			reg, rc);
 		return rc;
 	}
 
@@ -180,7 +180,7 @@ static void release_v4l2_dev(struct v4l2_device *v4l2_dev)
 {
 	struct somagic_dev *dev = container_of(v4l2_dev, struct somagic_dev,
 								v4l2_dev);
-	printk(KERN_INFO "somagic::%s: Releasing all resources\n", __func__);
+	somagic_dbg("Releasing all resources\n");
 
 	somagic_i2c_unregister(dev);
 
@@ -201,12 +201,12 @@ static int __devinit somagic_usb_probe(struct usb_interface *intf,
 	struct usb_device *udev = interface_to_usbdev(intf);
 	struct somagic_dev *dev;
 
-  printk(KERN_INFO "%s: Probing for %04x:%04x\n", __func__,
-         le16_to_cpu(udev->descriptor.idVendor),
-         le16_to_cpu(udev->descriptor.idProduct));
+	somagic_dbg("Probing for %04x:%04x\n",
+		le16_to_cpu(udev->descriptor.idVendor),
+		le16_to_cpu(udev->descriptor.idProduct));
 
 	if (udev == (struct usb_device *)NULL) {
-		printk(KERN_ERR "somagic::%s: device is NULL\n", __func__);
+		somagic_err("device is NULL\n");
 		return -EFAULT;
 	}
 
@@ -240,8 +240,7 @@ static int __devinit somagic_usb_probe(struct usb_interface *intf,
 
 	rc = v4l2_ctrl_handler_init(&dev->ctrl_handler, 0);
 	if (rc) {
-		printk(KERN_ERR "somagic::%s: v4l2_ctrl_handler_init failed (%d)\n",
-					 __func__, rc);
+		somagic_err("v4l2_ctrl_handler_init failed with: %d\n", rc);
 		goto free_err;
 	}
 
@@ -249,8 +248,7 @@ static int __devinit somagic_usb_probe(struct usb_interface *intf,
 	dev->v4l2_dev.ctrl_handler = &dev->ctrl_handler;
 	rc = v4l2_device_register(dev->dev, &dev->v4l2_dev);
 	if (rc) {
-		printk(KERN_ERR "somagic::%s: v4l2_device_register failed (%d)\n",
-					__func__, rc);
+		somagic_err("v4l2_device_register failed with %d\n", rc);
 		goto free_ctrl;
 	}
 
@@ -264,8 +262,8 @@ static int __devinit somagic_usb_probe(struct usb_interface *intf,
 	dev->sd_saa7113 = v4l2_i2c_new_subdev(&dev->v4l2_dev, &dev->i2c_adap,
 		"saa7113", 0, saa7113_addrs);
 
-	printk(KERN_INFO "somagic::%s: Driver ver %s successfully loaded\n",
-			__func__, SOMAGIC_DRIVER_VERSION);
+	somagic_dbg("Driver version %s successfully loaded\n",
+			SOMAGIC_DRIVER_VERSION);
 
 	v4l2_device_call_all(&dev->v4l2_dev, 0, core, reset, 0);
 	v4l2_device_call_all(&dev->v4l2_dev, 0, video, s_stream, 0);
@@ -301,7 +299,7 @@ static void __devexit somagic_usb_disconnect(struct usb_interface *intf)
 		return;
 	}
 
-	printk(KERN_INFO "somagic::%s: Going for release!\n", __func__);
+	somagic_dbg("Going for release!\n");
 
 	dev = usb_get_intfdata(intf);
 	usb_set_intfdata(intf, NULL);
@@ -327,7 +325,6 @@ static void __devexit somagic_usb_disconnect(struct usb_interface *intf)
 	 * Otherwise, the release is postponed until there are no users left.
 	 */
 	v4l2_device_put(&dev->v4l2_dev);
-	printk(KERN_INFO "somagic::%s: v4l2_device_put Called!\n", __func__);
 }
 
 /******************************************************************************/

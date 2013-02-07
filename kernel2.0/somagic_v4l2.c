@@ -283,7 +283,7 @@ static int vidioc_s_std(struct file *file, void *priv, v4l2_std_id *norm)
 		dev->width = 720;
 		dev->height = 576;
 	} else {
-		printk(KERN_ERR "somagic::%s: Invalid standard\n", __func__);
+		somagic_err("Invalid standard\n");
 		return -EINVAL;
 	}
 
@@ -395,9 +395,6 @@ static int queue_setup(struct vb2_queue *vq,
 	/* Packed color format */
 	*nplanes = 1;
 	sizes[0] = size;
-
-	printk(KERN_INFO "somagic::%s: buffer count %d, each %ld bytes\n",
-				 __func__, *nbuffers, size);
 
 	return 0;
 }
@@ -529,8 +526,7 @@ int somagic_video_register(struct somagic_dev *dev)
 	video_set_drvdata(&dev->vdev, dev);
 	rc = video_register_device(&dev->vdev, VFL_TYPE_GRABBER, -1);
 	if (rc < 0) {
-		printk(KERN_ERR "somagic::%s: video_register_device failed(%d)\n",
-				 __func__, rc);
+		somagic_err("video_register_device failed %d\n", rc);
 		return rc;
 	}
 

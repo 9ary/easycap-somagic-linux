@@ -58,19 +58,17 @@ void somagic_run_bootloader(struct usb_device *somagic_device)
 	rc = request_firmware(&firmware, SOMAGIC_FIRMWARE,
 				&somagic_device->dev);
 	if (rc) {
-		printk(KERN_ERR "somagic::%s: request_firmware returned %d!\n",
-							__func__, rc);
+		somagic_err("request_firmware failed with: %d\n", rc);
 		return;
 	}
 
 	if (firmware == (const struct firmware *)NULL) {
-		printk(KERN_ERR "somagic::%s: Firmware is null!", __func__);
+		somagic_err("firmware is NULL");
 		return;
 	}
 
 	if (firmware->size % FIRMWARE_CHUNK_DATA_SIZE) {
-		printk(KERN_ERR "somagic::%s: Firmware has wrong size!\n",
-								__func__);
+		somagic_err("firmware has wrong size\n");
 		return;
 	}
 
@@ -82,7 +80,7 @@ void somagic_run_bootloader(struct usb_device *somagic_device)
 				(void *)firmware_ack, 2, 1000);
 
 	if (firmware_ack[0] != ACK_READY_0 || firmware_ack[1] != ACK_READY_1 ) {
-		printk(KERN_ERR "somagic::%s: Error, could not upload firmware", __func__);
+		somagic_err("could not upload firmware");
 		return;
 	}
 
@@ -103,10 +101,7 @@ void somagic_run_bootloader(struct usb_device *somagic_device)
 				1000);
 
 		if (rc < 0) {
-			printk(KERN_ERR "somagic::%s: error while uploading "
-						"firmware, usb_control_message "
-						"#%d returned: %d",
-						__func__, i, rc);
+			somagic_err("failed to uploading part of firmware");
 			return;
 		}
 	}
@@ -122,6 +117,6 @@ void somagic_run_bootloader(struct usb_device *somagic_device)
 				(void *)firmware_ack, 2,
 				1000);
 	
-	printk(KERN_DEBUG "somagic: last request returned %d bytes\n", rc);
+	somagic_dbg("firmware upload succeded\n");
 	return;
 }
