@@ -96,6 +96,8 @@ static void copy_video(struct somagic_dev *dev, struct somagic_buffer *buf,
 static struct somagic_buffer *parse_trc(struct somagic_dev *dev, u8 trc)
 {
 	struct somagic_buffer *buf = dev->isoc_ctl.buf;
+	int lines_per_field = dev->height / 2;
+	int line = 0;
 
 	if (buf == NULL) {
 		if (!is_sav(trc)) {
@@ -126,13 +128,15 @@ static struct somagic_buffer *parse_trc(struct somagic_dev *dev, u8 trc)
 		}
 
 		if (!buf->second_field && is_field2(trc)) {
+			line = buf->pos / SOMAGIC_BYTES_PER_LINE;
+			if (line < lines_per_field) {
+				goto buf_done;
+			}
 			buf->second_field = true;
-			
 		}
 
 		if (buf->second_field && !is_field2(trc)) {
-			somagic_buffer_done(dev);
-			return NULL;
+			goto buf_done;
 		}
 
 	} else {
@@ -140,6 +144,10 @@ static struct somagic_buffer *parse_trc(struct somagic_dev *dev, u8 trc)
 	}
 
 	return buf;
+
+buf_done:
+	somagic_buffer_done(dev);
+	return NULL;
 }
 
 /*
