@@ -37,7 +37,6 @@ static void somagic_buffer_done(struct somagic_dev *dev)
 static void copy_video(struct somagic_dev *dev, struct somagic_buffer *buf,
 			u8 p)
 {
-	int bytes_per_line = dev->width * 2;
 	int lines_per_field = dev->height / 2;
 	int line = 0;
 	int pos_in_line = 0;
@@ -58,16 +57,16 @@ static void copy_video(struct somagic_dev *dev, struct somagic_buffer *buf,
 		return;
 	}
 	
-	line = buf->pos / bytes_per_line;
-	pos_in_line = buf->pos % bytes_per_line;
+	line = buf->pos / SOMAGIC_BYTES_PER_LINE;
+	pos_in_line = buf->pos % SOMAGIC_BYTES_PER_LINE;
 	
 	if (buf->second_field) {
-		offset += bytes_per_line;
+		offset += SOMAGIC_BYTES_PER_LINE;
 		if (line >= lines_per_field)
 			line -= lines_per_field;
 	}
 
-	offset += (bytes_per_line * line * 2) + pos_in_line;
+	offset += (SOMAGIC_BYTES_PER_LINE * line * 2) + pos_in_line;
 
 	/* Will this ever happen? */
 	if (offset >= buf->length) {
