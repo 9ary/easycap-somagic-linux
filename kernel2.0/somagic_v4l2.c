@@ -278,7 +278,7 @@ static int vidioc_s_std(struct file *file, void *priv, v4l2_std_id *norm)
 	dev->norm = *norm;
 	if (dev->norm & V4L2_STD_525_60) {
 		dev->width = 720;
-		dev->height = 480;
+		dev->height = 486;
 	} else if (dev->norm & V4L2_STD_625_50) {
 		dev->width = 720;
 		dev->height = 576;
@@ -423,7 +423,7 @@ static void buffer_queue(struct vb2_buffer *vb)
 		buf->in_blank = true;
 		buf->second_field = false;
 
-		if (buf->length < 829440) {
+		if (buf->length < dev->width * dev->height * 2) {
 			vb2_buffer_done(&buf->vb, VB2_BUF_STATE_ERROR);
 		} else {
 			list_add_tail(&buf->list, &dev->avail_bufs);
@@ -455,7 +455,7 @@ static struct vb2_ops somagic_video_qops = {
 
 static struct video_device v4l2_template = {
 	.name = "easycap_somagic_dc60",
-	.tvnorms = V4L2_STD_625_50,
+	.tvnorms = V4L2_STD_625_50 | V4L2_STD_525_60,
 	.fops = &somagic_fops,
 	.ioctl_ops = &somagic_ioctl_ops,
 	.release = video_device_release_empty,
