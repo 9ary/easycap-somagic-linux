@@ -31,21 +31,21 @@
 #include "somagic.h"
 #include <linux/firmware.h>
 
-#define SOMAGIC_FIRMWARE							"somagic_firmware.bin"
+#define SOMAGIC_FIRMWARE		"somagic_firmware.bin"
 
-#define FIRMWARE_CHUNK_SIZE						64
-#define FIRMWARE_CHUNK_DATA_SIZE			62
-#define FIRMWARE_CHUNK_HEADER_SIZE		2
-#define FIRMWARE_CHUNK_HEADER					{ 0x05, 0xff }	// %1111 1111 0000 0101
-#define FIRMWARE_CHUNK_URB_VALUE			0x0005					// %0000 0000 0000 0101
+#define FIRMWARE_CHUNK_SIZE		64
+#define FIRMWARE_CHUNK_DATA_SIZE	62
+#define FIRMWARE_CHUNK_HEADER_SIZE	2
+#define FIRMWARE_CHUNK_HEADER		{ 0x05, 0xff }	/* %1111 1111 0000 0101 */
+#define FIRMWARE_CHUNK_URB_VALUE	0x0005		/* %0000 0000 0000 0101 */
 
-#define ACK_READY_URB_VALUE						0x0001					// %0000 0000 0000 0001
-#define ACK_READY_0										0x01						// %0000 0001
-#define ACK_READY_1										0x07						// %0000 0111
+#define ACK_READY_URB_VALUE		0x0001		/* %0000 0000 0000 0001 */
+#define ACK_READY_0			0x01		/* %0000 0001 */
+#define ACK_READY_1			0x07		/* %0000 0111 */
 
-#define SENDING_COMPLETE_URB_VALUE		0x0007					// %0000 0000 0000 0111
-#define SENDING_COMPLETE_0						0x07						// %0000 0111
-#define SENDING_COMPLETE_1						0x00						// %0000 0000
+#define SENDING_COMPLETE_URB_VALUE	0x0007		/* %0000 0000 0000 0111 */
+#define SENDING_COMPLETE_0		0x07		/* %0000 0111 */
+#define SENDING_COMPLETE_1		0x00		/* %0000 0000 */
 
 void somagic_run_bootloader(struct usb_device *somagic_device)
 {
@@ -56,7 +56,7 @@ void somagic_run_bootloader(struct usb_device *somagic_device)
 	const struct firmware * firmware = (const struct firmware *)NULL;
 
 	rc = request_firmware(&firmware, SOMAGIC_FIRMWARE,
-							&somagic_device->dev);
+				&somagic_device->dev);
 	if (rc) {
 		printk(KERN_ERR "somagic::%s: request_firmware returned %d!\n",
 							__func__, rc);
