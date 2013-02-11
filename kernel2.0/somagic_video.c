@@ -32,6 +32,10 @@ static void somagic_buffer_done(struct somagic_dev *dev)
 	vb2_buffer_done(&buf->vb, VB2_BUF_STATE_DONE);
 
 	dev->isoc_ctl.buf = NULL;
+	if (dev->sav_pos < 3800) {
+		dev->sav[dev->sav_pos] = 0xff;
+		dev->sav_pos++;
+	}
 }
 
 static void copy_video(struct somagic_dev *dev, struct somagic_buffer *buf,
@@ -98,6 +102,10 @@ static struct somagic_buffer *parse_trc(struct somagic_dev *dev, u8 trc)
 	struct somagic_buffer *buf = dev->isoc_ctl.buf;
 	int lines_per_field = dev->height / 2;
 	int line = 0;
+	if (dev->sav_pos < 3800) {
+		dev->sav[dev->sav_pos] |= (trc & 0xf0);
+		dev->sav_pos++;
+	}
 
 	if (buf == NULL) {
 		if (!is_sav(trc)) {
@@ -205,8 +213,8 @@ static void parse_video(struct somagic_dev *dev, u8 *p, int len)
 			break;
 		}
 		case TRC: {
-			buf = parse_trc(dev, p[i]);
 			trc = VIDEO_DATA;
+			buf = parse_trc(dev, p[i]);
 			break;
 		}
 		default: {
@@ -286,6 +294,8 @@ static void somagic_isoc_isr(struct urb *urb)
 			printk_ratelimited(KERN_INFO "somagic::%s: "
 					"Received urb with status: %d\n",
 					__func__, status);
+			urb->iso_frame_desc[i].status = 0;
+			urb->iso_frame_desc[i].actual_length = 0;
 			continue;
 		}
 

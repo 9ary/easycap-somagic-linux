@@ -48,6 +48,7 @@ static int somagic_start_streaming(struct somagic_dev *dev)
 	}
 
 	dev->buf_count = 0;
+	dev->sav_pos = 0;
 
 	if (mutex_lock_interruptible(&dev->v4l2_lock)) {
 		return -ERESTARTSYS;
@@ -151,6 +152,8 @@ static int somagic_stop_streaming(struct somagic_dev *dev)
 
 	mutex_unlock(&dev->v4l2_lock);
 
+	print_hex_dump(KERN_INFO, "", DUMP_PREFIX_OFFSET, 32, 1, dev->sav,
+			dev->sav_pos, false);
 	return 0;
 }
 
@@ -277,11 +280,11 @@ static int vidioc_s_std(struct file *file, void *priv, v4l2_std_id *norm)
 
 	dev->norm = *norm;
 	if (dev->norm & V4L2_STD_525_60) {
-		dev->width = 720;
-		dev->height = 486;
+		dev->width = SOMAGIC_BYTES_PER_LINE / 2;
+		dev->height = SOMAGIC_NTSC_LINES;
 	} else if (dev->norm & V4L2_STD_625_50) {
-		dev->width = 720;
-		dev->height = 576;
+		dev->width = SOMAGIC_BYTES_PER_LINE / 2;
+		dev->height =  SOMAGIC_PAL_LINES;
 	} else {
 		somagic_err("Invalid standard\n");
 		return -EINVAL;
@@ -515,8 +518,8 @@ int somagic_video_register(struct somagic_dev *dev)
 
 	/* PAL is default */
 	dev->norm = V4L2_STD_PAL;
-	dev->width = 720;
-	dev->height = 576;
+	dev->width = SOMAGIC_BYTES_PER_LINE / 2;
+	dev->height = SOMAGIC_PAL_LINES;
 
 	dev->fmt = &format[0];
 	/* somagic_set_std(dev); */

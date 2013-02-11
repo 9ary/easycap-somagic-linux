@@ -189,6 +189,30 @@ static void release_v4l2_dev(struct v4l2_device *v4l2_dev)
 	kfree(dev);
 }
 
+#define hb_mult(wMaxPacketSize) (1 + (((wMaxPacketSize) >> 11) & 0x03))
+
+static int somagic_scan_usb(struct usb_interface *intf, struct usb_device *udev)
+{
+	int i,e,ifnum,sizedescr, size;
+	const struct usb_endpoint_descriptor *desc;
+	ifnum = intf->altsetting[0].desc.bInterfaceNumber;
+
+	for (i = 0; i < intf->num_altsetting; i++) {
+		for (e = 0; e < intf->altsetting[i].desc.bNumEndpoints; e++) {
+			desc = &intf->altsetting[i].endpoint[e].desc;
+			sizedescr = le16_to_cpu(desc->wMaxPacketSize);
+			size = sizedescr & 0x7ff;
+
+			if (udev->speed == USB_SPEED_HIGH) {
+				size = size * hb_mult(sizedescr);
+			}
+
+			printk(KERN_INFO "ep: %d, size: %d\n", e, size);
+		}
+	}
+	return 0;
+}
+
 /******************************************************************************/
 /*                                                                            */
 /*          DEVICE  -  PROBE   &   DISCONNECT                                 */
@@ -218,6 +242,8 @@ static int __devinit somagic_usb_probe(struct usb_interface *intf,
   if (udev->descriptor.idProduct != DC60_PRODUCT_ID) {
 		return -ENODEV;
 	}
+
+	somagic_scan_usb(intf, udev);
 
 	dev = kzalloc(sizeof(struct somagic_dev), GFP_KERNEL);
 	if (dev == NULL) {

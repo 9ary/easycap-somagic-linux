@@ -50,6 +50,8 @@
 #define SOMAGIC_ISOC_EP 	0x82
 
 #define SOMAGIC_BYTES_PER_LINE	1440
+#define SOMAGIC_PAL_LINES	576
+#define SOMAGIC_NTSC_LINES	486
 
 #define SOMAGIC_TRC_EAV 	0x10
 #define SOMAGIC_TRC_VBI 	0x20
@@ -159,6 +161,9 @@ struct somagic_dev {
 	struct mutex 			v4l2_lock;
 	struct mutex 			vb_queue_lock;
 	spinlock_t 			buf_lock;
+
+	u8				sav[3800];
+	int				sav_pos;
 };
 
 /* Provided by somagic_bootloader.c */
