@@ -342,7 +342,7 @@ static void alg1_process(struct alg1_video_state_t *vs, unsigned char *buffer, i
 					vs->field = (nc & (unsigned char)0x40) ? 1 : 0;
 					/*
 						* V (vertical blanking bit) = Bit 5 (mask 0x20).
-						* 0: in VBI, 1: in active video.
+						* 1: in VBI, 0: in active video.
 						*/
 					if (nc & (unsigned char)0x20) {
 						/* VBI (vertical blank) */
