@@ -102,6 +102,14 @@ static void copy_video(struct somagic_dev *dev, struct somagic_buffer *buf,
 	if (line >= lines_per_field) {
 			line -= lines_per_field;
 	}
+
+	if (line != buf->trc_av - 1) {
+		/* Keep video synchronized.
+		 * The device will sometimes give us to many bytes
+		 * for a line, before we get a new TRC.
+		 * We just drop these bytes */
+		return;
+	}
 	
 	if (buf->second_field) {
 		offset += SOMAGIC_BYTES_PER_LINE;
@@ -170,6 +178,7 @@ static struct somagic_buffer *parse_trc(struct somagic_dev *dev, u8 trc)
 		/* Start of VBI or ACTIVE VIDEO */
 		if (is_active_video(trc)) {
 			buf->in_blank = false;
+			buf->trc_av++;
 		} else {
 			/* VBI */	
 			buf->in_blank = true;
@@ -181,6 +190,7 @@ static struct somagic_buffer *parse_trc(struct somagic_dev *dev, u8 trc)
 				goto buf_done;
 			}
 			buf->second_field = true;
+			buf->trc_av = 0;
 		}
 
 		if (buf->second_field && !is_field2(trc)) {

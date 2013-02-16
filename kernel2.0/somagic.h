@@ -155,6 +155,7 @@ struct somagic_buffer {
 	bool				in_blank;
 	unsigned int			pos;
 
+	u16				trc_av;
 };
 
 struct somagic_isoc_ctl {
