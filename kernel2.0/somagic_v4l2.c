@@ -56,7 +56,6 @@ static int somagic_start_streaming(struct somagic_dev *dev)
 
 	dev->sync_state = HSYNC;
 	dev->buf_count = 0;
-	dev->sav_pos = 0;
 
 	if (mutex_lock_interruptible(&dev->v4l2_lock)) {
 		return -ERESTARTSYS;
@@ -160,8 +159,6 @@ static int somagic_stop_streaming(struct somagic_dev *dev)
 
 	mutex_unlock(&dev->v4l2_lock);
 
-	print_hex_dump(KERN_INFO, "", DUMP_PREFIX_OFFSET, 32, 1, dev->sav,
-			dev->sav_pos, false);
 	return 0;
 }
 

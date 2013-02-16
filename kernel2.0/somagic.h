@@ -205,9 +205,6 @@ struct somagic_dev {
 	struct mutex 			vb_queue_lock;
 	spinlock_t 			buf_lock;
 
-	u8				sav[3800];
-	int				sav_pos;
-
 	enum somagic_sync		sync_state;
 };
 

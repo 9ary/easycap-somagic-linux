@@ -68,10 +68,6 @@ static void somagic_buffer_done(struct somagic_dev *dev)
 	vb2_buffer_done(&buf->vb, VB2_BUF_STATE_DONE);
 
 	dev->isoc_ctl.buf = NULL;
-	if (dev->sav_pos < 3800) {
-		dev->sav[dev->sav_pos] = 0xff;
-		dev->sav_pos++;
-	}
 }
 
 static void copy_video(struct somagic_dev *dev, struct somagic_buffer *buf,
@@ -148,10 +144,6 @@ static struct somagic_buffer *parse_trc(struct somagic_dev *dev, u8 trc)
 	struct somagic_buffer *buf = dev->isoc_ctl.buf;
 	int lines_per_field = dev->height / 2;
 	int line = 0;
-	if (dev->sav_pos < 3800) {
-		dev->sav[dev->sav_pos] |= (trc & 0xf0);
-		dev->sav_pos++;
-	}
 
 	if (buf == NULL) {
 		if (!is_sav(trc)) {
