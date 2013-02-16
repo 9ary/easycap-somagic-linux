@@ -2,13 +2,16 @@
  * somagic_v4l2.c                                                              *
  *                                                                             *
  * USB Driver for Somagic EasyCAP DC60                                         *
- * USB ID 1c88:0007                                                            *
+ * USB ID 1c88:003c                                                            *
  *                                                                             *
  * *****************************************************************************
  *
- * Copyright 2011 Jon Arne Jørgensen
+ * Copyright 2011-2013 Jon Arne Jørgensen
+ * <jonjon.arnearne--a.t--gmail.com>
  *
- * This file is part of somagic_dc60
+ * Copyright 2011, 2012 Tony Brown, Michal Demin, Jeffry Johnston
+ *
+ * This file is part of easycap-somagic-linux
  * http://code.google.com/p/easycap-somagic-linux/
  *
  * This program is free software: you can redistribute it and/or modify
@@ -23,6 +26,10 @@
  *
  * You should have received a copy of the GNU General Public License
  * along with this program; if not, see <http://www.gnu.org/licenses/>.
+ *
+ * This driver is heavily influensed by the STK1160 driver.
+ * Copyright (C) 2012 Ezequiel Garcia
+ * <elezegarcia--a.t--gmail.com>
  *
  */
 

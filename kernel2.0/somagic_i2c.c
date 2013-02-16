@@ -1,3 +1,38 @@
+/*******************************************************************************
+ * somagic_i2c.c                                                               *
+ *                                                                             *
+ * USB Driver for Somagic EasyCAP DC60                                         *
+ * USB ID 1c88:003c                                                            *
+ *                                                                             *
+ * *****************************************************************************
+ *
+ * Copyright 2011-2013 Jon Arne Jørgensen
+ * <jonjon.arnearne--a.t--gmail.com>
+ *
+ * Copyright 2011, 2012 Tony Brown, Michal Demin, Jeffry Johnston
+ *
+ * This file is part of easycap-somagic-linux
+ * http://code.google.com/p/easycap-somagic-linux/
+ *
+ * This program is free software: you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License as published by
+ * the Free Software Foundation, either version 2 of the License, or
+ * (at your option) any later version.
+ *
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU General Public License for more details.
+ *
+ * You should have received a copy of the GNU General Public License
+ * along with this program; if not, see <http://www.gnu.org/licenses/>.
+ *
+ * This driver is heavily influensed by the STK1160 driver.
+ * Copyright (C) 2012 Ezequiel Garcia
+ * <elezegarcia--a.t--gmail.com>
+ *
+ */
+
 #include "somagic.h"
 
 /* The device will not return the chip_name on address 0x00.
