@@ -100,6 +100,13 @@ struct somagic_usb_ctrl {
 	u8 data[4];
 };
 
+enum somagic_sync {
+	HSYNC,
+	SYNCZ1,
+	SYNCZ2,
+	TRC
+};
+
 /* Buffer for one video frame */
 struct somagic_buffer {
 	/* Common vb2 stuff, must be first */
@@ -164,6 +171,8 @@ struct somagic_dev {
 
 	u8				sav[3800];
 	int				sav_pos;
+
+	enum somagic_sync		sync_state;
 };
 
 /* Provided by somagic_bootloader.c */

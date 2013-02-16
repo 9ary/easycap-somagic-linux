@@ -61,13 +61,14 @@ static void copy_video(struct somagic_dev *dev, struct somagic_buffer *buf,
 		return;
 	}
 	
-	line = buf->pos / SOMAGIC_BYTES_PER_LINE;
 	pos_in_line = buf->pos % SOMAGIC_BYTES_PER_LINE;
+	line = buf->pos / SOMAGIC_BYTES_PER_LINE;
+	if (line >= lines_per_field) {
+			line -= lines_per_field;
+	}
 	
 	if (buf->second_field) {
 		offset += SOMAGIC_BYTES_PER_LINE;
-		if (line >= lines_per_field)
-			line -= lines_per_field;
 	}
 
 	offset += (SOMAGIC_BYTES_PER_LINE * line * 2) + pos_in_line;
@@ -173,54 +174,39 @@ buf_done:
 static void parse_video(struct somagic_dev *dev, u8 *p, int len)
 {
 	struct somagic_buffer *buf = dev->isoc_ctl.buf;
-	enum {
-		VIDEO_DATA,
-		ALMOST_TRC_1,
-		ALMOST_TRC_2,
-		TRC
-		
-	} trc = VIDEO_DATA;
 	int i;
 
 	for (i = 0; i < len; i++) {
-		switch(trc) {
-		case VIDEO_DATA: {
+		switch(dev->sync_state) {
+		case HSYNC:
 			if (p[i] == 0xff)
-				trc = ALMOST_TRC_1;
+				dev->sync_state = SYNCZ1;
 			else
 				copy_video(dev, buf, p[i]);
 			break;
-		}
-		case ALMOST_TRC_1: {
+		case SYNCZ1:
 			if (p[i] == 0x00) {
-				trc = ALMOST_TRC_2;
+				dev->sync_state = SYNCZ2;
 			} else {
-				trc = VIDEO_DATA;
+				dev->sync_state = HSYNC;
 				copy_video(dev, buf, 0xff);
 				copy_video(dev, buf, p[i]);
 			}
 			break;
-		}
-		case ALMOST_TRC_2: {
+		case SYNCZ2:
 			if (p[i] == 0x00) {
-				trc = TRC;
+				dev->sync_state = TRC;
 			} else {
-				trc = VIDEO_DATA;
+				dev->sync_state = HSYNC;
 				copy_video(dev, buf, 0xff);
 				copy_video(dev, buf, 0x00);
 				copy_video(dev, buf, p[i]);
 			}
 			break;
-		}
-		case TRC: {
-			trc = VIDEO_DATA;
+		case TRC:
+			dev->sync_state = HSYNC;
 			buf = parse_trc(dev, p[i]);
 			break;
-		}
-		default: {
-			/* Just for safety */
-			trc = VIDEO_DATA;
-		}
 		}
 	}
 

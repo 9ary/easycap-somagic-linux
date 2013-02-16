@@ -47,6 +47,7 @@ static int somagic_start_streaming(struct somagic_dev *dev)
 		return -ENODEV;
 	}
 
+	dev->sync_state = HSYNC;
 	dev->buf_count = 0;
 	dev->sav_pos = 0;
 
