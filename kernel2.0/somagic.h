@@ -190,8 +190,8 @@ struct somagic_dev {
 	struct list_head 		avail_bufs;
 	struct somagic_isoc_ctl		isoc_ctl;
 
-	int				width;		/* current frm width */
-	int				height;		/* current frm height */
+	int				width;		/* frame width */
+	int				height;		/* frame height */
 	unsigned int 			ctl_input;	/* selected input */
 	v4l2_std_id			norm;		/* current norm */
 	struct somagic_fmt 		*fmt;		/* selected format */
