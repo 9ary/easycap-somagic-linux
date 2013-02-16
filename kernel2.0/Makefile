@@ -2,9 +2,10 @@
 # Makefile                                                                     #
 #                                                                              #
 # Makefile for kernel USB Driver for Somagic EasyCAP DC60                      #
+# USB ID 1c88:003c                                                             #
 # ##############################################################################
 #
-# Copyright 2011, 2012 Jon Arne Jørgensen
+# Copyright 2011 - 2013 Jon Arne Jørgensen
 # 
 # This file is part of somagic_dc60
 # http://code.google.com/p/easycap-somagic-linux/
