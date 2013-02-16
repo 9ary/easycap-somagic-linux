@@ -111,8 +111,9 @@ static void copy_video(struct somagic_dev *dev, struct somagic_buffer *buf,
 
 	/* Will this ever happen? */
 	if (offset >= buf->length) {
-		printk_ratelimited(KERN_INFO "Buffer overflow!, field: %d, line: %d, pos_in_line: %d\n",
-					buf->second_field, line, pos_in_line);
+		printk_ratelimited(KERN_INFO
+		"Offset calculation error, field: %d, line: %d, pos_in_line: %d\n",
+			buf->second_field, line, pos_in_line);
 		return;
 	}
 
@@ -125,8 +126,8 @@ static void copy_video(struct somagic_dev *dev, struct somagic_buffer *buf,
 	((trc & SOMAGIC_TRC_EAV) == 0x00)
 #define is_field2(trc)						\
 	((trc & SOMAGIC_TRC_FIELD_2) == SOMAGIC_TRC_FIELD_2)
-#define is_vbi(trc)						\
-	((trc & SOMAGIC_TRC_VBI) == SOMAGIC_TRC_VBI)
+#define is_active_video(trc)					\
+	((trc & SOMAGIC_TRC_VBI) == 0x00)
 /*
  * Parse the TRC.
  * Grab a new buffer from the queue if don't have one
@@ -149,7 +150,7 @@ static struct somagic_buffer *parse_trc(struct somagic_dev *dev, u8 trc)
 			return NULL;
 		}
 
-		if (is_vbi(trc)) {
+		if (!is_active_video(trc)) {
 			return NULL;
 		}
 
@@ -166,9 +167,11 @@ static struct somagic_buffer *parse_trc(struct somagic_dev *dev, u8 trc)
 	}
 
 	if (is_sav(trc)) {
-		if (!is_vbi(trc)) {
+		/* Start of VBI or ACTIVE VIDEO */
+		if (is_active_video(trc)) {
 			buf->in_blank = false;
 		} else {
+			/* VBI */	
 			buf->in_blank = true;
 		}
 
@@ -185,6 +188,7 @@ static struct somagic_buffer *parse_trc(struct somagic_dev *dev, u8 trc)
 		}
 
 	} else {
+		/* End of VBI or ACTIVE VIDEO */
 		buf->in_blank = true;
 	}
 
