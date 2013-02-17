@@ -2,15 +2,16 @@
  * somagic_bootloader.c                                                        *
  *                                                                             *
  * USB Driver for Somagic EasyCAP DC60                                         *
- * USB ID 1c88:0007                                                            *
+ * USB ID 1c88:003c                                                            *
  *                                                                             *
- * This driver will upload the firmware for the Somagic chip, and reconnect    *
- * the USB dongle with new product id: 1c88:003c.                              *
  * *****************************************************************************
  *
- * Copyright 2011 Jon Arne Jørgensen
+ * Copyright 2011-2013 Jon Arne Jørgensen
+ * <jonjon.arnearne--a.t--gmail.com>
  *
- * This file is part of somagic_dc60
+ * Copyright 2011, 2012 Tony Brown, Michal Demin, Jeffry Johnston
+ *
+ * This file is part of easycap-somagic-linux
  * http://code.google.com/p/easycap-somagic-linux/
  *
  * This program is free software: you can redistribute it and/or modify
@@ -26,108 +27,101 @@
  * You should have received a copy of the GNU General Public License
  * along with this program; if not, see <http://www.gnu.org/licenses/>.
  *
+ * This driver is heavily influensed by the STK1160 driver.
+ * Copyright (C) 2012 Ezequiel Garcia
+ * <elezegarcia--a.t--gmail.com>
+ *
  */
 
 #include "somagic.h"
-#include "somagic_bootloader.h"
-
 #include <linux/firmware.h>
+
+#define SOMAGIC_FIRMWARE		"somagic_firmware.bin"
+
+#define FIRMWARE_CHUNK_SIZE		64
+#define FIRMWARE_CHUNK_DATA_SIZE	62
+#define FIRMWARE_CHUNK_HEADER_SIZE	2
+#define FIRMWARE_CHUNK_HEADER		{ 0x05, 0xff }	/* %1111 1111 0000 0101 */
+#define FIRMWARE_CHUNK_URB_VALUE	0x0005		/* %0000 0000 0000 0101 */
+
+#define ACK_READY_URB_VALUE		0x0001		/* %0000 0000 0000 0001 */
+#define ACK_READY_0			0x01		/* %0000 0001 */
+#define ACK_READY_1			0x07		/* %0000 0111 */
+
+#define SENDING_COMPLETE_URB_VALUE	0x0007		/* %0000 0000 0000 0111 */
+#define SENDING_COMPLETE_0		0x07		/* %0000 0111 */
+#define SENDING_COMPLETE_1		0x00		/* %0000 0000 */
 
 void somagic_run_bootloader(struct usb_device *somagic_device)
 {
-	int rc, firmware_parts, i, e;
-	__u16 igot;
+	int rc, i, e;
+	u8 firmware_ack[2];
+	u8 firmware_chunk[FIRMWARE_CHUNK_SIZE] = FIRMWARE_CHUNK_HEADER;
 	const u8 *dptr;
-	u8 datapart[SOMAGIC_DATAPART_SIZE];
 	const struct firmware * firmware = (const struct firmware *)NULL;
-	rc = request_firmware(&firmware, SOMAGIC_FIRMWARE,
-							&somagic_device->dev);
 
-	if (rc != 0) {
-		printk(KERN_ERR "somagic::%s: request_firmware returned %d!\n",
-							__func__, rc);
+	rc = request_firmware(&firmware, SOMAGIC_FIRMWARE,
+				&somagic_device->dev);
+	if (rc) {
+		somagic_err("request_firmware failed with: %d\n", rc);
 		return;
 	}
+
 	if (firmware == (const struct firmware *)NULL) {
+		somagic_err("firmware is NULL");
 		return;
 	}
-	if ((firmware->size % (SOMAGIC_DATAPART_SIZE -
-					SOMAGIC_DATAPART_HEADER_SIZE)) != 0) {
-		printk(KERN_ERR "somagic::%s: Firmware has wrong size!\n",
-								__func__);
+
+	if (firmware->size % FIRMWARE_CHUNK_DATA_SIZE) {
+		somagic_err("firmware has wrong size\n");
 		return;
 	}
 
 	/* Prepare device for firmware upload */
 	rc = usb_control_msg(somagic_device,
-				usb_rcvctrlpipe(somagic_device,
-						SOMAGIC_URB_RECEIVE_ENDPOINT),
-				(__u8)SOMAGIC_URB_STD_REQUEST,
-				(__u8)(USB_DIR_IN | USB_TYPE_VENDOR |
-							USB_RECIP_DEVICE),
-				(__u16)SOMAGIC_URB_PREPARE_FOR_FIRMWARE_VALUE,
-				(__u16)SOMAGIC_URB_STD_INDEX,
-				(void *)&igot,
-				(__u16)sizeof(igot),
-				SOMAGIC_URB_STD_TIMEOUT);
-	if (igot != (__u16)SOMAGIC_ACK_READY_FOR_FIRMWARE) {
-		printk(KERN_ERR "somagic::%s: Unexpected reply from device"
-						"when trying to prepare for "
-						"firmware upload, expected: "
-						"%x, got %x.", __func__,
-						SOMAGIC_ACK_READY_FOR_FIRMWARE,
-						igot);
+				usb_rcvctrlpipe(somagic_device, 0x80),
+				0x01, (USB_DIR_IN | USB_TYPE_VENDOR | USB_RECIP_DEVICE),
+				ACK_READY_URB_VALUE, 0x0000,
+				(void *)firmware_ack, 2, 1000);
+
+	if (firmware_ack[0] != ACK_READY_0 || firmware_ack[1] != ACK_READY_1 ) {
+		somagic_err("could not upload firmware");
 		return;
 	}
 
-	firmware_parts = firmware->size / (SOMAGIC_DATAPART_SIZE -
-						SOMAGIC_DATAPART_HEADER_SIZE);
 	dptr = firmware->data;
-	datapart[0] = SOMAGIC_DATAPART_HEADER_LO;
-	datapart[1] = SOMAGIC_DATAPART_HEADER_HI;
 
-	for (i = 0; i < firmware_parts; i++) {
-		for (e = SOMAGIC_DATAPART_HEADER_SIZE;
-					e < SOMAGIC_DATAPART_SIZE; e++) {
-			datapart[e] = *dptr;
+	for (i = 0; i < firmware->size / FIRMWARE_CHUNK_DATA_SIZE; i++) {
+		for (e = FIRMWARE_CHUNK_HEADER_SIZE;
+					e < FIRMWARE_CHUNK_SIZE; e++) {
+			firmware_chunk[e] = *dptr;
 			dptr++;
 		}
 		rc = usb_control_msg(somagic_device, 
-				usb_sndctrlpipe(somagic_device,	
-						SOMAGIC_URB_SEND_ENDPOINT),
-				(__u8)SOMAGIC_URB_STD_REQUEST,
-				(__u8)(USB_DIR_OUT | USB_TYPE_VENDOR |
-							USB_RECIP_DEVICE),
-				(__u16)SOMAGIC_URB_FIRMWARE_PART_VALUE,
-				(__u16)SOMAGIC_URB_STD_INDEX,
-				(void *)datapart,
-				(__u16)SOMAGIC_DATAPART_SIZE,
-				SOMAGIC_URB_STD_TIMEOUT);
+				usb_sndctrlpipe(somagic_device,	0x00),
+				0x01, (USB_DIR_OUT | USB_TYPE_VENDOR | USB_RECIP_DEVICE),
+				FIRMWARE_CHUNK_URB_VALUE, 0x0000,
+				(void *)firmware_chunk,
+				FIRMWARE_CHUNK_SIZE,
+				1000);
 
 		if (rc < 0) {
-			printk(KERN_ERR "somagic::%s: error while uploading "
-						"firmware, usb_control_message "
-						"#%d returned: %d",
-						__func__, i, rc);
+			somagic_err("failed to uploading part of firmware");
 			return;
 		}
 	}
 
-	igot = igot >> 8; /* 0x0701 -> 0x0007 */
+	firmware_ack[0] = SENDING_COMPLETE_0;
+	firmware_ack[1] = SENDING_COMPLETE_1;
 
 	/* Done with firmware upload */
 	rc = usb_control_msg(somagic_device, 
-				usb_sndctrlpipe(somagic_device,
-						SOMAGIC_URB_SEND_ENDPOINT),
-				(__u8)SOMAGIC_URB_STD_REQUEST,
-				(__u8)(USB_DIR_OUT | USB_TYPE_VENDOR |
-							USB_RECIP_DEVICE),
-				(__u16)igot,
-				(__u16)SOMAGIC_URB_STD_INDEX,
-				(void *)&igot,
-				(__u16)sizeof(igot),
-				SOMAGIC_URB_STD_TIMEOUT);
+				usb_sndctrlpipe(somagic_device, 0x00),
+				0x01, (USB_DIR_OUT | USB_TYPE_VENDOR | USB_RECIP_DEVICE),
+				SENDING_COMPLETE_URB_VALUE, 0x0000,
+				(void *)firmware_ack, 2,
+				1000);
 	
-	/* printk(KERN_DEBUG "somagic: last request returned %d bytes\n", rc); */
+	somagic_dbg("firmware upload succeded\n");
 	return;
 }
