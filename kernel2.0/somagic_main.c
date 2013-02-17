@@ -303,13 +303,20 @@ static int __devinit somagic_usb_probe(struct usb_interface *intf,
 	v4l2_device_call_all(&dev->v4l2_dev, 0, video, s_routing,
 		SAA7115_COMPOSITE0, 0, 0);
 
-	rc = somagic_video_register(dev);
+	rc = somagic_snd_register(dev);
 	if (rc < 0) {
 		goto unreg_i2c;
 	}
 
+	rc = somagic_video_register(dev);
+	if (rc < 0) {
+		goto unreg_snd;
+	}
+
 	return 0;
 
+unreg_snd:
+	somagic_snd_unregister(dev);
 unreg_i2c:
 	somagic_i2c_unregister(dev);
 unreg_v4l2:
@@ -352,6 +359,8 @@ static void __devexit somagic_usb_disconnect(struct usb_interface *intf)
 
 	mutex_unlock(&dev->v4l2_lock);
 	mutex_unlock(&dev->vb_queue_lock);
+
+	somagic_snd_unregister(dev);
 
 	/*
 	 * This calls release_v4l2_dev if it's the last reference.

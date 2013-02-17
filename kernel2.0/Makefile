@@ -26,6 +26,7 @@
 SHELL = /bin/sh
 obj-m += somagic.o
 somagic-y += somagic_v4l2.o 	\
+	somagic_audio.o		\
 	somagic_i2c.o 		\
 	somagic_video.o		\
 	somagic_bootloader.o 	\

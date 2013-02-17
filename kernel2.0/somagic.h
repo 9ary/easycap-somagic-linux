@@ -51,30 +51,10 @@
 #include <media/videobuf2-core.h>
 #include <media/videobuf2-vmalloc.h>
 #include <media/saa7115.h>
-/*
-#include <linux/kref.h>
-#include <linux/kernel.h>
-#include <linux/errno.h>
-#include <linux/moduleparam.h>
-
-#include <linux/interrupt.h>
-#include <linux/poll.h>
-#include <linux/mm.h>
-#include <linux/fs.h>
-#include <linux/delay.h>
-
-#include <linux/i2c.h>
-#include <media/v4l2-device.h>
-#include <media/v4l2-ioctl.h>
 
 #include <sound/core.h>
 #include <sound/pcm.h>
-#include <sound/pcm_params.h>
-#include <sound/info.h>
 #include <sound/initval.h>
-#include <sound/control.h>
-#include <linux/version.h>
-*/
 
 #define SOMAGIC_DRIVER_VERSION "0.1"
 
@@ -206,6 +186,15 @@ struct somagic_dev {
 	spinlock_t 			buf_lock;
 
 	enum somagic_sync		sync_state;
+
+	/* audio */
+	struct snd_card			*snd_card;
+	struct snd_pcm			*snd_pcm;
+	struct snd_pcm_substream	*pcm_substream;
+	int				pcm_dma_offset;
+	int				pcm_dma_write_ptr;
+	unsigned int			pcm_packets;
+	bool				snd_elapsed_periode;
 };
 
 /* Provided by somagic_bootloader.c */
@@ -230,4 +219,8 @@ void somagic_uninit_isoc(struct somagic_dev *dev);
 int somagic_i2c_register(struct somagic_dev *dev);
 int somagic_i2c_unregister(struct somagic_dev *dev);
 
+/* Provided by somagic_audio.c */
+int somagic_snd_register(struct somagic_dev *dev);
+void somagic_snd_unregister(struct somagic_dev *dev);
+void somagic_audio(struct somagic_dev *dev, u8 *data, int len);
 #endif /* SOMAGIC_H */

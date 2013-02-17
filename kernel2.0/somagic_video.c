@@ -279,13 +279,18 @@ static void process_packet(struct somagic_dev *dev, u8 *p, int len)
 			break;
 		}
 		case 0xaaaa0001: {
-			/*printk_ratelimited("%x\n", __cpu_to_be32(*test));*/
+			somagic_audio(dev, p+i+4, 0x400-4);
 			break;
 		}
 		default: {
 			/* Nothing */
 		}
 		}
+	}
+
+	if (dev->snd_elapsed_periode) {
+		snd_pcm_period_elapsed(dev->pcm_substream);
+		dev->snd_elapsed_periode = false;
 	}
 }
 
