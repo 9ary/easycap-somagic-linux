@@ -96,7 +96,7 @@ int smi2021_write_reg(struct smi2021_dev *dev, u8 addr, u16 reg, u8 val)
 		data.bm_data_type = 0xc0;
 		data.bm_data_offset = 0x01;
 	} else {
-		struct smi2021_smi_data d = {
+		struct smi2021_reg_data d = {
 			.reg = __cpu_to_be16(reg),
 			.val = val,
 			.reserved = 0,

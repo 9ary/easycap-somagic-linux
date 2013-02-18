@@ -100,7 +100,7 @@ struct smi2021_i2c_data {
 	u16 reserved;
 };
 
-struct smi2021_smi_data {
+struct smi2021_reg_data {
 	u16 reg;
 	u8 val;
 	u8 reserved;	
