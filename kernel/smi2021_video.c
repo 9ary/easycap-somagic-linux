@@ -35,6 +35,48 @@
 
 #include "smi2021.h"
 
+static void print_usb_err(struct smi2021_dev *dev, int packet, int status)
+{
+	char *errmsg;
+
+	switch(status) {
+	case -ENOENT:
+		errmsg = "unlinked synchronuously";
+		break;
+	case -ECONNRESET:
+		errmsg = "unlinked asynchronuously";
+		break;
+	case -ENOSR:
+		errmsg = "Buffer error (overrun)";
+		break;
+	case -EPIPE:
+		errmsg = "Stalled (device not responding)";
+		break;
+	case -EOVERFLOW:
+		errmsg = "Babble (bad cable?)";
+		break;
+	case -EPROTO:
+		errmsg = "Bit-stuff error (bad cable?)";
+		break;
+	case -EILSEQ:
+		errmsg = "CRC/Timeout (could be anything)";
+		break;
+	case -ETIME:
+		errmsg = "Device does not respond";
+		break;
+	default:
+		errmsg = "Unknown";
+	}
+
+	if (packet < 0) {
+		printk_ratelimited(KERN_WARNING "Urb status %d [%s]\n",
+					status, errmsg);
+	} else {
+		printk_ratelimited(KERN_INFO "URB packet %d, status %d [%s]\n",
+					packet, status, errmsg);
+	}
+}
+
 static struct smi2021_buffer *smi2021_next_buffer(struct smi2021_dev *dev)
 {
 	struct smi2021_buffer *buf = NULL;
@@ -309,10 +351,15 @@ static void smi2021_isoc_isr(struct urb *urb)
 	case -ECONNRESET: /* kill */
 	case -ENOENT:
 	case -ESHUTDOWN:
+		/* uvc driver frees the queue here */
 		return;
 	default:
 		smi2021_err("urb error! status %d\n", urb->status);
 		return;
+	}
+
+	if (urb->status < 0) {
+		print_usb_err(dev, -1, status);
 	}
 
 	if (dev == NULL) {
@@ -324,9 +371,7 @@ static void smi2021_isoc_isr(struct urb *urb)
 
 		status = urb->iso_frame_desc[i].status;
 		if (status < 0) {
-			printk_ratelimited(KERN_INFO "smi2021::%s: "
-					"Received urb with status: %d\n",
-					__func__, status);
+			print_usb_err(dev, i, status);
 			urb->iso_frame_desc[i].status = 0;
 			urb->iso_frame_desc[i].actual_length = 0;
 			continue;
