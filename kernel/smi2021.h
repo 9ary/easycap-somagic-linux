@@ -191,7 +191,7 @@ struct smi2021_dev {
 	struct snd_card			*snd_card;
 	struct snd_pcm			*snd_pcm;
 	struct snd_pcm_substream	*pcm_substream;
-	int				pcm_dma_offset;
+	u8				pcm_dma_offset;
 	int				pcm_dma_write_ptr;
 	unsigned int			pcm_packets;
 	bool				snd_elapsed_periode;

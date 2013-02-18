@@ -213,6 +213,8 @@ void smi2021_audio(struct smi2021_dev *dev, u8 *data, int len)
 	struct snd_pcm_runtime *runtime;
 	int len_part;
 	u8 *buffer;
+	u8 offset;
+	u8 new_offset = 0;
 
 	if (!dev->udev) {
 		return;
@@ -221,9 +223,34 @@ void smi2021_audio(struct smi2021_dev *dev, u8 *data, int len)
 	if (!dev->pcm_substream) {
 		return;
 	}
-
+	offset = dev->pcm_dma_offset;
 	runtime = dev->pcm_substream->runtime;
 	buffer = runtime->dma_area;
+
+	/* The device is actually sending 24Bit pcm data 
+	 * with 0x00 as the header byte before each sample.
+	 * We look for this byte to make sure we did not
+	 * loose any bytes during transfer.
+	 */
+
+	while(len > 1 && data[offset] != 0x00) {
+		offset = 0;
+		new_offset++;
+		data++;
+		len--;
+	}
+
+	if (new_offset != 0) {
+		dev->pcm_dma_write_ptr = 0;
+		dev->pcm_dma_offset = new_offset % 4;
+	}
+
+	if (len == 1) {
+		/* We exhausted the buffer looking for 0x00 */
+		dev->pcm_dma_offset = 0;
+		dev->snd_elapsed_periode = false;
+		return;
+	}
 
 	if (dev->pcm_dma_write_ptr + len < runtime->dma_bytes) {
 		memcpy(buffer + dev->pcm_dma_write_ptr, data, len);
@@ -238,6 +265,7 @@ void smi2021_audio(struct smi2021_dev *dev, u8 *data, int len)
 			dev->pcm_dma_write_ptr = len - len_part;
 		}
 	}
+
 	dev->snd_elapsed_periode = true;
 }
 
