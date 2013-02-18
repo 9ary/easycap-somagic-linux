@@ -1,7 +1,7 @@
 /*******************************************************************************
- * somagic_main.c                                                              *
+ * smi2021_main.c                                                              *
  *                                                                             *
- * USB Driver for Somagic EasyCAP DC60                                         *
+ * USB Driver for SMI2021 - EasyCAP                                            *
  * USB ID 1c88:003c                                                            *
  *                                                                             *
  * *****************************************************************************
@@ -11,7 +11,7 @@
  *
  * Copyright 2011, 2012 Tony Brown, Michal Demin, Jeffry Johnston
  *
- * This file is part of easycap-somagic-linux
+ * This file is part of SMI2021
  * http://code.google.com/p/easycap-somagic-linux/
  *
  * This program is free software: you can redistribute it and/or modify
@@ -33,7 +33,7 @@
  *
  */
 
-#include "somagic.h"
+#include "smi2021.h"
 
 #define VENDOR_ID 			0x1c88
 #define BOOTLOADER_PRODUCT_ID		0x0007
@@ -44,18 +44,18 @@ module_param(imput, int, 0644);
 MODULE_PARM_DESC(input, "Set default input");
 
 MODULE_LICENSE("GPL");
-MODULE_AUTHOR("Jon Arne Jørgensen <jonjon.arnearne@gmail.com>");
-MODULE_DESCRIPTION("Somagic SMI2021CBE Chipset - EasyCAP DC60");
-MODULE_VERSION(SOMAGIC_DRIVER_VERSION);
+MODULE_AUTHOR("Jon Arne Jørgensen <jonjon.arnearne--a.t--gmail.com>");
+MODULE_DESCRIPTION("SMI2021 - EasyCap");
+MODULE_VERSION(SMI2021_DRIVER_VERSION);
 
 
-struct usb_device_id somagic_usb_device_id_table[] = {
+struct usb_device_id smi2021_usb_device_id_table[] = {
 	{ USB_DEVICE(VENDOR_ID, BOOTLOADER_PRODUCT_ID) },
 	{ USB_DEVICE(VENDOR_ID, DC60_PRODUCT_ID) },
 	{ }
 };
 
-MODULE_DEVICE_TABLE(usb, somagic_usb_device_id_table);
+MODULE_DEVICE_TABLE(usb, smi2021_usb_device_id_table);
 
 static unsigned short saa7113_addrs[] = {
 	0x4a,
@@ -68,25 +68,25 @@ static unsigned short saa7113_addrs[] = {
 /*                                                                            */
 /******************************************************************************/
 
-inline int transfer_usb_ctrl(struct somagic_dev *dev, struct somagic_usb_ctrl data)
+inline int transfer_usb_ctrl(struct smi2021_dev *dev, struct smi2021_usb_ctrl data)
 {
 	return usb_control_msg(dev->udev, usb_sndctrlpipe(dev->udev, 0x00), 0x01,
 			USB_DIR_OUT | USB_TYPE_VENDOR | USB_RECIP_DEVICE,
 			0x0b, 0x00,
-			&data, sizeof(struct somagic_usb_ctrl), 1000);
+			&data, sizeof(struct smi2021_usb_ctrl), 1000);
 	
 }
 
-int somagic_write_reg(struct somagic_dev *dev, u8 addr, u16 reg, u8 val)
+int smi2021_write_reg(struct smi2021_dev *dev, u8 addr, u16 reg, u8 val)
 {
 	int rc;
-	struct somagic_usb_ctrl data;
+	struct smi2021_usb_ctrl data;
 
 	data.head = 0x0b;
 	data.data_size = 0x01;
 	data.addr = addr;
 	if (addr) {
-		struct somagic_i2c_data d = {
+		struct smi2021_i2c_data d = {
 			.reg = reg,
 			.val = val,
 			.reserved = 0,
@@ -96,7 +96,7 @@ int somagic_write_reg(struct somagic_dev *dev, u8 addr, u16 reg, u8 val)
 		data.bm_data_type = 0xc0;
 		data.bm_data_offset = 0x01;
 	} else {
-		struct somagic_smi_data d = {
+		struct smi2021_smi_data d = {
 			.reg = __cpu_to_be16(reg),
 			.val = val,
 			.reserved = 0,
@@ -109,7 +109,7 @@ int somagic_write_reg(struct somagic_dev *dev, u8 addr, u16 reg, u8 val)
 
 	rc = transfer_usb_ctrl(dev, data);
 	if (rc < 0) {
-		somagic_warn("write failed on register 0x%x, errno: %d\n",
+		smi2021_warn("write failed on register 0x%x, errno: %d\n",
 			reg, rc);
 		return rc;
 	}
@@ -117,12 +117,12 @@ int somagic_write_reg(struct somagic_dev *dev, u8 addr, u16 reg, u8 val)
 	return 0;
 }
 
-int somagic_read_reg(struct somagic_dev *dev, u8 addr, u16 reg, u8 *val)
+int smi2021_read_reg(struct smi2021_dev *dev, u8 addr, u16 reg, u8 *val)
 {
 	int rc;
 	u8 rcv_data[13] = { 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0 };
-	struct somagic_usb_ctrl data;
-	struct somagic_i2c_data d = {
+	struct smi2021_usb_ctrl data;
+	struct smi2021_i2c_data d = {
 		.reg = reg,
 		.val = 0x00,
 		.reserved = 0,
@@ -139,7 +139,7 @@ int somagic_read_reg(struct somagic_dev *dev, u8 addr, u16 reg, u8 *val)
 
 	rc = transfer_usb_ctrl(dev, data);
 	if (rc < 0) {
-		somagic_warn("1st pass failing to read reg 0x%x, usb-errno: %d \n",
+		smi2021_warn("1st pass failing to read reg 0x%x, usb-errno: %d \n",
 			reg, rc);
 		return rc;
 	}
@@ -147,7 +147,7 @@ int somagic_read_reg(struct somagic_dev *dev, u8 addr, u16 reg, u8 *val)
 	data.bm_data_type = 0xa0;	/* 1010 0000 */
 	rc = transfer_usb_ctrl(dev, data);
 	if (rc < 0) {
-		somagic_warn("2nd pass failing to read reg 0x%x, usb-errno: %d\n",
+		smi2021_warn("2nd pass failing to read reg 0x%x, usb-errno: %d\n",
 			reg, rc);
 		return rc;
 	}
@@ -157,13 +157,13 @@ int somagic_read_reg(struct somagic_dev *dev, u8 addr, u16 reg, u8 *val)
 		USB_DIR_IN | USB_TYPE_VENDOR | USB_RECIP_DEVICE,
 		0x0b, 0x00, rcv_data, 13, 1000);
 	if (rc < 0) {
-		somagic_warn("Failed to read reg 0x%x, usb-errno: %d\n",
+		smi2021_warn("Failed to read reg 0x%x, usb-errno: %d\n",
 			reg, rc);
 		return rc;
 	}
 
 	/*
-	printk(KERN_INFO "somagic::%s: Reg 0x%x returned\n"
+	printk(KERN_INFO "smi2021::%s: Reg 0x%x returned\n"
 		"\t0x%x 0x%x 0x%x 0x%x 0x%x --- 0x%x 0x%x 0x%x 0x%x 0x%x 0x%x 0x%x 0x%x\n",
 		__func__, reg, rcv_data[0], rcv_data[1], rcv_data[2],
 		rcv_data[3], rcv_data[4], rcv_data[5],
@@ -176,20 +176,20 @@ int somagic_read_reg(struct somagic_dev *dev, u8 addr, u16 reg, u8 *val)
 		
 }
 
-static void somagic_reset_device(struct somagic_dev *dev)
+static void smi2021_reset_device(struct smi2021_dev *dev)
 {
-	somagic_write_reg(dev, 0, 0x3a, 0x80);
-	somagic_write_reg(dev, 0, 0x3b, 0x80);
-	somagic_write_reg(dev, 0, 0x3b, 0x00);
+	smi2021_write_reg(dev, 0, 0x3a, 0x80);
+	smi2021_write_reg(dev, 0, 0x3b, 0x80);
+	smi2021_write_reg(dev, 0, 0x3b, 0x00);
 }
 
 static void release_v4l2_dev(struct v4l2_device *v4l2_dev)
 {
-	struct somagic_dev *dev = container_of(v4l2_dev, struct somagic_dev,
+	struct smi2021_dev *dev = container_of(v4l2_dev, struct smi2021_dev,
 								v4l2_dev);
-	somagic_dbg("Releasing all resources\n");
+	smi2021_dbg("Releasing all resources\n");
 
-	somagic_i2c_unregister(dev);
+	smi2021_i2c_unregister(dev);
 
 	v4l2_ctrl_handler_free(&dev->ctrl_handler);
 	v4l2_device_unregister(&dev->v4l2_dev);
@@ -198,7 +198,7 @@ static void release_v4l2_dev(struct v4l2_device *v4l2_dev)
 
 #define hb_mult(wMaxPacketSize) (1 + (((wMaxPacketSize) >> 11) & 0x03))
 
-static int somagic_scan_usb(struct usb_interface *intf, struct usb_device *udev)
+static int smi2021_scan_usb(struct usb_interface *intf, struct usb_device *udev)
 {
 	int i,e,ifnum,sizedescr, size;
 	const struct usb_endpoint_descriptor *desc;
@@ -225,24 +225,24 @@ static int somagic_scan_usb(struct usb_interface *intf, struct usb_device *udev)
 /*          DEVICE  -  PROBE   &   DISCONNECT                                 */
 /*                                                                            */
 /******************************************************************************/
-static int __devinit somagic_usb_probe(struct usb_interface *intf,
+static int __devinit smi2021_usb_probe(struct usb_interface *intf,
 						const struct usb_device_id *devid)
 {
 	int rc = 0;
 	struct usb_device *udev = interface_to_usbdev(intf);
-	struct somagic_dev *dev;
+	struct smi2021_dev *dev;
 
-	somagic_dbg("Probing for %04x:%04x\n",
+	smi2021_dbg("Probing for %04x:%04x\n",
 		le16_to_cpu(udev->descriptor.idVendor),
 		le16_to_cpu(udev->descriptor.idProduct));
 
 	if (udev == (struct usb_device *)NULL) {
-		somagic_err("device is NULL\n");
+		smi2021_err("device is NULL\n");
 		return -EFAULT;
 	}
 
   if (udev->descriptor.idProduct == BOOTLOADER_PRODUCT_ID) {
-		somagic_run_bootloader(udev);
+		smi2021_run_bootloader(udev);
 		return 0;
 	}
 	
@@ -250,9 +250,9 @@ static int __devinit somagic_usb_probe(struct usb_interface *intf,
 		return -ENODEV;
 	}
 
-	somagic_scan_usb(intf, udev);
+	smi2021_scan_usb(intf, udev);
 
-	dev = kzalloc(sizeof(struct somagic_dev), GFP_KERNEL);
+	dev = kzalloc(sizeof(struct smi2021_dev), GFP_KERNEL);
 	if (dev == NULL) {
 		return -ENOMEM;
 	}
@@ -262,7 +262,7 @@ static int __devinit somagic_usb_probe(struct usb_interface *intf,
 	usb_set_intfdata(intf, dev);
 
 	/* Initialize videobuf2 stuff */
-	rc = somagic_vb2_setup(dev);
+	rc = smi2021_vb2_setup(dev);
 	if (rc < 0) {
 		goto free_err;
 	}
@@ -273,7 +273,7 @@ static int __devinit somagic_usb_probe(struct usb_interface *intf,
 
 	rc = v4l2_ctrl_handler_init(&dev->ctrl_handler, 0);
 	if (rc) {
-		somagic_err("v4l2_ctrl_handler_init failed with: %d\n", rc);
+		smi2021_err("v4l2_ctrl_handler_init failed with: %d\n", rc);
 		goto free_err;
 	}
 
@@ -281,13 +281,13 @@ static int __devinit somagic_usb_probe(struct usb_interface *intf,
 	dev->v4l2_dev.ctrl_handler = &dev->ctrl_handler;
 	rc = v4l2_device_register(dev->dev, &dev->v4l2_dev);
 	if (rc) {
-		somagic_err("v4l2_device_register failed with %d\n", rc);
+		smi2021_err("v4l2_device_register failed with %d\n", rc);
 		goto free_ctrl;
 	}
 
-	somagic_reset_device(dev);
+	smi2021_reset_device(dev);
 
-	rc = somagic_i2c_register(dev);
+	rc = smi2021_i2c_register(dev);
 	if (rc < 0) {
 		goto unreg_v4l2;
 	}
@@ -295,20 +295,20 @@ static int __devinit somagic_usb_probe(struct usb_interface *intf,
 	dev->sd_saa7113 = v4l2_i2c_new_subdev(&dev->v4l2_dev, &dev->i2c_adap,
 		"saa7113", 0, saa7113_addrs);
 
-	somagic_dbg("Driver version %s successfully loaded\n",
-			SOMAGIC_DRIVER_VERSION);
+	smi2021_dbg("Driver version %s successfully loaded\n",
+			SMI2021_DRIVER_VERSION);
 
 	v4l2_device_call_all(&dev->v4l2_dev, 0, core, reset, 0);
 	v4l2_device_call_all(&dev->v4l2_dev, 0, video, s_stream, 0);
 	v4l2_device_call_all(&dev->v4l2_dev, 0, video, s_routing,
 		SAA7115_COMPOSITE0, 0, 0);
 
-	rc = somagic_snd_register(dev);
+	rc = smi2021_snd_register(dev);
 	if (rc < 0) {
 		goto unreg_i2c;
 	}
 
-	rc = somagic_video_register(dev);
+	rc = smi2021_video_register(dev);
 	if (rc < 0) {
 		goto unreg_snd;
 	}
@@ -316,9 +316,9 @@ static int __devinit somagic_usb_probe(struct usb_interface *intf,
 	return 0;
 
 unreg_snd:
-	somagic_snd_unregister(dev);
+	smi2021_snd_unregister(dev);
 unreg_i2c:
-	somagic_i2c_unregister(dev);
+	smi2021_i2c_unregister(dev);
 unreg_v4l2:
 	v4l2_device_unregister(&dev->v4l2_dev);	
 free_ctrl:
@@ -329,17 +329,17 @@ free_err:
 	return rc;
 }
 
-static void __devexit somagic_usb_disconnect(struct usb_interface *intf)
+static void __devexit smi2021_usb_disconnect(struct usb_interface *intf)
 {
 	
 	struct usb_device *udev = interface_to_usbdev(intf);
-	struct somagic_dev *dev;
+	struct smi2021_dev *dev;
  
 	if (udev->descriptor.idProduct == BOOTLOADER_PRODUCT_ID) {
 		return;
 	}
 
-	somagic_dbg("Going for release!\n");
+	smi2021_dbg("Going for release!\n");
 
 	dev = usb_get_intfdata(intf);
 	usb_set_intfdata(intf, NULL);
@@ -347,9 +347,9 @@ static void __devexit somagic_usb_disconnect(struct usb_interface *intf)
 	mutex_lock(&dev->vb_queue_lock);
 	mutex_lock(&dev->v4l2_lock);
 
- 	somagic_uninit_isoc(dev);
+ 	smi2021_uninit_isoc(dev);
  	/*stk1160_ac97_unrgister(dev)*/
-  somagic_clear_queue(dev);
+  smi2021_clear_queue(dev);
 
 	video_unregister_device(&dev->vdev);
 	v4l2_device_disconnect(&dev->v4l2_dev);
@@ -360,7 +360,7 @@ static void __devexit somagic_usb_disconnect(struct usb_interface *intf)
 	mutex_unlock(&dev->v4l2_lock);
 	mutex_unlock(&dev->vb_queue_lock);
 
-	somagic_snd_unregister(dev);
+	smi2021_snd_unregister(dev);
 
 	/*
 	 * This calls release_v4l2_dev if it's the last reference.
@@ -375,12 +375,12 @@ static void __devexit somagic_usb_disconnect(struct usb_interface *intf)
 /*                                                                            */
 /******************************************************************************/
 
-struct usb_driver somagic_usb_driver = {
-	.name = "somagic_easycap_dc60",
-	.id_table = somagic_usb_device_id_table,
-	.probe = somagic_usb_probe,
-	.disconnect = somagic_usb_disconnect
+struct usb_driver smi2021_usb_driver = {
+	.name = "smi2021",
+	.id_table = smi2021_usb_device_id_table,
+	.probe = smi2021_usb_probe,
+	.disconnect = smi2021_usb_disconnect
 };
 
-module_usb_driver(somagic_usb_driver);
+module_usb_driver(smi2021_usb_driver);
 

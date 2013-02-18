@@ -1,7 +1,7 @@
 /*******************************************************************************
- * somagic_video.c                                                             *
+ * smi2021_video.c                                                             *
  *                                                                             *
- * USB Driver for Somagic EasyCAP DC60                                         *
+ * USB Driver for SMI2021 - EasyCAP                                            *
  * USB ID 1c88:003c                                                            *
  *                                                                             *
  * *****************************************************************************
@@ -11,7 +11,7 @@
  *
  * Copyright 2011, 2012 Tony Brown, Michal Demin, Jeffry Johnston
  *
- * This file is part of easycap-somagic-linux
+ * This file is part of SMI2021x
  * http://code.google.com/p/easycap-somagic-linux/
  *
  * This program is free software: you can redistribute it and/or modify
@@ -33,18 +33,18 @@
  *
  */
 
-#include "somagic.h"
+#include "smi2021.h"
 
-static struct somagic_buffer *somagic_next_buffer(struct somagic_dev *dev)
+static struct smi2021_buffer *smi2021_next_buffer(struct smi2021_dev *dev)
 {
-	struct somagic_buffer *buf = NULL;
+	struct smi2021_buffer *buf = NULL;
 	unsigned long flags = 0;
 
 	BUG_ON(dev->isoc_ctl.buf);
 
 	spin_lock_irqsave(&dev->buf_lock, flags);
 	if (!list_empty(&dev->avail_bufs)) {
-		buf = list_first_entry(&dev->avail_bufs, struct somagic_buffer,
+		buf = list_first_entry(&dev->avail_bufs, struct smi2021_buffer,
 									list);
 		list_del(&buf->list);
 	}
@@ -53,9 +53,9 @@ static struct somagic_buffer *somagic_next_buffer(struct somagic_dev *dev)
 	return buf;
 }
 
-static void somagic_buffer_done(struct somagic_dev *dev)
+static void smi2021_buffer_done(struct smi2021_dev *dev)
 {
-	struct somagic_buffer *buf = dev->isoc_ctl.buf;
+	struct smi2021_buffer *buf = dev->isoc_ctl.buf;
 
 	dev->buf_count++;
 
@@ -70,7 +70,7 @@ static void somagic_buffer_done(struct somagic_dev *dev)
 	dev->isoc_ctl.buf = NULL;
 }
 
-static void copy_video(struct somagic_dev *dev, struct somagic_buffer *buf,
+static void copy_video(struct smi2021_dev *dev, struct smi2021_buffer *buf,
 			u8 p)
 {
 	int lines_per_field = dev->height / 2;
@@ -93,8 +93,8 @@ static void copy_video(struct somagic_dev *dev, struct somagic_buffer *buf,
 		return;
 	}
 	
-	pos_in_line = buf->pos % SOMAGIC_BYTES_PER_LINE;
-	line = buf->pos / SOMAGIC_BYTES_PER_LINE;
+	pos_in_line = buf->pos % SMI2021_BYTES_PER_LINE;
+	line = buf->pos / SMI2021_BYTES_PER_LINE;
 	if (line >= lines_per_field) {
 			line -= lines_per_field;
 	}
@@ -108,10 +108,10 @@ static void copy_video(struct somagic_dev *dev, struct somagic_buffer *buf,
 	}
 	
 	if (buf->second_field) {
-		offset += SOMAGIC_BYTES_PER_LINE;
+		offset += SMI2021_BYTES_PER_LINE;
 	}
 
-	offset += (SOMAGIC_BYTES_PER_LINE * line * 2) + pos_in_line;
+	offset += (SMI2021_BYTES_PER_LINE * line * 2) + pos_in_line;
 
 	/* Will this ever happen? */
 	if (offset >= buf->length) {
@@ -127,11 +127,11 @@ static void copy_video(struct somagic_dev *dev, struct somagic_buffer *buf,
 }
 
 #define is_sav(trc)						\
-	((trc & SOMAGIC_TRC_EAV) == 0x00)
+	((trc & SMI2021_TRC_EAV) == 0x00)
 #define is_field2(trc)						\
-	((trc & SOMAGIC_TRC_FIELD_2) == SOMAGIC_TRC_FIELD_2)
+	((trc & SMI2021_TRC_FIELD_2) == SMI2021_TRC_FIELD_2)
 #define is_active_video(trc)					\
-	((trc & SOMAGIC_TRC_VBI) == 0x00)
+	((trc & SMI2021_TRC_VBI) == 0x00)
 /*
  * Parse the TRC.
  * Grab a new buffer from the queue if don't have one
@@ -139,9 +139,9 @@ static void copy_video(struct somagic_dev *dev, struct somagic_buffer *buf,
  *
  * Mark video buffers as done if we have one full frame.
  */
-static struct somagic_buffer *parse_trc(struct somagic_dev *dev, u8 trc)
+static struct smi2021_buffer *parse_trc(struct smi2021_dev *dev, u8 trc)
 {
-	struct somagic_buffer *buf = dev->isoc_ctl.buf;
+	struct smi2021_buffer *buf = dev->isoc_ctl.buf;
 	int lines_per_field = dev->height / 2;
 	int line = 0;
 
@@ -158,7 +158,7 @@ static struct somagic_buffer *parse_trc(struct somagic_dev *dev, u8 trc)
 			return NULL;
 		}
 
-		buf = somagic_next_buffer(dev);
+		buf = smi2021_next_buffer(dev);
 		if (buf == NULL) {
 			return NULL;
 		}
@@ -177,7 +177,7 @@ static struct somagic_buffer *parse_trc(struct somagic_dev *dev, u8 trc)
 		}
 
 		if (!buf->second_field && is_field2(trc)) {
-			line = buf->pos / SOMAGIC_BYTES_PER_LINE;
+			line = buf->pos / SMI2021_BYTES_PER_LINE;
 			if (line < lines_per_field) {
 				goto buf_done;
 			}
@@ -197,7 +197,7 @@ static struct somagic_buffer *parse_trc(struct somagic_dev *dev, u8 trc)
 	return buf;
 
 buf_done:
-	somagic_buffer_done(dev);
+	smi2021_buffer_done(dev);
 	return NULL;
 }
 
@@ -213,9 +213,9 @@ buf_done:
  * EAV = End Active Video.
  * This is described in the saa7113 datasheet.
  */
-static void parse_video(struct somagic_dev *dev, u8 *p, int len)
+static void parse_video(struct smi2021_dev *dev, u8 *p, int len)
 {
-	struct somagic_buffer *buf = dev->isoc_ctl.buf;
+	struct smi2021_buffer *buf = dev->isoc_ctl.buf;
 	int i;
 
 	for (i = 0; i < len; i++) {
@@ -260,13 +260,13 @@ static void parse_video(struct somagic_dev *dev, u8 *p, int len)
  *	0xaa 0xaa 0x00 0x00 = saa7113 Active Video Data
  *	0xaa 0xaa 0x00 0x01 = PCM - 24Bit 2 Channel audio data
  */
-static void process_packet(struct somagic_dev *dev, u8 *p, int len)
+static void process_packet(struct smi2021_dev *dev, u8 *p, int len)
 {
 	int i;
 	u32 *header;
 
 	if (len % 0x400 != 0) {
-		printk_ratelimited(KERN_INFO "somagic::%s: len: %d\n",
+		printk_ratelimited(KERN_INFO "smi2021::%s: len: %d\n",
 				__func__, len);
 		return;
 	}
@@ -279,7 +279,7 @@ static void process_packet(struct somagic_dev *dev, u8 *p, int len)
 			break;
 		}
 		case 0xaaaa0001: {
-			somagic_audio(dev, p+i+4, 0x400-4);
+			smi2021_audio(dev, p+i+4, 0x400-4);
 			break;
 		}
 		default: {
@@ -297,10 +297,10 @@ static void process_packet(struct somagic_dev *dev, u8 *p, int len)
 /*
  * Interrupt called by URB callback
  */
-static void somagic_isoc_isr(struct urb *urb)
+static void smi2021_isoc_isr(struct urb *urb)
 {
 	int i, rc, status, len;
-	struct somagic_dev *dev = urb->context;
+	struct smi2021_dev *dev = urb->context;
 	u8 *p;
 
 	switch(urb->status) {
@@ -311,12 +311,12 @@ static void somagic_isoc_isr(struct urb *urb)
 	case -ESHUTDOWN:
 		return;
 	default:
-		somagic_err("urb error! status %d\n", urb->status);
+		smi2021_err("urb error! status %d\n", urb->status);
 		return;
 	}
 
 	if (dev == NULL) {
-		somagic_warn("called with null device\n");
+		smi2021_warn("called with null device\n");
 		return;	
 	}
 
@@ -324,7 +324,7 @@ static void somagic_isoc_isr(struct urb *urb)
 
 		status = urb->iso_frame_desc[i].status;
 		if (status < 0) {
-			printk_ratelimited(KERN_INFO "somagic::%s: "
+			printk_ratelimited(KERN_INFO "smi2021::%s: "
 					"Received urb with status: %d\n",
 					__func__, status);
 			urb->iso_frame_desc[i].status = 0;
@@ -342,7 +342,7 @@ static void somagic_isoc_isr(struct urb *urb)
 
 	rc = usb_submit_urb(urb, GFP_ATOMIC);
 	if (rc) {
-		somagic_err("urb re-submit failed (%d)\n", rc);
+		smi2021_err("urb re-submit failed (%d)\n", rc);
 	}
 }
 
@@ -350,32 +350,32 @@ static void somagic_isoc_isr(struct urb *urb)
  * Cancel urbs
  * This function can not be called in atomic context
  */
-void somagic_cancel_isoc(struct somagic_dev *dev)
+void smi2021_cancel_isoc(struct smi2021_dev *dev)
 {
 	int i, num_bufs = dev->isoc_ctl.num_bufs;
 	if (!num_bufs) {
 		return;
 	}
 
-	somagic_dbg("killing %d urbs...\n", num_bufs);
+	smi2021_dbg("killing %d urbs...\n", num_bufs);
 
 	for (i = 0; i < num_bufs; i++) {
 		usb_kill_urb(dev->isoc_ctl.urb[i]);
 	}
 
-	somagic_dbg("all urbs killed\n");
+	smi2021_dbg("all urbs killed\n");
 }
 
 /*
  * Releases urb and transfer buffers
  * Obviously, associated urb must be killed before releasing it
  */
-void somagic_free_isoc(struct somagic_dev *dev)
+void smi2021_free_isoc(struct smi2021_dev *dev)
 {
 	struct urb *urb;
 	int i, num_bufs = dev->isoc_ctl.num_bufs;
 
-	somagic_dbg("freeing %d urb buffers...\n", num_bufs);
+	smi2021_dbg("freeing %d urb buffers...\n", num_bufs);
 
 	for (i = 0; i < num_bufs; i++) {
 		urb = dev->isoc_ctl.urb[i];
@@ -403,45 +403,45 @@ void somagic_free_isoc(struct somagic_dev *dev)
 	dev->isoc_ctl.transfer_buffer = NULL;
 	dev->isoc_ctl.num_bufs = 0;
 
-	somagic_dbg("all urb buffers freed\n");
+	smi2021_dbg("all urb buffers freed\n");
 }
 
 /*
  * Helper for canceling and freeing urbs
  * This function can not be called in atomic context
  */
-void somagic_uninit_isoc(struct somagic_dev *dev)
+void smi2021_uninit_isoc(struct smi2021_dev *dev)
 {
-	somagic_cancel_isoc(dev);
-	somagic_free_isoc(dev);
+	smi2021_cancel_isoc(dev);
+	smi2021_free_isoc(dev);
 }
 
 
-int somagic_alloc_isoc(struct somagic_dev *dev)
+int smi2021_alloc_isoc(struct smi2021_dev *dev)
 {
 	struct urb *urb;
 	int i, j, k, sb_size, max_packets, num_bufs;
 
 	if (dev->isoc_ctl.num_bufs) {
-		somagic_uninit_isoc(dev);
+		smi2021_uninit_isoc(dev);
 	}
 
-	num_bufs = SOMAGIC_NUM_BUFS;
-	max_packets = SOMAGIC_NUM_PACKETS; 
-	sb_size = max_packets * SOMAGIC_MAX_PKT_SIZE;
+	num_bufs = SMI2021_NUM_BUFS;
+	max_packets = SMI2021_NUM_PACKETS; 
+	sb_size = max_packets * SMI2021_MAX_PKT_SIZE;
 
 	dev->isoc_ctl.buf = NULL;
-	dev->isoc_ctl.max_pkt_size = SOMAGIC_MAX_PKT_SIZE;
+	dev->isoc_ctl.max_pkt_size = SMI2021_MAX_PKT_SIZE;
 	dev->isoc_ctl.urb = kzalloc(sizeof(void *) * num_bufs, GFP_KERNEL);
 	if (!dev->isoc_ctl.urb) {
-		somagic_err("out of memory for urb array\n");
+		smi2021_err("out of memory for urb array\n");
 		return -ENOMEM;
 	}
 
 	dev->isoc_ctl.transfer_buffer = kzalloc(sizeof(void *) * num_bufs,
 							GFP_KERNEL);
 	if (!dev->isoc_ctl.transfer_buffer) {
-		somagic_err("out of memory for usb transfer\n");
+		smi2021_err("out of memory for usb transfer\n");
 		kfree(dev->isoc_ctl.urb);
 		return -ENOMEM;
 	}
@@ -449,7 +449,7 @@ int somagic_alloc_isoc(struct somagic_dev *dev)
 	for (i = 0; i < num_bufs; i++) {
 		urb = usb_alloc_urb(max_packets, GFP_KERNEL);
 		if (!urb) {
-			somagic_err("connot allocate urb[%d]\n", i);
+			smi2021_err("connot allocate urb[%d]\n", i);
 			goto free_i_bufs;
 		}
 		dev->isoc_ctl.urb[i] = urb;
@@ -462,7 +462,7 @@ int somagic_alloc_isoc(struct somagic_dev *dev)
 								GFP_KERNEL);
 #endif
 		if (!dev->isoc_ctl.transfer_buffer[i]) {
-			somagic_err("cannot alloc %d bytes for tx[%d] buffer",
+			smi2021_err("cannot alloc %d bytes for tx[%d] buffer",
 					sb_size, i);
 			goto free_i_bufs;
 		}
@@ -470,10 +470,10 @@ int somagic_alloc_isoc(struct somagic_dev *dev)
 		memset(dev->isoc_ctl.transfer_buffer[i], 0, sb_size);
 
 		urb->dev = dev->udev;
-		urb->pipe = usb_rcvisocpipe(dev->udev, SOMAGIC_ISOC_EP);
+		urb->pipe = usb_rcvisocpipe(dev->udev, SMI2021_ISOC_EP);
 		urb->transfer_buffer = dev->isoc_ctl.transfer_buffer[i];
 		urb->transfer_buffer_length = sb_size;
-		urb->complete = somagic_isoc_isr;
+		urb->complete = smi2021_isoc_isr;
 		urb->context = dev;
 		urb->interval = 1;
 		urb->start_frame = 0;
@@ -491,12 +491,12 @@ int somagic_alloc_isoc(struct somagic_dev *dev)
 			k += dev->isoc_ctl.max_pkt_size;
 		}
 	}
-	somagic_dbg("urbs allocated\n");
+	smi2021_dbg("urbs allocated\n");
 	dev->isoc_ctl.num_bufs = num_bufs;
 	return 0;
 
 free_i_bufs:
 	dev->isoc_ctl.num_bufs = i+1;
-	somagic_free_isoc(dev);
+	smi2021_free_isoc(dev);
 	return -ENOMEM;
 }

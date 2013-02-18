@@ -1,7 +1,7 @@
 /*******************************************************************************
- * somagic_i2c.c                                                               *
+ * smi2021_i2c.c                                                               *
  *                                                                             *
- * USB Driver for Somagic EasyCAP DC60                                         *
+ * USB Driver for SMI2021 - EasyCAP                                            *
  * USB ID 1c88:003c                                                            *
  *                                                                             *
  * *****************************************************************************
@@ -11,7 +11,7 @@
  *
  * Copyright 2011, 2012 Tony Brown, Michal Demin, Jeffry Johnston
  *
- * This file is part of easycap-somagic-linux
+ * This file is part of SMI2021
  * http://code.google.com/p/easycap-somagic-linux/
  *
  * This program is free software: you can redistribute it and/or modify
@@ -33,7 +33,7 @@
  *
  */
 
-#include "somagic.h"
+#include "smi2021.h"
 
 /* The device will not return the chip_name on address 0x00.
  * But the saa7115 i2c driver needs the chip id to match "f7113"
@@ -50,7 +50,7 @@ MODULE_PARM_DESC(i2c_debug, "enable debug messages [i2c]");
 #define dprint_i2c(fmt, args...)				\
 do {								\
 	if (i2c_debug)						\
-		printk(KERN_DEBUG "somagic[i2c]::%s: " fmt,	\
+		printk(KERN_DEBUG "smi2021[i2c]::%s: " fmt,	\
 			__func__, ##args);			\
 } while(0)
 
@@ -58,7 +58,7 @@ do {								\
 static int i2c_xfer(struct i2c_adapter *i2c_adap,
 				struct i2c_msg msgs[], int num)
 {
-	struct somagic_dev *dev = i2c_adap->algo_data;
+	struct smi2021_dev *dev = i2c_adap->algo_data;
 
 	switch(num) {
 	case 2: { /* Read reg */
@@ -77,7 +77,7 @@ static int i2c_xfer(struct i2c_adapter *i2c_adap,
 				id_ptr += 1;
 			}
 		} else {
-			somagic_read_reg(dev, msgs[0].addr, msgs[0].buf[0], msgs[1].buf);
+			smi2021_read_reg(dev, msgs[0].addr, msgs[0].buf[0], msgs[1].buf);
 		}
 		break;
 	}
@@ -93,7 +93,7 @@ static int i2c_xfer(struct i2c_adapter *i2c_adap,
 			break;
 		}
 
-		somagic_write_reg(dev, msgs[0].addr, msgs[0].buf[0], msgs[0].buf[1]);
+		smi2021_write_reg(dev, msgs[0].addr, msgs[0].buf[0], msgs[0].buf[1]);
 		break;
 	}
 	default: {
@@ -119,15 +119,15 @@ static struct i2c_algorithm algo = {
 
 static struct i2c_adapter adap_template = {
 	.owner = THIS_MODULE,
-	.name = "somagic_easycap_dc60",
+	.name = "smi2021_easycap_dc60",
 	.algo = &algo,
 };
 
 static struct i2c_client client_template = {
-	.name = "somagic internal",
+	.name = "smi2021 internal",
 };
 
-int somagic_i2c_register(struct somagic_dev *dev)
+int smi2021_i2c_register(struct smi2021_dev *dev)
 {
 	int rc;
 
@@ -135,14 +135,14 @@ int somagic_i2c_register(struct somagic_dev *dev)
 
 	dev->i2c_adap = adap_template;
 	dev->i2c_adap.dev.parent = dev->dev;
-	strcpy(dev->i2c_adap.name, "somagic");
+	strcpy(dev->i2c_adap.name, "smi2021");
 	dev->i2c_adap.algo_data = dev;
 
 	i2c_set_adapdata(&dev->i2c_adap, &dev->v4l2_dev);
 
 	rc = i2c_add_adapter(&dev->i2c_adap);
 	if (rc < 0) {
-		somagic_err("can't add i2c adapter, errno: %d\n", rc);
+		smi2021_err("can't add i2c adapter, errno: %d\n", rc);
 		return rc;
 	}
 
@@ -152,7 +152,7 @@ int somagic_i2c_register(struct somagic_dev *dev)
 	return 0;
 }
 
-int somagic_i2c_unregister(struct somagic_dev *dev)
+int smi2021_i2c_unregister(struct smi2021_dev *dev)
 {
 	i2c_del_adapter(&dev->i2c_adap);
 	return 0;

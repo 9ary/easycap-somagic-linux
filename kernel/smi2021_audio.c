@@ -1,7 +1,7 @@
 /*******************************************************************************
- * somagic_audio.c                                                             *
+ * smi2021_audio.c                                                             *
  *                                                                             *
- * USB Driver for Somagic EasyCAP DC60                                         *
+ * USB Driver for SMI2021 - EasyCap                                            *
  * USB ID 1c88:003c                                                            *
  *                                                                             *
  * *****************************************************************************
@@ -11,7 +11,7 @@
  *
  * Copyright 2011, 2012 Tony Brown, Michal Demin, Jeffry Johnston
  *
- * This file is part of easycap-somagic-linux
+ * This file is part of SMI2021
  * http://code.google.com/p/easycap-somagic-linux/
  *
  * This program is free software: you can redistribute it and/or modify
@@ -33,9 +33,9 @@
  *
  */
 
-#include "somagic.h"
+#include "smi2021.h"
 
-static const struct snd_pcm_hardware somagic_pcm_hw = {
+static const struct snd_pcm_hardware smi2021_pcm_hw = {
 	.info = SNDRV_PCM_INFO_BLOCK_TRANSFER |
 		SNDRV_PCM_INFO_MMAP |
 		SNDRV_PCM_INFO_INTERLEAVED |
@@ -53,16 +53,16 @@ static const struct snd_pcm_hardware somagic_pcm_hw = {
 	.periods_max = 2
 };
 
-static int somagic_pcm_open(struct snd_pcm_substream *substream)
+static int smi2021_pcm_open(struct snd_pcm_substream *substream)
 {
-	struct somagic_dev *dev = snd_pcm_substream_chip(substream);
+	struct smi2021_dev *dev = snd_pcm_substream_chip(substream);
 	if (!dev->udev) {
 		return -ENODEV;
 	}
 
 	dev->pcm_substream = substream;
 	substream->runtime->private_data = dev;
-	substream->runtime->hw = somagic_pcm_hw;
+	substream->runtime->hw = smi2021_pcm_hw;
 	snd_pcm_hw_constraint_integer(substream->runtime,
 					SNDRV_PCM_HW_PARAM_PERIODS);
 	dev->pcm_dma_offset = 0;
@@ -72,9 +72,9 @@ static int somagic_pcm_open(struct snd_pcm_substream *substream)
 	return 0;
 }
 
-static int somagic_pcm_close(struct snd_pcm_substream *substream)
+static int smi2021_pcm_close(struct snd_pcm_substream *substream)
 {
-	struct somagic_dev *dev = snd_pcm_substream_chip(substream);
+	struct smi2021_dev *dev = snd_pcm_substream_chip(substream);
 	if (!dev->udev) {
 		return -ENODEV;
 	}
@@ -85,16 +85,16 @@ static int somagic_pcm_close(struct snd_pcm_substream *substream)
 }
 
 
-static int somagic_pcm_hw_params(struct snd_pcm_substream *substream,
+static int smi2021_pcm_hw_params(struct snd_pcm_substream *substream,
 					struct snd_pcm_hw_params *hw_params)
 {
 	return snd_pcm_lib_malloc_pages(substream,
 					params_buffer_bytes(hw_params));
 }
 
-static int somagic_pcm_hw_free(struct snd_pcm_substream *substream)
+static int smi2021_pcm_hw_free(struct snd_pcm_substream *substream)
 {
-	struct somagic_dev *dev = snd_pcm_substream_chip(substream);
+	struct smi2021_dev *dev = snd_pcm_substream_chip(substream);
 	if (!dev->udev) {
 		return -ENODEV;
 	}
@@ -102,15 +102,15 @@ static int somagic_pcm_hw_free(struct snd_pcm_substream *substream)
 	return snd_pcm_lib_free_pages(substream);	
 }
 
-static int somagic_pcm_prepare(struct snd_pcm_substream *substream)
+static int smi2021_pcm_prepare(struct snd_pcm_substream *substream)
 {
 	return 0;
 }
 
 /* This callback is ATOMIC, must not sleep */
-static int somagic_pcm_trigger(struct snd_pcm_substream *substream, int cmd)
+static int smi2021_pcm_trigger(struct snd_pcm_substream *substream, int cmd)
 {
-	struct somagic_dev *dev = snd_pcm_substream_chip(substream);
+	struct smi2021_dev *dev = snd_pcm_substream_chip(substream);
 	if (!dev->udev) {
 		return -ENODEV;
 	}
@@ -129,10 +129,10 @@ end_ok:
 	return 0;
 }
 
-static snd_pcm_uframes_t somagic_pcm_pointer(
+static snd_pcm_uframes_t smi2021_pcm_pointer(
 					struct snd_pcm_substream *substream)
 {
-	struct somagic_dev *dev = snd_pcm_substream_chip(substream);
+	struct smi2021_dev *dev = snd_pcm_substream_chip(substream);
 	if (!dev->udev) {
 		return -ENODEV;
 	}
@@ -140,36 +140,36 @@ static snd_pcm_uframes_t somagic_pcm_pointer(
 	return dev->pcm_dma_write_ptr / 8;	
 }
 
-static struct snd_pcm_ops somagic_pcm_ops = {
-	.open = somagic_pcm_open,
-	.close = somagic_pcm_close,
+static struct snd_pcm_ops smi2021_pcm_ops = {
+	.open = smi2021_pcm_open,
+	.close = smi2021_pcm_close,
 	.ioctl = snd_pcm_lib_ioctl,
-	.hw_params = somagic_pcm_hw_params,
-	.hw_free = somagic_pcm_hw_free,
-	.prepare = somagic_pcm_prepare,
-	.trigger = somagic_pcm_trigger,
-	.pointer = somagic_pcm_pointer,
+	.hw_params = smi2021_pcm_hw_params,
+	.hw_free = smi2021_pcm_hw_free,
+	.prepare = smi2021_pcm_prepare,
+	.trigger = smi2021_pcm_trigger,
+	.pointer = smi2021_pcm_pointer,
 };
 
-int somagic_snd_register(struct somagic_dev *dev)
+int smi2021_snd_register(struct smi2021_dev *dev)
 {
 	int rc = 0;
 
-	rc = snd_card_create(SNDRV_DEFAULT_IDX1, "SOMAGIC",
+	rc = snd_card_create(SNDRV_DEFAULT_IDX1, "SMI2021",
 						THIS_MODULE, 0, &dev->snd_card);
 	if (rc < 0) {
 		return rc;
 	}
 
-	rc = snd_pcm_new(dev->snd_card, "somagic_dc60_pcm", 0, 0, 1, &dev->snd_pcm);
+	rc = snd_pcm_new(dev->snd_card, "smi2021_pcm", 0, 0, 1, &dev->snd_pcm);
 	if (rc < 0) {
 		goto err_free_card;
 	}
 
-	snd_pcm_set_ops(dev->snd_pcm, SNDRV_PCM_STREAM_CAPTURE, &somagic_pcm_ops);
+	snd_pcm_set_ops(dev->snd_pcm, SNDRV_PCM_STREAM_CAPTURE, &smi2021_pcm_ops);
 	dev->snd_pcm->info_flags = 0;
 	dev->snd_pcm->private_data = dev;
-	strcpy(dev->snd_pcm->name, "somagic_dc60_pcm");
+	strcpy(dev->snd_pcm->name, "smi2021_pcm");
 
 	rc = snd_pcm_lib_preallocate_pages_for_all(dev->snd_pcm,
 			SNDRV_DMA_TYPE_CONTINUOUS,
@@ -179,8 +179,8 @@ int somagic_snd_register(struct somagic_dev *dev)
 	}
 
 	strcpy(dev->snd_card->driver, "ALSA driver");
-	strcpy(dev->snd_card->shortname, "Somagic DC60");
-	strcpy(dev->snd_card->longname, "somagic_dc60_pcm");
+	strcpy(dev->snd_card->shortname, "SMI2021 EasyCap");
+	strcpy(dev->snd_card->longname, "smi2021_pcm");
 
 	rc = snd_card_register(dev->snd_card);
 	if (rc < 0) {
@@ -197,7 +197,7 @@ err_free_card:
 	return rc;
 }
 
-void somagic_snd_unregister(struct somagic_dev *dev)
+void smi2021_snd_unregister(struct smi2021_dev *dev)
 {
 	if (!dev->snd_card) {
 		return;
@@ -208,7 +208,7 @@ void somagic_snd_unregister(struct somagic_dev *dev)
 	dev->snd_card = NULL;
 }
 
-void somagic_audio(struct somagic_dev *dev, u8 *data, int len)
+void smi2021_audio(struct smi2021_dev *dev, u8 *data, int len)
 {
 	struct snd_pcm_runtime *runtime;
 	int len_part;

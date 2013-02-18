@@ -1,7 +1,7 @@
 /*******************************************************************************
- * somagic.h                                                                   *
+ * smi2021.h                                                                   *
  *                                                                             *
- * USB Driver for Somagic EasyCAP DC60                                         *
+ * USB Driver for SMI2021 - EasyCap                                            *
  * USB ID 1c88:003c                                                            *
  *                                                                             *
  * *****************************************************************************
@@ -11,7 +11,7 @@
  *
  * Copyright 2011, 2012 Tony Brown, Michal Demin, Jeffry Johnston
  *
- * This file is part of easycap-somagic-linux
+ * This file is part of SMI2021
  * http://code.google.com/p/easycap-somagic-linux/
  *
  * This program is free software: you can redistribute it and/or modify
@@ -33,8 +33,8 @@
  *
  */
 
-#ifndef SOMAGIC_H
-#define SOMAGIC_H 
+#ifndef SMI2021_H
+#define SMI2021_H 
 
 #include <linux/module.h>
 #include <linux/usb.h>
@@ -56,57 +56,57 @@
 #include <sound/pcm.h>
 #include <sound/initval.h>
 
-#define SOMAGIC_DRIVER_VERSION "0.1"
+#define SMI2021_DRIVER_VERSION "0.1"
 
 /* For ISOC */
-#define SOMAGIC_MAX_PKT_SIZE 	3072
-#define SOMAGIC_NUM_PACKETS 	64
-#define SOMAGIC_NUM_BUFS 	16
-#define SOMAGIC_ISOC_EP 	0x82
+#define SMI2021_MAX_PKT_SIZE 	3072
+#define SMI2021_NUM_PACKETS 	64
+#define SMI2021_NUM_BUFS 	16
+#define SMI2021_ISOC_EP 	0x82
 
-#define SOMAGIC_BYTES_PER_LINE	1440
-#define SOMAGIC_PAL_LINES	576
-#define SOMAGIC_NTSC_LINES	486
+#define SMI2021_BYTES_PER_LINE	1440
+#define SMI2021_PAL_LINES	576
+#define SMI2021_NTSC_LINES	486
 
-#define SOMAGIC_TRC_EAV 	0x10
-#define SOMAGIC_TRC_VBI 	0x20
-#define SOMAGIC_TRC_FIELD_2 	0x40
-#define SOMAGIC_TRC		0x80
+#define SMI2021_TRC_EAV 	0x10
+#define SMI2021_TRC_VBI 	0x20
+#define SMI2021_TRC_FIELD_2 	0x40
+#define SMI2021_TRC		0x80
 
 #define DEBUG
 #ifdef DEBUG
-#define somagic_dbg(fmt, args...)		\
-	printk(KERN_DEBUG "somagic::%s: " fmt,	\
+#define smi2021_dbg(fmt, args...)		\
+	printk(KERN_DEBUG "smi2021::%s: " fmt,	\
 		__func__, ##args)		
 #else
-#define somagic_dbg(fmt, args...)
+#define smi2021_dbg(fmt, args...)
 #endif
 
-#define somagic_info(fmt, args...)		\
-	pr_info("somagic::%s: " fmt,		\
+#define smi2021_info(fmt, args...)		\
+	pr_info("smi2021::%s: " fmt,		\
 		__func__, ##args)
 
-#define somagic_warn(fmt, args...)		\
-	pr_warn("somagic::%s: " fmt,		\
+#define smi2021_warn(fmt, args...)		\
+	pr_warn("smi2021::%s: " fmt,		\
 		__func__, ##args)
 
-#define somagic_err(fmt, args...)		\
-	pr_err("somagic::%s: " fmt,		\
+#define smi2021_err(fmt, args...)		\
+	pr_err("smi2021::%s: " fmt,		\
 		__func__, ##args)
 
-struct somagic_i2c_data {
+struct smi2021_i2c_data {
 	u8 reg;
 	u8 val;
 	u16 reserved;
 };
 
-struct somagic_smi_data {
+struct smi2021_smi_data {
 	u16 reg;
 	u8 val;
 	u8 reserved;	
 };
 
-struct somagic_usb_ctrl {
+struct smi2021_usb_ctrl {
 	u8 head;
 	u8 addr;
 	u8 bm_data_type;
@@ -115,7 +115,7 @@ struct somagic_usb_ctrl {
 	u8 data[4];
 };
 
-enum somagic_sync {
+enum smi2021_sync {
 	HSYNC,
 	SYNCZ1,
 	SYNCZ2,
@@ -123,7 +123,7 @@ enum somagic_sync {
 };
 
 /* Buffer for one video frame */
-struct somagic_buffer {
+struct smi2021_buffer {
 	/* Common vb2 stuff, must be first */
 	struct vb2_buffer 		vb;
 	struct list_head 		list;
@@ -138,22 +138,22 @@ struct somagic_buffer {
 	u16				trc_av;
 };
 
-struct somagic_isoc_ctl {
+struct smi2021_isoc_ctl {
 	int max_pkt_size;
 	int num_bufs;
 	struct urb **urb;
 	char **transfer_buffer;
-	struct somagic_buffer *buf;
+	struct smi2021_buffer *buf;
 };
 
 
-struct somagic_fmt {
+struct smi2021_fmt {
 	char				*name;
 	u32				fourcc;
 	int				depth;
 };
 
-struct somagic_dev {
+struct smi2021_dev {
 	struct v4l2_device		v4l2_dev;
 	struct video_device 		vdev;
 	struct v4l2_ctrl_handler 	ctrl_handler;
@@ -168,13 +168,13 @@ struct somagic_dev {
 
 	/* ISOC control struct */
 	struct list_head 		avail_bufs;
-	struct somagic_isoc_ctl		isoc_ctl;
+	struct smi2021_isoc_ctl		isoc_ctl;
 
 	int				width;		/* frame width */
 	int				height;		/* frame height */
 	unsigned int 			ctl_input;	/* selected input */
 	v4l2_std_id			norm;		/* current norm */
-	struct somagic_fmt 		*fmt;		/* selected format */
+	struct smi2021_fmt 		*fmt;		/* selected format */
 	unsigned int			buf_count;	/* for buffers */
 
 	/* i2c i/o */
@@ -185,7 +185,7 @@ struct somagic_dev {
 	struct mutex 			vb_queue_lock;
 	spinlock_t 			buf_lock;
 
-	enum somagic_sync		sync_state;
+	enum smi2021_sync		sync_state;
 
 	/* audio */
 	struct snd_card			*snd_card;
@@ -197,30 +197,30 @@ struct somagic_dev {
 	bool				snd_elapsed_periode;
 };
 
-/* Provided by somagic_bootloader.c */
-void somagic_run_bootloader(struct usb_device *somagic_device);
+/* Provided by smi2021_bootloader.c */
+void smi2021_run_bootloader(struct usb_device *smi2021_device);
 
-/* Provided by somagic_main.c */
-int somagic_write_reg(struct somagic_dev *dev, u8 addr, u16 reg, u8 val);
-int somagic_read_reg(struct somagic_dev *dev, u8 addr, u16 reg, u8 *val);
+/* Provided by smi2021_main.c */
+int smi2021_write_reg(struct smi2021_dev *dev, u8 addr, u16 reg, u8 val);
+int smi2021_read_reg(struct smi2021_dev *dev, u8 addr, u16 reg, u8 *val);
 
-/* Provided by somagic_v4l2.c */
-int somagic_vb2_setup(struct somagic_dev *dev);
-int somagic_video_register(struct somagic_dev *dev); 
-void somagic_clear_queue(struct somagic_dev *dev);
+/* Provided by smi2021_v4l2.c */
+int smi2021_vb2_setup(struct smi2021_dev *dev);
+int smi2021_video_register(struct smi2021_dev *dev); 
+void smi2021_clear_queue(struct smi2021_dev *dev);
 
-/* Provided by somagic_video.c */
-int somagic_alloc_isoc(struct somagic_dev *dev);
-void somagic_free_isoc(struct somagic_dev *dev);
-void somagic_cancel_isoc(struct somagic_dev *dev);
-void somagic_uninit_isoc(struct somagic_dev *dev);
+/* Provided by smi2021_video.c */
+int smi2021_alloc_isoc(struct smi2021_dev *dev);
+void smi2021_free_isoc(struct smi2021_dev *dev);
+void smi2021_cancel_isoc(struct smi2021_dev *dev);
+void smi2021_uninit_isoc(struct smi2021_dev *dev);
 
-/* Provided by somagic_i2c.c */
-int somagic_i2c_register(struct somagic_dev *dev);
-int somagic_i2c_unregister(struct somagic_dev *dev);
+/* Provided by smi2021_i2c.c */
+int smi2021_i2c_register(struct smi2021_dev *dev);
+int smi2021_i2c_unregister(struct smi2021_dev *dev);
 
-/* Provided by somagic_audio.c */
-int somagic_snd_register(struct somagic_dev *dev);
-void somagic_snd_unregister(struct somagic_dev *dev);
-void somagic_audio(struct somagic_dev *dev, u8 *data, int len);
-#endif /* SOMAGIC_H */
+/* Provided by smi2021_audio.c */
+int smi2021_snd_register(struct smi2021_dev *dev);
+void smi2021_snd_unregister(struct smi2021_dev *dev);
+void smi2021_audio(struct smi2021_dev *dev, u8 *data, int len);
+#endif /* SMI2021_H */

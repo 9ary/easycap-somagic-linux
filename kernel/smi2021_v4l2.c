@@ -1,7 +1,7 @@
 /*******************************************************************************
- * somagic_v4l2.c                                                              *
+ * smi2021_v4l2.c                                                              *
  *                                                                             *
- * USB Driver for Somagic EasyCAP DC60                                         *
+ * USB Driver for smi2021 - EasyCap                                            *
  * USB ID 1c88:003c                                                            *
  *                                                                             *
  * *****************************************************************************
@@ -11,7 +11,7 @@
  *
  * Copyright 2011, 2012 Tony Brown, Michal Demin, Jeffry Johnston
  *
- * This file is part of easycap-somagic-linux
+ * This file is part of SMI2021
  * http://code.google.com/p/easycap-somagic-linux/
  *
  * This program is free software: you can redistribute it and/or modify
@@ -33,9 +33,9 @@
  *
  */
 
-#include "somagic.h"
+#include "smi2021.h"
 
-static struct somagic_fmt format[] = {
+static struct smi2021_fmt format[] = {
 	{
 		.name = "16bpp YU2, 4:2:2, packed",
 		.fourcc = V4L2_PIX_FMT_UYVY,
@@ -43,7 +43,7 @@ static struct somagic_fmt format[] = {
 	}
 };
 
-static int somagic_start_streaming(struct somagic_dev *dev)
+static int smi2021_start_streaming(struct smi2021_dev *dev)
 {
 	u8 data[2];
 	int i, rc = 0;
@@ -70,25 +70,25 @@ static int somagic_start_streaming(struct somagic_dev *dev)
 	 * V_GATE1_MSB
 	 * All these should be 0x00 for this device.
 	 */
-	somagic_write_reg(dev, 0x4a, 0x15, 0x00);
-	somagic_write_reg(dev, 0x4a, 0x16, 0x00);
-	somagic_write_reg(dev, 0x4a, 0x17, 0x00);
+	smi2021_write_reg(dev, 0x4a, 0x15, 0x00);
+	smi2021_write_reg(dev, 0x4a, 0x16, 0x00);
+	smi2021_write_reg(dev, 0x4a, 0x17, 0x00);
 
 	rc = usb_control_msg(dev->udev, usb_sndctrlpipe(dev->udev, 0x00),
 			0x01, USB_DIR_OUT | USB_TYPE_VENDOR | USB_RECIP_DEVICE,
 			0x01, 0x00, data, sizeof(data), 1000);
 	if (rc < 0) {
-		somagic_err("Could not start device!\n");
+		smi2021_err("Could not start device!\n");
 		goto out_unlock;
 	}
 	
 	/* It's mandatory to set alt interface before allocating isoc buffer */
 	usb_set_interface(dev->udev, 0, 2);
 
-	somagic_write_reg(dev, 0, 0x1740, 0x1d);
+	smi2021_write_reg(dev, 0, 0x1740, 0x1d);
 
 	if (!dev->isoc_ctl.num_bufs) {
-		rc = somagic_alloc_isoc(dev);
+		rc = smi2021_alloc_isoc(dev);
 		if (rc < 0) {
 			goto out_stop_hw;
 		}
@@ -99,21 +99,21 @@ static int somagic_start_streaming(struct somagic_dev *dev)
 	for (i = 0; i < dev->isoc_ctl.num_bufs; i++) {
 		rc = usb_submit_urb(dev->isoc_ctl.urb[i], GFP_KERNEL);
 		if (rc) {
-			somagic_err("cannot submit urb[%d] (%d)\n", i, rc);
+			smi2021_err("cannot submit urb[%d] (%d)\n", i, rc);
 			goto out_uninit;
 		}
 	}
 
 	
 	mutex_unlock(&dev->v4l2_lock);
-	somagic_dbg("Streaming started!");
+	smi2021_dbg("Streaming started!");
 	return 0;
 
 out_uninit:
-	somagic_uninit_isoc(dev);
+	smi2021_uninit_isoc(dev);
 out_stop_hw:
 	usb_set_interface(dev->udev, 0, 0);
-	somagic_clear_queue(dev);
+	smi2021_clear_queue(dev);
 
 out_unlock:
 	mutex_unlock(&dev->v4l2_lock);
@@ -122,7 +122,7 @@ out_unlock:
 }
 
 /* Must be called with v4l2_lock hold */
-static void somagic_stop_hw(struct somagic_dev *dev)
+static void smi2021_stop_hw(struct smi2021_dev *dev)
 {
 	int rc = 0;
 	u8 data[] = { 0x01, 0x03 };
@@ -137,32 +137,32 @@ static void somagic_stop_hw(struct somagic_dev *dev)
 			0x01, USB_DIR_OUT | USB_TYPE_VENDOR | USB_RECIP_DEVICE,
 			0x01, 0x00, data, sizeof(data), 1000);
 	if (rc < 0) {
-		somagic_err("Could not stop device!\n");
+		smi2021_err("Could not stop device!\n");
 	}
 
 	v4l2_device_call_all(&dev->v4l2_dev, 0, video, s_stream, 0);
 	
 }
 
-static int somagic_stop_streaming(struct somagic_dev *dev)
+static int smi2021_stop_streaming(struct smi2021_dev *dev)
 {
 	if (mutex_lock_interruptible(&dev->v4l2_lock)) {
 		return -ERESTARTSYS;
 	}
 
-	somagic_cancel_isoc(dev);
-	somagic_free_isoc(dev);
-	somagic_stop_hw(dev);
-	somagic_clear_queue(dev);
+	smi2021_cancel_isoc(dev);
+	smi2021_free_isoc(dev);
+	smi2021_stop_hw(dev);
+	smi2021_clear_queue(dev);
 
-	somagic_dbg("Streaming stopped!\n");
+	smi2021_dbg("Streaming stopped!\n");
 
 	mutex_unlock(&dev->v4l2_lock);
 
 	return 0;
 }
 
-static struct v4l2_file_operations somagic_fops = {
+static struct v4l2_file_operations smi2021_fops = {
 	.owner = THIS_MODULE,
 	.open = v4l2_fh_open,
 	.release = vb2_fop_release,
@@ -194,10 +194,10 @@ static int vidioc_enum_fmt_vid_cap(struct file *file, void *priv,
 static int vidioc_querycap(struct file *file, void *priv,
 			struct v4l2_capability *cap)
 {
-	struct somagic_dev *dev = video_drvdata(file);
+	struct smi2021_dev *dev = video_drvdata(file);
 
-	strcpy(cap->driver, "somagic_easycap_dc60");
-	strcpy(cap->card, "somagic_easycap_dc60");
+	strcpy(cap->driver, "smi2021_easycap_dc60");
+	strcpy(cap->card, "smi2021_easycap_dc60");
 	usb_make_path(dev->udev, cap->bus_info, sizeof(cap->bus_info));
 	cap->device_caps =
 		V4L2_CAP_VIDEO_CAPTURE |
@@ -211,7 +211,7 @@ static int vidioc_querycap(struct file *file, void *priv,
 static int vidioc_g_fmt_vid_cap(struct file *file, void *priv,
 			struct v4l2_format *f)
 {
-	struct somagic_dev *dev = video_drvdata(file);
+	struct smi2021_dev *dev = video_drvdata(file);
 
 	f->fmt.pix.pixelformat = dev->fmt->fourcc;
 	f->fmt.pix.width = dev->width;
@@ -227,7 +227,7 @@ static int vidioc_g_fmt_vid_cap(struct file *file, void *priv,
 static int vidioc_try_fmt_vid_cap(struct file *file, void *priv,
 			struct v4l2_format *f)
 {
-	struct somagic_dev *dev = video_drvdata(file);
+	struct smi2021_dev *dev = video_drvdata(file);
 
 	f->fmt.pix.pixelformat = dev->fmt->fourcc;
 	f->fmt.pix.width = dev->width;
@@ -243,7 +243,7 @@ static int vidioc_try_fmt_vid_cap(struct file *file, void *priv,
 static int vidioc_s_fmt_vid_cap(struct file *file, void *priv,
 			struct v4l2_format *f)
 {
-	struct somagic_dev *dev = video_drvdata(file);
+	struct smi2021_dev *dev = video_drvdata(file);
 	struct vb2_queue *q = &dev->vb_vidq;
 
 	if (vb2_is_busy(q)) {
@@ -256,7 +256,7 @@ static int vidioc_s_fmt_vid_cap(struct file *file, void *priv,
 
 static int vidioc_querystd(struct file *file, void *priv, v4l2_std_id *norm)
 {
-	struct somagic_dev *dev = video_drvdata(file);
+	struct smi2021_dev *dev = video_drvdata(file);
 
 	v4l2_device_call_all(&dev->v4l2_dev, 0, video, querystd, norm);
 	return 0;
@@ -264,7 +264,7 @@ static int vidioc_querystd(struct file *file, void *priv, v4l2_std_id *norm)
 
 static int vidioc_g_std(struct file *file, void *priv, v4l2_std_id *norm)
 {
-	struct somagic_dev *dev = video_drvdata(file);
+	struct smi2021_dev *dev = video_drvdata(file);
 
 	*norm = dev->norm;
 	return 0;	
@@ -272,7 +272,7 @@ static int vidioc_g_std(struct file *file, void *priv, v4l2_std_id *norm)
 
 static int vidioc_s_std(struct file *file, void *priv, v4l2_std_id *norm)
 {
-	struct somagic_dev *dev = video_drvdata(file);
+	struct smi2021_dev *dev = video_drvdata(file);
 	struct vb2_queue *q = &dev->vb_vidq;
 
 	if (vb2_is_busy(q)) {
@@ -285,17 +285,17 @@ static int vidioc_s_std(struct file *file, void *priv, v4l2_std_id *norm)
 
 	dev->norm = *norm;
 	if (dev->norm & V4L2_STD_525_60) {
-		dev->width = SOMAGIC_BYTES_PER_LINE / 2;
-		dev->height = SOMAGIC_NTSC_LINES;
+		dev->width = SMI2021_BYTES_PER_LINE / 2;
+		dev->height = SMI2021_NTSC_LINES;
 	} else if (dev->norm & V4L2_STD_625_50) {
-		dev->width = SOMAGIC_BYTES_PER_LINE / 2;
-		dev->height =  SOMAGIC_PAL_LINES;
+		dev->width = SMI2021_BYTES_PER_LINE / 2;
+		dev->height =  SMI2021_PAL_LINES;
 	} else {
-		somagic_err("Invalid standard\n");
+		smi2021_err("Invalid standard\n");
 		return -EINVAL;
 	}
 
-	/* somagic_set_std(dev); */
+	/* smi2021_set_std(dev); */
 	v4l2_device_call_all(&dev->v4l2_dev, 0, core, s_std, dev->norm);
 	return 0;
 }
@@ -303,7 +303,7 @@ static int vidioc_s_std(struct file *file, void *priv, v4l2_std_id *norm)
 static int vidioc_enum_input(struct file *file, void *priv,
 				struct v4l2_input *i)
 {
-	struct somagic_dev *dev = video_drvdata(file);
+	struct smi2021_dev *dev = video_drvdata(file);
 
 	/* TODO: Remove hardcoded values */
 	if (i->index > 1) {
@@ -318,14 +318,14 @@ static int vidioc_enum_input(struct file *file, void *priv,
 
 static int vidioc_g_input(struct file *file, void *priv, unsigned int *i)
 {
-	struct somagic_dev *dev = video_drvdata(file);
+	struct smi2021_dev *dev = video_drvdata(file);
 	*i = dev->ctl_input;
 	return 0;
 }
 
 static int vidioc_s_input(struct file *file, void *priv, unsigned int i)
 {
-	struct somagic_dev *dev = video_drvdata(file);
+	struct smi2021_dev *dev = video_drvdata(file);
 
 	if (vb2_is_busy(&dev->vb_vidq)) {
 		return -EBUSY;
@@ -337,7 +337,7 @@ static int vidioc_s_input(struct file *file, void *priv, unsigned int i)
 	}
 
 	dev->ctl_input = i;
-	/* somagic_select_input(dev); */
+	/* smi2021_select_input(dev); */
 
 	return 0;
 }
@@ -355,7 +355,7 @@ static int vidioc_g_chip_ident(struct file *file, void *priv,
 	}
 }
 
-static const struct v4l2_ioctl_ops somagic_ioctl_ops = {
+static const struct v4l2_ioctl_ops smi2021_ioctl_ops = {
 	.vidioc_querycap          = vidioc_querycap,
 	.vidioc_enum_fmt_vid_cap  = vidioc_enum_fmt_vid_cap,
 	.vidioc_g_fmt_vid_cap     = vidioc_g_fmt_vid_cap,
@@ -393,7 +393,7 @@ static int queue_setup(struct vb2_queue *vq,
 				unsigned int *nbuffers, unsigned int *nplanes,
 				unsigned int sizes[], void *alloc_ctxs[])
 {
-	struct somagic_dev *dev = vb2_get_drv_priv(vq);
+	struct smi2021_dev *dev = vb2_get_drv_priv(vq);
 	unsigned long size;
 
 	size = dev->width * dev->height * 2;
@@ -410,8 +410,8 @@ static int queue_setup(struct vb2_queue *vq,
 static void buffer_queue(struct vb2_buffer *vb)
 {
 	unsigned long flags;
-	struct somagic_dev *dev = vb2_get_drv_priv(vb->vb2_queue);
-	struct somagic_buffer *buf = container_of(vb, struct somagic_buffer, vb);
+	struct smi2021_dev *dev = vb2_get_drv_priv(vb->vb2_queue);
+	struct smi2021_buffer *buf = container_of(vb, struct smi2021_buffer, vb);
 
 	spin_lock_irqsave(&dev->buf_lock, flags);
 	if (!dev->udev) {
@@ -440,17 +440,17 @@ static void buffer_queue(struct vb2_buffer *vb)
 
 static int start_streaming(struct vb2_queue *vq, unsigned int count)
 {
-	struct somagic_dev *dev = vb2_get_drv_priv(vq);
-	return somagic_start_streaming(dev);
+	struct smi2021_dev *dev = vb2_get_drv_priv(vq);
+	return smi2021_start_streaming(dev);
 }
 
 static int stop_streaming(struct vb2_queue *vq)
 {
-	struct somagic_dev *dev = vb2_get_drv_priv(vq);
-	return somagic_stop_streaming(dev);
+	struct smi2021_dev *dev = vb2_get_drv_priv(vq);
+	return smi2021_stop_streaming(dev);
 }
 
-static struct vb2_ops somagic_video_qops = {
+static struct vb2_ops smi2021_video_qops = {
 	.queue_setup			= queue_setup,
 	.buf_queue				= buffer_queue,
 	.start_streaming	= start_streaming,
@@ -460,23 +460,23 @@ static struct vb2_ops somagic_video_qops = {
 };
 
 static struct video_device v4l2_template = {
-	.name = "easycap_somagic_dc60",
+	.name = "easycap_smi2021_dc60",
 	.tvnorms = V4L2_STD_625_50 | V4L2_STD_525_60,
-	.fops = &somagic_fops,
-	.ioctl_ops = &somagic_ioctl_ops,
+	.fops = &smi2021_fops,
+	.ioctl_ops = &smi2021_ioctl_ops,
 	.release = video_device_release_empty,
 };
 
 /* Must be called with both v4l2_lock and vb_queue_lock hold */
-void somagic_clear_queue(struct somagic_dev *dev)
+void smi2021_clear_queue(struct smi2021_dev *dev)
 {
-	struct somagic_buffer *buf;
+	struct smi2021_buffer *buf;
 	unsigned long flags;
 
 	spin_lock_irqsave(&dev->buf_lock, flags);
 	while(!list_empty(&dev->avail_bufs)) {
 		buf = list_first_entry(&dev->avail_bufs,
-			struct somagic_buffer, list);
+			struct smi2021_buffer, list);
 		list_del(&buf->list);
 		vb2_buffer_done(&buf->vb, VB2_BUF_STATE_ERROR);
 	}
@@ -484,7 +484,7 @@ void somagic_clear_queue(struct somagic_dev *dev)
 	spin_unlock_irqrestore(&dev->buf_lock, flags);
 }
 
-int somagic_vb2_setup(struct somagic_dev *dev)
+int smi2021_vb2_setup(struct smi2021_dev *dev)
 {
 	int rc;
 	struct vb2_queue *q;
@@ -493,8 +493,8 @@ int somagic_vb2_setup(struct somagic_dev *dev)
 	q->type = V4L2_BUF_TYPE_VIDEO_CAPTURE;
 	q->io_modes = VB2_READ | VB2_MMAP | VB2_USERPTR;
 	q->drv_priv = dev;
-	q->buf_struct_size = sizeof(struct somagic_buffer);
-	q->ops = &somagic_video_qops;
+	q->buf_struct_size = sizeof(struct smi2021_buffer);
+	q->ops = &smi2021_video_qops;
 	q->mem_ops = &vb2_vmalloc_memops;
 
 	rc = vb2_queue_init(q);
@@ -508,7 +508,7 @@ int somagic_vb2_setup(struct somagic_dev *dev)
 	return 0;
 }
 
-int somagic_video_register(struct somagic_dev *dev)
+int smi2021_video_register(struct smi2021_dev *dev)
 {
 	int rc;
 
@@ -524,18 +524,18 @@ int somagic_video_register(struct somagic_dev *dev)
 
 	/* PAL is default */
 	dev->norm = V4L2_STD_PAL;
-	dev->width = SOMAGIC_BYTES_PER_LINE / 2;
-	dev->height = SOMAGIC_PAL_LINES;
+	dev->width = SMI2021_BYTES_PER_LINE / 2;
+	dev->height = SMI2021_PAL_LINES;
 
 	dev->fmt = &format[0];
-	/* somagic_set_std(dev); */
+	/* smi2021_set_std(dev); */
 
 	v4l2_device_call_all(&dev->v4l2_dev, 0, core, s_std, dev->norm);
 
 	video_set_drvdata(&dev->vdev, dev);
 	rc = video_register_device(&dev->vdev, VFL_TYPE_GRABBER, -1);
 	if (rc < 0) {
-		somagic_err("video_register_device failed %d\n", rc);
+		smi2021_err("video_register_device failed %d\n", rc);
 		return rc;
 	}
 
