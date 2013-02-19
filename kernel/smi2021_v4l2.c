@@ -196,8 +196,8 @@ static int vidioc_querycap(struct file *file, void *priv,
 {
 	struct smi2021_dev *dev = video_drvdata(file);
 
-	strcpy(cap->driver, "smi2021_easycap_dc60");
-	strcpy(cap->card, "smi2021_easycap_dc60");
+	strcpy(cap->driver, "smi2021");
+	strcpy(cap->card, "smi2021");
 	usb_make_path(dev->udev, cap->bus_info, sizeof(cap->bus_info));
 	cap->device_caps =
 		V4L2_CAP_VIDEO_CAPTURE |
@@ -220,6 +220,7 @@ static int vidioc_g_fmt_vid_cap(struct file *file, void *priv,
 	f->fmt.pix.bytesperline = dev->width * 2;
 	f->fmt.pix.sizeimage = dev->height * f->fmt.pix.bytesperline;
 	f->fmt.pix.colorspace = V4L2_COLORSPACE_SMPTE170M;
+	f->fmt.pix.priv = 0;
 
 	return 0;
 }
@@ -236,6 +237,7 @@ static int vidioc_try_fmt_vid_cap(struct file *file, void *priv,
 	f->fmt.pix.bytesperline = dev->width * 2;
 	f->fmt.pix.sizeimage = dev->height * f->fmt.pix.bytesperline;
 	f->fmt.pix.colorspace = V4L2_COLORSPACE_SMPTE170M;
+	f->fmt.pix.priv = 0;
 
 	return 0;
 }
@@ -370,6 +372,7 @@ static const struct v4l2_ioctl_ops smi2021_ioctl_ops = {
 
 	/* vb2 handle these */
 	.vidioc_reqbufs           = vb2_ioctl_reqbufs,
+	.vidioc_create_bufs       = vb2_ioctl_create_bufs,	
 	.vidioc_querybuf          = vb2_ioctl_querybuf,
 	.vidioc_qbuf              = vb2_ioctl_qbuf,
 	.vidioc_dqbuf             = vb2_ioctl_dqbuf,
