@@ -232,8 +232,7 @@ void smi2021_audio(struct smi2021_dev *dev, u8 *data, int len)
 	 * We look for this byte to make sure we did not
 	 * loose any bytes during transfer.
 	 */
-
-	while(len > 1 && data[offset] != 0x00) {
+	while(len > 10 && (data[offset] != 0x00 || data[offset + 4] != 0x00)) {
 		offset = 0;
 		new_offset++;
 		data++;
@@ -245,7 +244,7 @@ void smi2021_audio(struct smi2021_dev *dev, u8 *data, int len)
 		dev->pcm_dma_offset = new_offset % 4;
 	}
 
-	if (len == 1) {
+	if (len == 10) {
 		/* We exhausted the buffer looking for 0x00 */
 		dev->pcm_dma_offset = 0;
 		dev->snd_elapsed_periode = false;
