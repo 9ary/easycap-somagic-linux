@@ -471,8 +471,8 @@ int smi2021_alloc_isoc(struct smi2021_dev *dev)
 		smi2021_uninit_isoc(dev);
 	}
 
-	num_bufs = SMI2021_NUM_BUFS;
-	max_packets = SMI2021_NUM_PACKETS; 
+	num_bufs = SMI2021_ISOC_BUFS;
+	max_packets = SMI2021_ISOC_PACKETS; 
 	sb_size = max_packets * SMI2021_MAX_PKT_SIZE;
 
 	dev->isoc_ctl.buf = NULL;
