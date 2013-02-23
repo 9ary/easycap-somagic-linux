@@ -189,12 +189,17 @@ struct smi2021_dev {
 
 	/* audio */
 	struct snd_card			*snd_card;
-	struct snd_pcm			*snd_pcm;
-	struct snd_pcm_substream	*pcm_substream;
+	struct snd_pcm_substream	*pcm_substream; 
 	u8				pcm_dma_offset;
-	int				pcm_dma_write_ptr;
+	unsigned int			pcm_dma_write_ptr;
 	unsigned int			pcm_packets;
 	bool				snd_elapsed_periode;
+
+	struct work_struct		adev_capture_trigger;
+	atomic_t			adev_capturing;
+	int				adev_users;
+
+	u8				pcm_overflow;
 };
 
 /* Provided by smi2021_bootloader.c */
