@@ -146,6 +146,19 @@ static void smi2021_stop_hw(struct smi2021_dev *dev)
 
 static int smi2021_stop_streaming(struct smi2021_dev *dev)
 {
+	/* HACK: Stop the audio subsystem,
+	 * without this, the pcm middle-layer will hang waiting for more data.
+	 *
+	 * Is there a better way to do this?
+	 */
+	if (dev->pcm_substream && dev->pcm_substream->runtime) {
+		struct snd_pcm_runtime *runtime = dev->pcm_substream->runtime;
+		if (runtime->status) {
+			runtime->status->state = SNDRV_PCM_STATE_DRAINING;
+			wake_up(&runtime->sleep);
+		}
+	}
+
 	if (mutex_lock_interruptible(&dev->v4l2_lock)) {
 		return -ERESTARTSYS;
 	}

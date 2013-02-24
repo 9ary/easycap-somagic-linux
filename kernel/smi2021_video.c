@@ -329,11 +329,6 @@ static void process_packet(struct smi2021_dev *dev, u8 *p, int len)
 		}
 		}
 	}
-
-	if (dev->snd_elapsed_periode) {
-		snd_pcm_period_elapsed(dev->pcm_substream);
-		dev->snd_elapsed_periode = false;
-	}
 }
 
 /*
@@ -409,6 +404,7 @@ void smi2021_cancel_isoc(struct smi2021_dev *dev)
 	}
 
 	smi2021_dbg("all urbs killed\n");
+
 }
 
 /*

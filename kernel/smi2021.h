@@ -54,6 +54,7 @@
 
 #include <sound/core.h>
 #include <sound/pcm.h>
+#include <sound/pcm_params.h>
 #include <sound/initval.h>
 
 #define SMI2021_DRIVER_VERSION "0.1"
@@ -189,17 +190,16 @@ struct smi2021_dev {
 
 	/* audio */
 	struct snd_card			*snd_card;
-	struct snd_pcm_substream	*pcm_substream; 
-	u8				pcm_dma_offset;
-	unsigned int			pcm_dma_write_ptr;
-	unsigned int			pcm_packets;
-	bool				snd_elapsed_periode;
+	struct snd_pcm_substream	*pcm_substream;
+ 
+	unsigned int			pcm_write_ptr;
+	unsigned int			pcm_complete_samples;
 
+	u8				pcm_read_offset;
 	struct work_struct		adev_capture_trigger;
 	atomic_t			adev_capturing;
-	int				adev_users;
+	
 
-	u8				pcm_overflow;
 };
 
 /* Provided by smi2021_bootloader.c */
