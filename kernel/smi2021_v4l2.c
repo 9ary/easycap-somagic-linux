@@ -133,6 +133,7 @@ static int smi2021_start_streaming(struct smi2021_dev *dev)
 
 	
 	mutex_unlock(&dev->v4l2_lock);
+
 	smi2021_dbg("Streaming started!");
 	return 0;
 

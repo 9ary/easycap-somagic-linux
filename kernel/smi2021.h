@@ -203,8 +203,6 @@ struct smi2021_dev {
 	u8				pcm_read_offset;
 	struct work_struct		adev_capture_trigger;
 	atomic_t			adev_capturing;
-	
-
 };
 
 /* Provided by smi2021_bootloader.c */

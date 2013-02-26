@@ -347,7 +347,7 @@ static void __devexit smi2021_usb_disconnect(struct usb_interface *intf)
 
  	smi2021_uninit_isoc(dev);
  	/*stk1160_ac97_unrgister(dev)*/
-  smi2021_clear_queue(dev);
+ 	smi2021_clear_queue(dev);
 
 	video_unregister_device(&dev->vdev);
 	v4l2_device_disconnect(&dev->v4l2_dev);
