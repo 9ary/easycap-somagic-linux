@@ -112,9 +112,10 @@ static void smi2021_buffer_done(struct smi2021_dev *dev)
 	dev->isoc_ctl.buf = NULL;
 }
 
-static void copy_video(struct smi2021_dev *dev, struct smi2021_buffer *buf,
-			u8 p)
+static void copy_video(struct smi2021_dev *dev, u8 p)
 {
+	struct smi2021_buffer *buf = dev->isoc_ctl.buf;
+
 	int lines_per_field = dev->height / 2;
 	int line = 0;
 	int pos_in_line = 0;
@@ -130,8 +131,16 @@ static void copy_video(struct smi2021_dev *dev, struct smi2021_buffer *buf,
 	}
 
 	if (buf->pos >= buf->length) {
-		printk_ratelimited(KERN_INFO "Buffer overflow!, max: %d bytes\n",
-					buf->length);
+		if (buf->second_field == 0) {
+			/* We are probably trying to capture from
+			 * a unconnected input
+			 */
+			smi2021_buffer_done(dev);
+		} else {
+			printk_ratelimited(KERN_WARNING
+			"Buffer overflow!, max: %d bytes, av_lines_found: %d, second_field: %d\n",
+					buf->length, buf->trc_av, buf->second_field);
+		}
 		return;
 	}
 	
@@ -181,7 +190,7 @@ static void copy_video(struct smi2021_dev *dev, struct smi2021_buffer *buf,
  *
  * Mark video buffers as done if we have one full frame.
  */
-static struct smi2021_buffer *parse_trc(struct smi2021_dev *dev, u8 trc)
+static void parse_trc(struct smi2021_dev *dev, u8 trc)
 {
 	struct smi2021_buffer *buf = dev->isoc_ctl.buf;
 	int lines_per_field = dev->height / 2;
@@ -189,20 +198,20 @@ static struct smi2021_buffer *parse_trc(struct smi2021_dev *dev, u8 trc)
 
 	if (buf == NULL) {
 		if (!is_sav(trc)) {
-			return NULL;
+			return;
 		}
 
 		if (!is_active_video(trc)) {
-			return NULL;
+			return;
 		}
 
 		if (is_field2(trc)) {
-			return NULL;
+			return;
 		}
 
 		buf = smi2021_next_buffer(dev);
 		if (buf == NULL) {
-			return NULL;
+			return;
 		}
 
 		dev->isoc_ctl.buf = buf;
@@ -236,11 +245,10 @@ static struct smi2021_buffer *parse_trc(struct smi2021_dev *dev, u8 trc)
 		buf->in_blank = true;
 	}
 
-	return buf;
+	return;
 
 buf_done:
 	smi2021_buffer_done(dev);
-	return NULL;
 }
 
 /*
@@ -257,7 +265,6 @@ buf_done:
  */
 static void parse_video(struct smi2021_dev *dev, u8 *p, int len)
 {
-	struct smi2021_buffer *buf = dev->isoc_ctl.buf;
 	int i;
 
 	for (i = 0; i < len; i++) {
@@ -266,15 +273,15 @@ static void parse_video(struct smi2021_dev *dev, u8 *p, int len)
 			if (p[i] == 0xff)
 				dev->sync_state = SYNCZ1;
 			else
-				copy_video(dev, buf, p[i]);
+				copy_video(dev, p[i]);
 			break;
 		case SYNCZ1:
 			if (p[i] == 0x00) {
 				dev->sync_state = SYNCZ2;
 			} else {
 				dev->sync_state = HSYNC;
-				copy_video(dev, buf, 0xff);
-				copy_video(dev, buf, p[i]);
+				copy_video(dev, 0xff);
+				copy_video(dev, p[i]);
 			}
 			break;
 		case SYNCZ2:
@@ -282,14 +289,14 @@ static void parse_video(struct smi2021_dev *dev, u8 *p, int len)
 				dev->sync_state = TRC;
 			} else {
 				dev->sync_state = HSYNC;
-				copy_video(dev, buf, 0xff);
-				copy_video(dev, buf, 0x00);
-				copy_video(dev, buf, p[i]);
+				copy_video(dev, 0xff);
+				copy_video(dev, 0x00);
+				copy_video(dev, p[i]);
 			}
 			break;
 		case TRC:
 			dev->sync_state = HSYNC;
-			buf = parse_trc(dev, p[i]);
+			parse_trc(dev, p[i]);
 			break;
 		}
 	}
@@ -365,17 +372,24 @@ static void smi2021_isoc_isr(struct urb *urb)
 	for (i = 0; i < urb->number_of_packets; i++) {
 
 		status = urb->iso_frame_desc[i].status;
+		if (status == -18) {
+			/* This seems to happen when the device
+			 * trying to stream from an unconnected input
+			 * */
+			continue;
+		}
+
 		if (status < 0) {
 			print_usb_err(dev, i, status);
-			urb->iso_frame_desc[i].status = 0;
-			urb->iso_frame_desc[i].actual_length = 0;
 			continue;
 		}
 
 		p = urb->transfer_buffer + urb->iso_frame_desc[i].offset;
 		len = urb->iso_frame_desc[i].actual_length;
 		process_packet(dev, p, len);
+	}
 
+	for (i = 0; i < urb->number_of_packets; i++) {
 		urb->iso_frame_desc[i].status = 0;
 		urb->iso_frame_desc[i].actual_length = 0;
 	}
