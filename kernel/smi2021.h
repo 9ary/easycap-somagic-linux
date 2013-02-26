@@ -154,6 +154,11 @@ struct smi2021_fmt {
 	int				depth;
 };
 
+struct smi2021_input {
+	char				*name;
+	int				type;
+};
+
 struct smi2021_dev {
 	struct v4l2_device		v4l2_dev;
 	struct video_device 		vdev;

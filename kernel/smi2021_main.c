@@ -300,8 +300,6 @@ static int __devinit smi2021_usb_probe(struct usb_interface *intf,
 
 	v4l2_device_call_all(&dev->v4l2_dev, 0, core, reset, 0);
 	v4l2_device_call_all(&dev->v4l2_dev, 0, video, s_stream, 0);
-	v4l2_device_call_all(&dev->v4l2_dev, 0, video, s_routing,
-		SAA7115_COMPOSITE0, 0, 0);
 
 	rc = smi2021_snd_register(dev);
 	if (rc < 0) {

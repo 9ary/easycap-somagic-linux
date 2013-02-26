@@ -43,6 +43,33 @@ static struct smi2021_fmt format[] = {
 	}
 };
 
+static const int inputs = 2;
+static struct smi2021_input input[] = {
+	{
+		.name = "Composite",
+		.type = SAA7115_COMPOSITE0,
+	},
+	{
+		.name = "S-Video",
+		.type = SAA7115_SVIDEO1,
+	} 	
+};
+
+static void smi2021_set_input(struct smi2021_dev *dev)
+{
+	if (dev->udev == NULL) {
+		return;
+	}
+
+	if (dev->ctl_input >= inputs) {
+		smi2021_err("BUG: ctl_input to big!\n");
+		return;
+	}
+
+	v4l2_device_call_all(&dev->v4l2_dev, 0, video, s_routing,
+		input[dev->ctl_input].type, 0, 0);
+}
+
 static int smi2021_start_streaming(struct smi2021_dev *dev)
 {
 	u8 data[2];
@@ -320,12 +347,11 @@ static int vidioc_enum_input(struct file *file, void *priv,
 {
 	struct smi2021_dev *dev = video_drvdata(file);
 
-	/* TODO: Remove hardcoded values */
-	if (i->index > 1) {
+	if (i->index >= inputs) {
 		return -EINVAL;
 	}
 
-	sprintf(i->name, "Composite");
+	strlcpy(i->name, input[i->index].name, sizeof(i->name));
 	i->type = V4L2_INPUT_TYPE_CAMERA;
 	i->std = dev->vdev.tvnorms;
 	return 0;
@@ -342,17 +368,12 @@ static int vidioc_s_input(struct file *file, void *priv, unsigned int i)
 {
 	struct smi2021_dev *dev = video_drvdata(file);
 
-	if (vb2_is_busy(&dev->vb_vidq)) {
-		return -EBUSY;
-	}
-
-	/* TODO: REMOVE HARD HACK */
-	if (i > 1) {
+	if (i >= inputs) {
 		return -EINVAL;
 	}
 
 	dev->ctl_input = i;
-	/* smi2021_select_input(dev); */
+	smi2021_set_input(dev);
 
 	return 0;
 }
@@ -547,6 +568,7 @@ int smi2021_video_register(struct smi2021_dev *dev)
 	/* smi2021_set_std(dev); */
 
 	v4l2_device_call_all(&dev->v4l2_dev, 0, core, s_std, dev->norm);
+	smi2021_set_input(dev);
 
 	video_set_drvdata(&dev->vdev, dev);
 	rc = video_register_device(&dev->vdev, VFL_TYPE_GRABBER, -1);
