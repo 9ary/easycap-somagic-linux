@@ -213,8 +213,6 @@ static int smi2021_scan_usb(struct usb_interface *intf, struct usb_device *udev)
 			if (udev->speed == USB_SPEED_HIGH) {
 				size = size * hb_mult(sizedescr);
 			}
-
-			printk(KERN_INFO "ep: %d, size: %d\n", e, size);
 		}
 	}
 	return 0;
