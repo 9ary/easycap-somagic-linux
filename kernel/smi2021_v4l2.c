@@ -392,31 +392,31 @@ static int vidioc_g_chip_ident(struct file *file, void *priv,
 }
 
 static const struct v4l2_ioctl_ops smi2021_ioctl_ops = {
-	.vidioc_querycap          = vidioc_querycap,
-	.vidioc_enum_fmt_vid_cap  = vidioc_enum_fmt_vid_cap,
-	.vidioc_g_fmt_vid_cap     = vidioc_g_fmt_vid_cap,
-	.vidioc_try_fmt_vid_cap   = vidioc_try_fmt_vid_cap,
-	.vidioc_s_fmt_vid_cap     = vidioc_s_fmt_vid_cap,
-	.vidioc_querystd          = vidioc_querystd,
-	.vidioc_g_std             = vidioc_g_std,
-	.vidioc_s_std             = vidioc_s_std,
-	.vidioc_enum_input        = vidioc_enum_input,
-	.vidioc_g_input           = vidioc_g_input,
-	.vidioc_s_input           = vidioc_s_input,
+	.vidioc_querycap		= vidioc_querycap,
+	.vidioc_enum_fmt_vid_cap	= vidioc_enum_fmt_vid_cap,
+	.vidioc_g_fmt_vid_cap		= vidioc_g_fmt_vid_cap,
+	.vidioc_try_fmt_vid_cap		= vidioc_try_fmt_vid_cap,
+	.vidioc_s_fmt_vid_cap		= vidioc_s_fmt_vid_cap,
+	.vidioc_querystd		= vidioc_querystd,
+	.vidioc_g_std			= vidioc_g_std,
+	.vidioc_s_std			= vidioc_s_std,
+	.vidioc_enum_input		= vidioc_enum_input,
+	.vidioc_g_input			= vidioc_g_input,
+	.vidioc_s_input			= vidioc_s_input,
 
 	/* vb2 handle these */
-	.vidioc_reqbufs           = vb2_ioctl_reqbufs,
-	.vidioc_create_bufs       = vb2_ioctl_create_bufs,	
-	.vidioc_querybuf          = vb2_ioctl_querybuf,
-	.vidioc_qbuf              = vb2_ioctl_qbuf,
-	.vidioc_dqbuf             = vb2_ioctl_dqbuf,
-	.vidioc_streamon          = vb2_ioctl_streamon,
-	.vidioc_streamoff         = vb2_ioctl_streamoff,
+	.vidioc_reqbufs			= vb2_ioctl_reqbufs,
+	.vidioc_create_bufs		= vb2_ioctl_create_bufs,	
+	.vidioc_querybuf		= vb2_ioctl_querybuf,
+	.vidioc_qbuf			= vb2_ioctl_qbuf,
+	.vidioc_dqbuf			= vb2_ioctl_dqbuf,
+	.vidioc_streamon		= vb2_ioctl_streamon,
+	.vidioc_streamoff		= vb2_ioctl_streamoff,
 
-	.vidioc_log_status        = v4l2_ctrl_log_status,
-	.vidioc_subscribe_event   = v4l2_ctrl_subscribe_event,
-	.vidioc_unsubscribe_event = v4l2_event_unsubscribe,
-	.vidioc_g_chip_ident      = vidioc_g_chip_ident,
+	.vidioc_log_status		= v4l2_ctrl_log_status,
+	.vidioc_subscribe_event		= v4l2_ctrl_subscribe_event,
+	.vidioc_unsubscribe_event	= v4l2_event_unsubscribe,
+	.vidioc_g_chip_ident		= vidioc_g_chip_ident,
 
 };
 
@@ -488,20 +488,20 @@ static int stop_streaming(struct vb2_queue *vq)
 }
 
 static struct vb2_ops smi2021_video_qops = {
-	.queue_setup			= queue_setup,
-	.buf_queue				= buffer_queue,
+	.queue_setup		= queue_setup,
+	.buf_queue		= buffer_queue,
 	.start_streaming	= start_streaming,
 	.stop_streaming		= stop_streaming,
-	.wait_prepare			= vb2_ops_wait_prepare,
-	.wait_finish			= vb2_ops_wait_finish,
+	.wait_prepare		= vb2_ops_wait_prepare,
+	.wait_finish		= vb2_ops_wait_finish,
 };
 
 static struct video_device v4l2_template = {
-	.name = "easycap_smi2021_dc60",
-	.tvnorms = V4L2_STD_625_50 | V4L2_STD_525_60,
-	.fops = &smi2021_fops,
-	.ioctl_ops = &smi2021_ioctl_ops,
-	.release = video_device_release_empty,
+	.name 			= "easycap_smi2021_dc60",
+	.tvnorms	 	= V4L2_STD_625_50 | V4L2_STD_525_60,
+	.fops 			= &smi2021_fops,
+	.ioctl_ops 		= &smi2021_ioctl_ops,
+	.release 		= video_device_release_empty,
 };
 
 /* Must be called with both v4l2_lock and vb_queue_lock hold */
