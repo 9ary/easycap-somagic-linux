@@ -338,7 +338,6 @@ static int vidioc_s_std(struct file *file, void *priv, v4l2_std_id *norm)
 		return -EINVAL;
 	}
 
-	/* smi2021_set_std(dev); */
 	v4l2_device_call_all(&dev->v4l2_dev, 0, core, s_std, dev->norm);
 	return 0;
 }
@@ -566,7 +565,6 @@ int smi2021_video_register(struct smi2021_dev *dev)
 	dev->height = SMI2021_PAL_LINES;
 
 	dev->fmt = &format[0];
-	/* smi2021_set_std(dev); */
 
 	v4l2_device_call_all(&dev->v4l2_dev, 0, core, s_std, dev->norm);
 	smi2021_set_input(dev);
