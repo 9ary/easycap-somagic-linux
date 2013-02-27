@@ -29,10 +29,12 @@ smi2021-y += smi2021_v4l2.o 	\
 	smi2021_audio.o		\
 	smi2021_i2c.o 		\
 	smi2021_video.o		\
-	smi2021_bootloader.o 	\
 	smi2021_main.o
 
 #ccflags-y += -Idrivers/media/i2c
+
+obj-m += smi2021_bootloader.o
+smi2021_bootloader-y += smi2021_bl.o
 
 KDIR ?= /lib/modules/$(shell uname -r)/build
 PWD := $(shell pwd)

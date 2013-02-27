@@ -205,9 +205,6 @@ struct smi2021_dev {
 	atomic_t			adev_capturing;
 };
 
-/* Provided by smi2021_bootloader.c */
-void smi2021_run_bootloader(struct usb_device *smi2021_device);
-
 /* Provided by smi2021_main.c */
 int smi2021_write_reg(struct smi2021_dev *dev, u8 addr, u16 reg, u8 val);
 int smi2021_read_reg(struct smi2021_dev *dev, u8 addr, u16 reg, u8 *val);

@@ -36,8 +36,6 @@
 #include "smi2021.h"
 
 #define VENDOR_ID 			0x1c88
-#define BOOTLOADER_PRODUCT_ID		0x0007
-#define DC60_PRODUCT_ID			0x003c
 
 static unsigned int imput;
 module_param(imput, int, 0644);
@@ -50,8 +48,10 @@ MODULE_VERSION(SMI2021_DRIVER_VERSION);
 
 
 struct usb_device_id smi2021_usb_device_id_table[] = {
-	{ USB_DEVICE(VENDOR_ID, BOOTLOADER_PRODUCT_ID) },
-	{ USB_DEVICE(VENDOR_ID, DC60_PRODUCT_ID) },
+	{ USB_DEVICE(VENDOR_ID, 0x003c) },
+	{ USB_DEVICE(VENDOR_ID, 0x003d) },
+	{ USB_DEVICE(VENDOR_ID, 0x003e) },
+	{ USB_DEVICE(VENDOR_ID, 0x003f) },
 	{ }
 };
 
@@ -230,22 +230,9 @@ static int __devinit smi2021_usb_probe(struct usb_interface *intf,
 	struct usb_device *udev = interface_to_usbdev(intf);
 	struct smi2021_dev *dev;
 
-	smi2021_dbg("Probing for %04x:%04x\n",
-		le16_to_cpu(udev->descriptor.idVendor),
-		le16_to_cpu(udev->descriptor.idProduct));
-
 	if (udev == (struct usb_device *)NULL) {
 		smi2021_err("device is NULL\n");
 		return -EFAULT;
-	}
-
-  if (udev->descriptor.idProduct == BOOTLOADER_PRODUCT_ID) {
-		smi2021_run_bootloader(udev);
-		return 0;
-	}
-	
-  if (udev->descriptor.idProduct != DC60_PRODUCT_ID) {
-		return -ENODEV;
 	}
 
 	smi2021_scan_usb(intf, udev);
@@ -328,16 +315,10 @@ free_err:
 static void __devexit smi2021_usb_disconnect(struct usb_interface *intf)
 {
 	
-	struct usb_device *udev = interface_to_usbdev(intf);
-	struct smi2021_dev *dev;
- 
-	if (udev->descriptor.idProduct == BOOTLOADER_PRODUCT_ID) {
-		return;
-	}
+	struct smi2021_dev *dev = usb_get_intfdata(intf);
 
 	smi2021_dbg("Going for release!\n");
 
-	dev = usb_get_intfdata(intf);
 	usb_set_intfdata(intf, NULL);
 
 	mutex_lock(&dev->vb_queue_lock);
