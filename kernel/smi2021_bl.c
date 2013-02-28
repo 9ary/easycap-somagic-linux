@@ -49,8 +49,8 @@ MODULE_VERSION("0.1");
 static unsigned int firmware_version = 0;
 module_param(firmware_version, int, 0644);
 MODULE_PARM_DESC(firmware_version,
-			"Firmware version to be uploaded to device \n"
-			"if there are more than one version present");
+			"Firmware version to be uploaded to device\n"
+			"if there are more than one firmware present");
 
 struct usb_device_id smi2021_bootloader_id_table[] = {
 	{ USB_DEVICE(0x1c88, 0x0007) },
