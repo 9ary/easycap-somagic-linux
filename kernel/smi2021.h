@@ -80,10 +80,12 @@
 #define SMI2021_CTRL_I2C_VAL 0x06
 #define SMI2021_CTRL_I2C_RCV_VAL 0x05
 
+/* General video constants */
 #define SMI2021_BYTES_PER_LINE	1440
 #define SMI2021_PAL_LINES	576
 #define SMI2021_NTSC_LINES	486
 
+/* Timing Referance Codes, see saa7113 datasheet */
 #define SMI2021_TRC_EAV 	0x10
 #define SMI2021_TRC_VBI 	0x20
 #define SMI2021_TRC_FIELD_2 	0x40
@@ -130,6 +132,7 @@ struct smi2021_buffer {
 	bool				in_blank;
 	unsigned int			pos;
 
+	/* ActiveVideo - Line counter */
 	u16				trc_av;
 };
 
@@ -161,7 +164,7 @@ struct smi2021_dev {
 	struct v4l2_subdev 		*sd_saa7113;
 	
 	struct usb_device 		*udev;
-	struct device *			dev;
+	struct device			*dev;
 
 	/* Capture buffer queue */
 	struct vb2_queue 		vb_vidq;
@@ -175,7 +178,7 @@ struct smi2021_dev {
 	unsigned int 			ctl_input;	/* selected input */
 	v4l2_std_id			norm;		/* current norm */
 	struct smi2021_fmt 		*fmt;		/* selected format */
-	unsigned int			buf_count;	/* for buffers */
+	unsigned int			buf_count;	/* for video buffers */
 
 	/* i2c i/o */
 	struct i2c_adapter 		i2c_adap;
