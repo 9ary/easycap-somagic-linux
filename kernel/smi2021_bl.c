@@ -34,12 +34,9 @@
  */
 
 #include <linux/module.h>
-#include <linux/kernel.h>
 #include <linux/usb.h>
 #include <linux/firmware.h>
 #include <linux/slab.h>
-
-#define SMI2021_FIRMWARE		"smi2021_firmware.bin"
 
 #define FIRMWARE_CHUNK_SIZE		62
 #define FIRMWARE_HEADER_SIZE		2
