@@ -68,46 +68,43 @@ static unsigned short saa7113_addrs[] = {
 /*                                                                            */
 /******************************************************************************/
 
-inline int transfer_usb_ctrl(struct smi2021_dev *dev, struct smi2021_usb_ctrl data)
+inline int transfer_usb_ctrl(struct smi2021_dev *dev, u8 *data, int len)
 {
-	return usb_control_msg(dev->udev, usb_sndctrlpipe(dev->udev, 0x00), 0x01,
-			USB_DIR_OUT | USB_TYPE_VENDOR | USB_RECIP_DEVICE,
+	return usb_control_msg(dev->udev, usb_sndctrlpipe(dev->udev, 0x00),
+			0x01, USB_DIR_OUT | USB_TYPE_VENDOR | USB_RECIP_DEVICE,
 			0x0b, 0x00,
-			&data, sizeof(struct smi2021_usb_ctrl), 1000);
+			data, len, 1000);
 	
 }
 
 int smi2021_write_reg(struct smi2021_dev *dev, u8 addr, u16 reg, u8 val)
 {
 	int rc;
-	struct smi2021_usb_ctrl data;
+	u8 snd_data[8];
 
-	data.head = 0x0b;
-	data.data_size = 0x01;
-	data.addr = addr;
+	memset(snd_data, 0x00, 8);
+
+	snd_data[SMI2021_CTRL_HEAD] = 0x0b;
+	snd_data[SMI2021_CTRL_ADDR] = addr;
+	snd_data[SMI2021_CTRL_DATA_SIZE] = 0x01;
+
 	if (addr) {
-		struct smi2021_i2c_data d = {
-			.reg = reg,
-			.val = val,
-			.reserved = 0,
-		};
-		memcpy((void *)data.data, (void *)&d, 4);
+		/* This is I2C data for the saa7113 chip */
+		snd_data[SMI2021_CTRL_BM_DATA_TYPE] = 0xc0;
+		snd_data[SMI2021_CTRL_BM_DATA_OFFSET] = 0x01;
 
-		data.bm_data_type = 0xc0;
-		data.bm_data_offset = 0x01;
+		snd_data[SMI2021_CTRL_I2C_REG] = reg;
+		snd_data[SMI2021_CTRL_I2C_VAL] = val;
 	} else {
-		struct smi2021_reg_data d = {
-			.reg = __cpu_to_be16(reg),
-			.val = val,
-			.reserved = 0,
-		};
-		memcpy((void *)data.data, (void *)&d, 4);
+		/* This is register settings for the smi2021 chip */
+		snd_data[SMI2021_CTRL_BM_DATA_OFFSET] = 0x82;
 
-		data.bm_data_type = 0x00;
-		data.bm_data_offset = 0x82;
+		snd_data[SMI2021_CTRL_REG_HI] = __cpu_to_be16(reg) >> 8;
+		snd_data[SMI2021_CTRL_REG_LO] = __cpu_to_be16(reg);
+
 	}
 
-	rc = transfer_usb_ctrl(dev, data);
+	rc = transfer_usb_ctrl(dev, snd_data, 8);
 	if (rc < 0) {
 		smi2021_warn("write failed on register 0x%x, errno: %d\n",
 			reg, rc);
@@ -120,34 +117,32 @@ int smi2021_write_reg(struct smi2021_dev *dev, u8 addr, u16 reg, u8 val)
 int smi2021_read_reg(struct smi2021_dev *dev, u8 addr, u16 reg, u8 *val)
 {
 	int rc;
-	u8 rcv_data[13] = { 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0 };
-	struct smi2021_usb_ctrl data;
-	struct smi2021_i2c_data d = {
-		.reg = reg,
-		.val = 0x00,
-		.reserved = 0,
-	};
+	u8 rcv_data[13];
+	u8 snd_data[8];
+	memset(rcv_data, 0x00, 13);
+	memset(snd_data, 0x00, 8);
 
-	data.head = 0x0b;
-	data.addr = addr;
-	data.bm_data_type = 0x84;	/* 1000 0100 */
-	data.bm_data_offset = 0x00;
-	data.data_size = 0x01;
-	memcpy((void *)data.data, (void *)&d, 4);
+	snd_data[SMI2021_CTRL_HEAD] = 0x0b;
+	snd_data[SMI2021_CTRL_ADDR] = addr;
+	snd_data[SMI2021_CTRL_BM_DATA_TYPE] = 0x84;
+	snd_data[SMI2021_CTRL_DATA_SIZE] = 0x01;
+	snd_data[SMI2021_CTRL_I2C_REG] = reg;
 
 	*val = 0;
 
-	rc = transfer_usb_ctrl(dev, data);
+	rc = transfer_usb_ctrl(dev, snd_data, 8);
 	if (rc < 0) {
-		smi2021_warn("1st pass failing to read reg 0x%x, usb-errno: %d \n",
+		smi2021_warn(
+			"1st pass failing to read reg 0x%x, usb-errno: %d \n",
 			reg, rc);
 		return rc;
 	}
 
-	data.bm_data_type = 0xa0;	/* 1010 0000 */
-	rc = transfer_usb_ctrl(dev, data);
+	snd_data[SMI2021_CTRL_BM_DATA_TYPE] =0xa0;
+	rc = transfer_usb_ctrl(dev, snd_data, 8);
 	if (rc < 0) {
-		smi2021_warn("2nd pass failing to read reg 0x%x, usb-errno: %d\n",
+		smi2021_warn(
+			"2nd pass failing to read reg 0x%x, usb-errno: %d\n",
 			reg, rc);
 		return rc;
 	}
@@ -171,7 +166,7 @@ int smi2021_read_reg(struct smi2021_dev *dev, u8 addr, u16 reg, u8 *val)
 		rcv_data[9], rcv_data[10], rcv_data[11],
 		rcv_data[12]);
 	*/
-	*val = rcv_data[5];
+	*val = rcv_data[SMI2021_CTRL_I2C_RCV_VAL];
 	return 0;
 		
 }

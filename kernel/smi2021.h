@@ -65,6 +65,21 @@
 #define SMI2021_ISOC_BUFS 	4	/* 16 */
 #define SMI2021_ISOC_EP 	0x82
 
+/* The structure of the array we use to send i2c settings to the device */
+#define SMI2021_CTRL_HEAD 0x00
+#define	SMI2021_CTRL_ADDR 0x01
+#define SMI2021_CTRL_BM_DATA_TYPE 0x02
+#define	SMI2021_CTRL_BM_DATA_OFFSET 0x03
+#define	SMI2021_CTRL_DATA_SIZE 0x04
+
+#define SMI2021_CTRL_REG_HI 0x05
+#define SMI2021_CTRL_REG_LO 0x06
+#define SMI2021_CTRL_REG_VAL 0x07
+
+#define SMI2021_CTRL_I2C_REG 0x05
+#define SMI2021_CTRL_I2C_VAL 0x06
+#define SMI2021_CTRL_I2C_RCV_VAL 0x05
+
 #define SMI2021_BYTES_PER_LINE	1440
 #define SMI2021_PAL_LINES	576
 #define SMI2021_NTSC_LINES	486
@@ -94,27 +109,6 @@
 #define smi2021_err(fmt, args...)		\
 	pr_err("smi2021::%s: " fmt,		\
 		__func__, ##args)
-
-struct smi2021_i2c_data {
-	u8 reg;
-	u8 val;
-	u16 reserved;
-};
-
-struct smi2021_reg_data {
-	u16 reg;
-	u8 val;
-	u8 reserved;	
-};
-
-struct smi2021_usb_ctrl {
-	u8 head;
-	u8 addr;
-	u8 bm_data_type;
-	u8 bm_data_offset;
-	u8 data_size;
-	u8 data[4];
-};
 
 enum smi2021_sync {
 	HSYNC,
