@@ -48,8 +48,13 @@ n n l.
 .TP
 \fB\-c\fR, \fB\-\-cvbs\fR
 For the EasyCAP DC60, use the CVBS (composite) input for video capture.
-For the EasyCAP002, use the "2" input for video capture.
+For the EasyCAP002, use the numbered inputs for video capture. Different devices seem to have different numbering schemes, so try each input in turn to determine which one is correct. 
 This is the default.
+.TP
+\fB\-i\fR, \fB\-\-cvbs\-input\fR=\fIVALUE\fR
+For the EasyCAP002 only. Select the numbered input to use.
+Different devices seem to have different numbering schemes, so the numbering may not match your device. Try each input in turn to determine which one is correct. 
+The default input is 3.
 .TP
 \fB\-f\fR, \fB\-\-frames\fR=\fICOUNT\fR
 Maximum number of video frames to capture.

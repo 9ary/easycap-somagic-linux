@@ -91,6 +91,7 @@ static void usage()
 	fprintf(stderr, "Usage: "PROGRAM_NAME" [options] DRIVER_FILENAME\n");
 	fprintf(stderr, "  -f, --firmware=FILENAME  Write to firmware file FILENAME\n");
 	fprintf(stderr, "                           (default: "SOMAGIC_FIRMWARE_PATH")\n");
+	fprintf(stderr, "  -v, --verbose            Verbose output\n");
 	fprintf(stderr, "      --help               Display usage\n");
 	fprintf(stderr, "      --version            Display version information\n");
 	fprintf(stderr, "\n");
@@ -103,6 +104,7 @@ int main(int argc, char **argv)
 	FILE *infile;
 	int ret;
 	char *firmware_path = SOMAGIC_FIRMWARE_PATH;
+	int verbose = 0;
 	unsigned char last4[4] = {'\0', '\0', '\0', '\0'};
 	int firmware_found = 0;
 	long pos;
@@ -115,15 +117,16 @@ int main(int argc, char **argv)
 	int c;
 	int option_index = 0;
 	static struct option long_options[] = {
-		{"help", 0, 0, 0},    /* index 0 */
-		{"version", 0, 0, 0}, /* index 1 */
+		{"help", 0, 0, 0},     /* index 0 */
+		{"verbose", 0, 0, 'v'},/* index 1 */
+		{"version", 0, 0, 0},  /* index 2 */
 		{"firmware", 1, 0, 'f'},
 		{0, 0, 0, 0}
 	};
 
 	/* Parse command line arguments */
 	while (1) {
-		c = getopt_long(argc, argv, "f:", long_options, &option_index);
+		c = getopt_long(argc, argv, "f:v", long_options, &option_index);
 		if (c == -1) {
 			break;
 		}
@@ -133,7 +136,10 @@ int main(int argc, char **argv)
 			case 0: /* --help */
 				usage();
 				return 0;
-			case 1: /* --version */
+			case 1: /* --verbose */
+				verbose = 1;
+				break;
+			case 2: /* --version */
 				version();
 				return 0;
 			default:
@@ -193,9 +199,9 @@ int main(int argc, char **argv)
 
 				/* Check CRC32 */
 				gcry_md_hash_buffer(GCRY_MD_CRC32, digest, firmware, SOMAGIC_FIRMWARE_LENGTH[i]);
-				#ifdef DEBUG
-				fprintf(stderr, "Product: %i, Expected: %02x %02x %02x %02x, Found: %02x %02x %02x %02x, Offset: %lx\n", i, SOMAGIC_FIRMWARE_CRC32[i][0], SOMAGIC_FIRMWARE_CRC32[i][1], SOMAGIC_FIRMWARE_CRC32[i][2], SOMAGIC_FIRMWARE_CRC32[i][3], digest[0], digest[1], digest[2], digest[3], (pos - 4));
-				#endif
+				if (verbose) {
+					fprintf(stderr, "Product: %i, Expected: %02x %02x %02x %02x, Found: %02x %02x %02x %02x, Offset: %lx\n", i, SOMAGIC_FIRMWARE_CRC32[i][0], SOMAGIC_FIRMWARE_CRC32[i][1], SOMAGIC_FIRMWARE_CRC32[i][2], SOMAGIC_FIRMWARE_CRC32[i][3], digest[0], digest[1], digest[2], digest[3], (pos - 4));
+				}
 				if (memcmp(digest, SOMAGIC_FIRMWARE_CRC32[i], 4) == 0) {
 					/* CRC32 matched */
 					firmware_found = 1;

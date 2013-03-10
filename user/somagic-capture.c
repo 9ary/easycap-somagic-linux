@@ -56,6 +56,8 @@ static const int PRODUCT[PRODUCT_COUNT] = {
 };
 #define MIN(a, b) (((a) < (b)) ? (a) : (b))
 
+static char * program_path;
+
 static int frames_generated = 0;
 static int stop_sending_requests = 0;
 static int pending_requests = 0;
@@ -79,6 +81,12 @@ enum tv_standards {
 #define	CVBS   0      /* DC60: "CVBS", 002: "2" */
 #define	SVIDEO 7      /* DC60: "S-VIDEO" */
 
+/* CVBS inputs */
+#define	VIDEO1 2
+#define	VIDEO2 3
+#define	VIDEO3 0
+#define	VIDEO4 1
+
 /* Options */
 /* Control the number of frames to generate: -1 = unlimited (default) */
 static int frame_count = -1;
@@ -86,8 +94,11 @@ static int frame_count = -1;
 /* Television standard (see tv_standards) */
 static int tv_standard = PAL;
 
-/* Input select (see Input types) */
+/* Input type select (see Input types) */
 static int input_type = CVBS;
+
+/* CVBS input select */
+static int cvbs_input = VIDEO3;
 
 /* Luminance mode (CVBS only): 0 = 4.1 MHz, 1 = 3.8 MHz, 2 = 2.6 MHz, 3 = 2.9 MHz */
 static int luminance_mode = 0;
@@ -623,291 +634,87 @@ static int somagic_write_i2c(uint8_t dev_addr, uint8_t reg, uint8_t val)
 	return ret;
 }
 
-static void version()
-{
-	fprintf(stderr, PROGRAM_NAME" "VERSION"\n");
-	fprintf(stderr, "Copyright 2011, 2012 Tony Brown, Michal Demin, Jeffry Johnston,\n");
-	fprintf(stderr, "                     Jon Arne Jørgensen\n");
-	fprintf(stderr, "License GPLv2+: GNU GPL version 2 or later <http://gnu.org/licenses/gpl.html>.\n");
-	fprintf(stderr, "This is free software: you are free to change and redistribute it.\n");
-	fprintf(stderr, "There is NO WARRANTY, to the extent permitted by law.\n");
-}
-
-static void usage()
-{
-	fprintf(stderr, "Usage: "PROGRAM_NAME" [options]\n");
-	fprintf(stderr, "  -B, --brightness=VALUE     Luminance brightness control,\n");
-	fprintf(stderr, "                             0 to 255 (default: 128)\n");
-	fprintf(stderr, "                             Value  Brightness\n");
-	fprintf(stderr, "                               255  Bright\n");
-	fprintf(stderr, "                               149  NTSC-J\n");
-	fprintf(stderr, "                               128  ITU level (default)\n");
-	fprintf(stderr, "                                 0  Dark\n");
-	fprintf(stderr, "  -C, --contrast=VALUE       Luminance contrast control,\n");
-	fprintf(stderr, "                             -128 to 127 (default: 71)\n");
-	fprintf(stderr, "                             Value  Contrast\n");
-	fprintf(stderr, "                               127   1.984375\n");
-	fprintf(stderr, "                                72   1.125000 (NTSC-J)\n");
-	fprintf(stderr, "                                71   1.109375 (ITU level, default)\n");
-	fprintf(stderr, "                                64   1.000000\n");
-	fprintf(stderr, "                                 1   0.015625\n");
-	fprintf(stderr, "                                 0   0.000000 (luminance off)\n");
-	fprintf(stderr, "                               -64  -1.000000 (inverse)\n");
-	fprintf(stderr, "                              -128  -2.000000 (inverse)\n");
-	fprintf(stderr, "  -c, --cvbs                 Use CVBS (composite) input on the EasyCAP DC60,\n");
-	fprintf(stderr, "                             input \"2\" on the EasyCAP002 (default)\n");
-	fprintf(stderr, "  -f, --frames=COUNT         Number of frames to generate,\n");
-	fprintf(stderr, "                             -1 for unlimited (default: -1)\n");
-	fprintf(stderr, "  -H, --hue=VALUE            Hue phase in degrees, -128 to 127 (default: 0),\n");
-	fprintf(stderr, "                             Value  Phase\n");
-	fprintf(stderr, "                              -128  -180.00000\n");
-	fprintf(stderr, "                                 0     0.00000\n");
-	fprintf(stderr, "                                 1     1.40635\n");
-	fprintf(stderr, "                               127   178.59375\n");
-	fprintf(stderr, "      --iso-transfers=COUNT  Number of concurrent iso transfers (default: 4)\n");
-	fprintf(stderr, "      --lum-aperture=MODE    Luminance aperture factor (default: 1)\n");
-	fprintf(stderr, "                             Mode  Aperture Factor\n");
-	fprintf(stderr, "                                0  0.00\n");
-	fprintf(stderr, "                                1  0.25 (default)\n");
-	fprintf(stderr, "                                2  0.50\n");
-	fprintf(stderr, "                                3  1.00\n");
-	fprintf(stderr, "      --lum-prefilter        Activate luminance prefilter (default: bypassed)\n");
-	fprintf(stderr, "      --luminance=MODE       CVBS luminance mode (default: 0)\n");
-	fprintf(stderr, "                             Mode  Center Frequency\n");
-	fprintf(stderr, "                                0  4.1 MHz (default)\n");
-	fprintf(stderr, "                                1  3.8 MHz\n");
-	fprintf(stderr, "                                2  2.6 MHz\n");
-	fprintf(stderr, "                                3  2.9 MHz\n");
-	fprintf(stderr, "  -n, --ntsc                 NTSC-M (North America) / NTSC-J (Japan)\n");
-	fprintf(stderr, "                                               [525 lines, 29.97 Hz]\n");
-	fprintf(stderr, "      --ntsc-4.43-50         NTSC-4.43 50Hz    [525 lines, 25 Hz]\n");
-	fprintf(stderr, "      --ntsc-4.43-60         NTSC-4.43 60Hz    [525 lines, 29.97 Hz]\n");
-	fprintf(stderr, "      --ntsc-n               NTSC-N            [625 lines, 25 Hz]\n");
-	fprintf(stderr, "  -p, --pal                  PAL-B/G/H/I/N     [625 lines, 25 Hz] (default)\n");
-	fprintf(stderr, "      --pal-4.43             PAL-4.43 / PAL 60 [525 lines, 29.97 Hz]\n");
-	fprintf(stderr, "      --pal-m                PAL-M (Brazil)    [525 lines, 29.97 Hz]\n");
-	fprintf(stderr, "      --pal-combination-n    PAL Combination-N [625 lines, 25 Hz]\n");
-	fprintf(stderr, "  -S, --saturation=VALUE     Chrominance saturation control,\n");
-	fprintf(stderr, "                             -128 to 127 (default: 64)\n");
-	fprintf(stderr, "                             Value  Saturation\n");
-	fprintf(stderr, "                               127   1.984375\n");
-	fprintf(stderr, "                                64   1.000000 (ITU level, default)\n");
-	fprintf(stderr, "                                 1   0.015625\n");
-	fprintf(stderr, "                                 0   0.000000 (color off)\n");
-	fprintf(stderr, "                               -64  -1.000000 (inverse)\n");
-	fprintf(stderr, "                              -128  -2.000000 (inverse)\n");
-	fprintf(stderr, "  -s, --s-video              Use S-VIDEO input, EasyCAP DC60 only\n");
-	fprintf(stderr, "      --secam                SECAM             [625 lines, 25 Hz]\n");
-	fprintf(stderr, "      --sync=VALUE           Sync algorithm (default: 2)\n");
-	fprintf(stderr, "                             Value  Algorithm\n");
-	fprintf(stderr, "                                 1  TB\n");
-	fprintf(stderr, "                                 2  MD (default)\n");
-	fprintf(stderr, "      --test-only            Perform capture setup, but do not capture\n");
-	fprintf(stderr, "      --vo=FILENAME          Raw UYVY video output file (or pipe) filename\n");
-	fprintf(stderr, "                             (default is standard output)\n");
-	fprintf(stderr, "      --help                 Display usage\n");
-	fprintf(stderr, "      --version              Display version information\n");
-	fprintf(stderr, "\n");
-	fprintf(stderr, "Examples (run as root):\n");
-	fprintf(stderr, "# PAL, CVBS/composite:\n");
-	fprintf(stderr, PROGRAM_NAME" | mplayer -vf yadif,screenshot -demuxer rawvideo -rawvideo \"pal:format=uyvy:fps=25\" -aspect 4:3 -\n");
-	fprintf(stderr, "\n");
-	fprintf(stderr, "# NTSC, S-VIDEO\n");
-	fprintf(stderr, PROGRAM_NAME" -n -s | mplayer -vf yadif,screenshot -demuxer rawvideo -rawvideo \"ntsc:format=uyvy:fps=30000/1001\" -aspect 4:3 -\n");
-	fprintf(stderr, "\n");
-	fprintf(stderr, "# NTSC, CVBS/composite, increased sharpness:\n");
-	fprintf(stderr, PROGRAM_NAME" -n --luminance=2 --lum-aperture=3 | mplayer -vf yadif,screenshot -demuxer rawvideo -rawvideo \"ntsc:format=uyvy:fps=30000/1001\" -aspect 4:3 -\n");
-}
-
-int main(int argc, char **argv)
+static int somagic_capture()
 {
 	int ret;
 	int i = 0;
-	uint8_t work;
-	struct libusb_device *dev;
-
-	/* buffer for control messages */
-	unsigned char buf[65535];
 
 	/* buffers and transfer pointers for isochronous data */
 	struct libusb_transfer **tfr;
 	unsigned char (*isobuf)[64 * 3072];
 
-	/* parsing */
-	int c;
-	int option_index = 0;
-	static struct option long_options[] = {
-		{"help", 0, 0, 0},              /* index 0  */
-		{"iso-transfers", 1, 0, 0},     /* index 1  */
-		{"lum-aperture", 1, 0, 0},      /* index 2  */
-		{"lum-prefilter", 0, 0, 0},     /* index 3  */
-		{"luminance", 1, 0, 0},         /* index 4  */
-		{"ntsc-4.43-50", 0, 0, 0},      /* index 5  */
-		{"ntsc-4.43-60", 0, 0, 0},      /* index 6  */
-		{"ntsc-n", 0, 0, 0},            /* index 7  */
-		{"pal-4.43", 0, 0, 0},          /* index 8  */
-		{"pal-m", 0, 0, 0},             /* index 9  */
-		{"pal-combination-n", 0, 0, 0}, /* index 10 */
-		{"secam", 0, 0, 0},             /* index 11 */
-		{"sync", 1, 0, 0},              /* index 12 */
-		{"test-only", 0, 0, 0},         /* index 13 */
-		{"version", 0, 0, 0},           /* index 14 */
-		{"vo", 1, 0, 0},                /* index 15 */
-		{"brightness", 1, 0, 'B'},
-		{"cvbs", 0, 0, 'c'},
-		{"contrast", 1, 0, 'C'},
-		{"frame-count", 1, 0, 'f'},
-		{"hue", 1, 0, 'H'},
-		{"ntsc", 0, 0, 'n'},
-		{"pal", 0, 0, 'p'},
-		{"s-video", 0, 0, 's'},
-		{"saturation", 1, 0, 'S'},
-		{0, 0, 0, 0}
-	};
-	int p;
+	/* Allocate memory for tfr and isobuf */
+	tfr = malloc(num_iso_transfers * sizeof *tfr);
+	if (tfr == NULL) {
+		perror("Failed to allocate memory for tfr");
+		return 1;
+	}
+	isobuf = malloc(num_iso_transfers * sizeof *isobuf);
+	if (isobuf == NULL) {
+		perror("Failed to allocate memory for isobuf");
+		return 1;
+	}
 
-	/* parse command line arguments */
-	while (1) {
-		c = getopt_long(argc, argv, "B:cC:f:H:npsS:", long_options, &option_index);
-		if (c == -1) {
-			break;
+	if (!test_only) {
+		for (i = 0; i < num_iso_transfers; i++)	{
+			tfr[i] = libusb_alloc_transfer(64);
+			if (tfr[i] == NULL) {
+				fprintf(stderr, "%s: Failed to allocate USB transfer #%d: %s\n", program_path, i, strerror(errno));
+				return 1;
+			}
+			libusb_fill_iso_transfer(tfr[i], devh, 0x00000082, isobuf[i], 64 * 3072, 64, gotdata, NULL, 2000);
+			libusb_set_iso_packet_lengths(tfr[i], 3072);
 		}
-		switch (c) {
-		case 0:
-			switch (option_index) {
-			case 0: /* --help */
-				usage();
-				return 0;
-			case 1: /* --iso-transfers */
-				num_iso_transfers = atoi(optarg);
-				if (num_iso_transfers < 1) {
-					fprintf(stderr, "Invalid iso transfers count '%i', must be at least 1\n", num_iso_transfers);
-					return 1;
-				}
-				break;
-			case 2: /* --lum-aperture */
-				luminance_aperture = atoi(optarg);
-				if (luminance_aperture < 0 || luminance_aperture > 3) {
-					fprintf(stderr, "Invalid luminance aperture '%i', must be from 0 to 3\n", luminance_mode);
-					return 1;
-				}
-				break;
-			case 3: /* --lum-prefilter */
-				luminance_prefilter = 1;
-				break;
-			case 4: /* --luminance */
-				luminance_mode = atoi(optarg);
-				if (luminance_mode < 0 || luminance_mode > 3) {
-					fprintf(stderr, "Invalid luminance mode '%i', must be from 0 to 3\n", luminance_mode);
-					return 1;
-				}
-				break;
-			case 5: /* --ntsc-4.43-50 */
-				tv_standard = NTSC_50;
-				break;
-			case 6: /* --ntsc-4.43-60 */
-				tv_standard = NTSC_60;
-				break;
-			case 7: /* --ntsc-n */
-				tv_standard = NTSC_N;
-				break;
-			case 8: /* --pal-4.43 */
-				tv_standard = PAL_60;
-				break;
-			case 9: /* --pal-m */
-				tv_standard = PAL_M;
-				break;
-			case 10: /* --pal-combination-n */
-				tv_standard = PAL_COMBO_N;
-				break;
-			case 11: /* --secam */
-				tv_standard = SECAM;
-				break;
-			case 12: /* --sync */
-				sync_algorithm = atoi(optarg);
-				if (sync_algorithm < 1 || sync_algorithm > 2) {
-					fprintf(stderr, "Invalid sync algorithm '%i', must be from 1 to 2\n", sync_algorithm);
-					return 1;
-				}
-				break;
-			case 13: /* --test-only */
-				test_only = 1;
-				break;
-			case 14: /* --version */
-				version();
-				return 0;
-			case 15: /* --vo */
-				video_fd = open(optarg, O_CREAT | O_WRONLY | O_TRUNC, S_IRUSR | S_IWUSR | S_IRGRP | S_IROTH);
-				if (video_fd == -1) {
-					fprintf(stderr, "%s: Failed to open video output file '%s': %s\n", argv[0], optarg, strerror(errno));
-					return 1;
-				}
-				break;
-			default:
-				usage();
+
+		pending_requests = num_iso_transfers;
+		for (i = 0; i < num_iso_transfers; i++) {
+			ret = libusb_submit_transfer(tfr[i]);
+			if (ret) {
+				fprintf(stderr, "%s: Failed to submit request #%d for transfer: %s\n", program_path, i, strerror(errno));
 				return 1;
 			}
-			break;
-		case 'B':
-			i = atoi(optarg);
-			if (i < 0 || i > 255) {
-				fprintf(stderr, "Invalid brightness value '%i', must be from 0 to 255\n", i);
-				return 1;
-			}
-			brightness = i;
-			break;
-		case 'c':
-			input_type = CVBS;
-			break;
-		case 'C':
-			i = atoi(optarg);
-			if (i < -128 || i > 127) {
-				fprintf(stderr, "Invalid contrast value '%i', must be from -128 to 127\n", i);
-				return 1;
-			}
-			contrast = (int8_t)i;
-			break;
-		case 'f':
-			frame_count = atoi(optarg);
-			break;
-		case 'H':
-			i = atoi(optarg);
-			if (i < -128 || i > 127) {
-				fprintf(stderr, "Invalid hue phase '%i', must be from -128 to 127\n", i);
-				return 1;
-			}
-			hue = (int8_t)i;
-			break;
-		case 'n':
-			tv_standard = NTSC;
-			break;
-		case 'p':
-			tv_standard = PAL;
-			break;
-		case 's':
-			input_type = SVIDEO;
-			break;
-		case 'S':
-			i = atoi(optarg);
-			if (i < -128 || i > 127) {
-				fprintf(stderr, "Invalid saturation value '%i', must be from -128 to 127\n", i);
-				return 1;
-			}
-			saturation = (int8_t)i;
-			break;
-		default:
-			usage();
+		}
+
+		somagic_write_reg(0x1800, 0x0d);
+
+		while (pending_requests > 0) {
+			libusb_handle_events(NULL);
+		}
+
+		for (i = 0; i < num_iso_transfers; i++) {
+			libusb_free_transfer(tfr[i]);
+		}
+	}
+
+	ret = libusb_release_interface(devh, 0);
+	if (ret) {
+		perror("Failed to release interface");
+		return 1;
+	}
+	libusb_close(devh);
+	libusb_exit(NULL);
+
+	/* Close video output file */
+	if (video_fd != 1) {
+		ret = close(video_fd);
+		if (ret) {
+			perror("Failed to close video output file");
 			return 1;
 		}
 	}
-	if (optind < argc) {
-		usage();
-		return 1;
-	}
-	if (input_type == SVIDEO && luminance_mode != 0) {
-		fprintf(stderr, "Luminance mode must be 0 for S-VIDEO\n");
-		return 1;
-	}
+
+	return 0;
+}
+
+static int somagic_init()
+{
+	int p;
+	int ret;
+	struct libusb_device *dev;
+	uint8_t work;
+
+	/* buffer for control messages */
+	unsigned char buf[65535];
 
 	libusb_init(NULL);
 	libusb_set_debug(NULL, 0);
@@ -1037,7 +844,11 @@ int main(int argc, char **argv)
 	/* Subaddress 0x02, Analog input control 1 */
 	/* Analog function select FUSE = Amplifier plus anti-alias filter bypassed */
 	/* Update hysteresis for 9-bit gain = Off */
-	work = 0xc0 | input_type;
+	if (input_type == CVBS) {
+		work = 0xc0 | cvbs_input;
+	} else {
+		work = 0xc0 | input_type;
+	}
 	somagic_write_i2c(0x4a, 0x02, work);
 
 	/* Subaddress 0x03, Analog input control 2 */
@@ -1297,64 +1108,333 @@ int main(int argc, char **argv)
 	somagic_write_reg(0x1740, 0x00);
 	usleep(30 * 1000);
 
-	/* Allocate memory for tfr and isobuf */
-	tfr = malloc(num_iso_transfers * sizeof *tfr);
-	if (tfr == NULL) {
-		perror("Failed to allocate memory for tfr");
-		return 1;
-	}
-	isobuf = malloc(num_iso_transfers * sizeof *isobuf);
-	if (isobuf == NULL) {
-		perror("Failed to allocate memory for isobuf");
-		return 1;
-	}
+	return 0;
+}
 
-	if (!test_only) {
-		for (i = 0; i < num_iso_transfers; i++)	{
-			tfr[i] = libusb_alloc_transfer(64);
-			if (tfr[i] == NULL) {
-				fprintf(stderr, "%s: Failed to allocate USB transfer #%d: %s\n", argv[0], i, strerror(errno));
+static void version()
+{
+	fprintf(stderr, PROGRAM_NAME" "VERSION"\n");
+	fprintf(stderr, "Copyright 2011, 2012 Tony Brown, Michal Demin, Jeffry Johnston,\n");
+	fprintf(stderr, "                     Jon Arne Jørgensen\n");
+	fprintf(stderr, "License GPLv2+: GNU GPL version 2 or later <http://gnu.org/licenses/gpl.html>.\n");
+	fprintf(stderr, "This is free software: you are free to change and redistribute it.\n");
+	fprintf(stderr, "There is NO WARRANTY, to the extent permitted by law.\n");
+}
+
+static void usage()
+{
+	fprintf(stderr, "Usage: "PROGRAM_NAME" [options]\n");
+	fprintf(stderr, "  -B, --brightness=VALUE     Luminance brightness control,\n");
+	fprintf(stderr, "                             0 to 255 (default: 128)\n");
+	fprintf(stderr, "                             Value  Brightness\n");
+	fprintf(stderr, "                               255  Bright\n");
+	fprintf(stderr, "                               149  NTSC-J\n");
+	fprintf(stderr, "                               128  ITU level (default)\n");
+	fprintf(stderr, "                                 0  Dark\n");
+	fprintf(stderr, "  -C, --contrast=VALUE       Luminance contrast control,\n");
+	fprintf(stderr, "                             -128 to 127 (default: 71)\n");
+	fprintf(stderr, "                             Value  Contrast\n");
+	fprintf(stderr, "                               127   1.984375\n");
+	fprintf(stderr, "                                72   1.125000 (NTSC-J)\n");
+	fprintf(stderr, "                                71   1.109375 (ITU level, default)\n");
+	fprintf(stderr, "                                64   1.000000\n");
+	fprintf(stderr, "                                 1   0.015625\n");
+	fprintf(stderr, "                                 0   0.000000 (luminance off)\n");
+	fprintf(stderr, "                               -64  -1.000000 (inverse)\n");
+	fprintf(stderr, "                              -128  -2.000000 (inverse)\n");
+	fprintf(stderr, "  -c, --cvbs                 Use CVBS (composite) input on the EasyCAP DC60,\n");
+	fprintf(stderr, "                             numbered inputs on the EasyCAP002 (default)\n");
+ 	fprintf(stderr, "  -i, --cvbs-input=VALUE     Select CVBS (composite) input to use, 1 to 4,\n");
+	fprintf(stderr, "                             EasyCAP002 only (default: 3)\n");
+	fprintf(stderr, "  -f, --frames=COUNT         Number of frames to generate,\n");
+	fprintf(stderr, "                             -1 for unlimited (default: -1)\n");
+	fprintf(stderr, "  -H, --hue=VALUE            Hue phase in degrees, -128 to 127 (default: 0),\n");
+	fprintf(stderr, "                             Value  Phase\n");
+	fprintf(stderr, "                              -128  -180.00000\n");
+	fprintf(stderr, "                                 0     0.00000\n");
+	fprintf(stderr, "                                 1     1.40635\n");
+	fprintf(stderr, "                               127   178.59375\n");
+	fprintf(stderr, "      --iso-transfers=COUNT  Number of concurrent iso transfers (default: 4)\n");
+	fprintf(stderr, "      --lum-aperture=MODE    Luminance aperture factor (default: 1)\n");
+	fprintf(stderr, "                             Mode  Aperture Factor\n");
+	fprintf(stderr, "                                0  0.00\n");
+	fprintf(stderr, "                                1  0.25 (default)\n");
+	fprintf(stderr, "                                2  0.50\n");
+	fprintf(stderr, "                                3  1.00\n");
+	fprintf(stderr, "      --lum-prefilter        Activate luminance prefilter (default: bypassed)\n");
+	fprintf(stderr, "      --luminance=MODE       CVBS luminance mode (default: 0)\n");
+	fprintf(stderr, "                             Mode  Center Frequency\n");
+	fprintf(stderr, "                                0  4.1 MHz (default)\n");
+	fprintf(stderr, "                                1  3.8 MHz\n");
+	fprintf(stderr, "                                2  2.6 MHz\n");
+	fprintf(stderr, "                                3  2.9 MHz\n");
+	fprintf(stderr, "  -n, --ntsc                 NTSC-M (North America) / NTSC-J (Japan)\n");
+	fprintf(stderr, "                                               [525 lines, 29.97 Hz]\n");
+	fprintf(stderr, "      --ntsc-4.43-50         NTSC-4.43 50Hz    [525 lines, 25 Hz]\n");
+	fprintf(stderr, "      --ntsc-4.43-60         NTSC-4.43 60Hz    [525 lines, 29.97 Hz]\n");
+	fprintf(stderr, "      --ntsc-n               NTSC-N            [625 lines, 25 Hz]\n");
+	fprintf(stderr, "  -p, --pal                  PAL-B/G/H/I/N     [625 lines, 25 Hz] (default)\n");
+	fprintf(stderr, "      --pal-4.43             PAL-4.43 / PAL 60 [525 lines, 29.97 Hz]\n");
+	fprintf(stderr, "      --pal-m                PAL-M (Brazil)    [525 lines, 29.97 Hz]\n");
+	fprintf(stderr, "      --pal-combination-n    PAL Combination-N [625 lines, 25 Hz]\n");
+	fprintf(stderr, "  -S, --saturation=VALUE     Chrominance saturation control,\n");
+	fprintf(stderr, "                             -128 to 127 (default: 64)\n");
+	fprintf(stderr, "                             Value  Saturation\n");
+	fprintf(stderr, "                               127   1.984375\n");
+	fprintf(stderr, "                                64   1.000000 (ITU level, default)\n");
+	fprintf(stderr, "                                 1   0.015625\n");
+	fprintf(stderr, "                                 0   0.000000 (color off)\n");
+	fprintf(stderr, "                               -64  -1.000000 (inverse)\n");
+	fprintf(stderr, "                              -128  -2.000000 (inverse)\n");
+	fprintf(stderr, "  -s, --s-video              Use S-VIDEO input, EasyCAP DC60 only\n");
+	fprintf(stderr, "      --secam                SECAM             [625 lines, 25 Hz]\n");
+	fprintf(stderr, "      --sync=VALUE           Sync algorithm (default: 2)\n");
+	fprintf(stderr, "                             Value  Algorithm\n");
+	fprintf(stderr, "                                 1  TB\n");
+	fprintf(stderr, "                                 2  MD (default)\n");
+	fprintf(stderr, "      --test-only            Perform capture setup, but do not capture\n");
+	fprintf(stderr, "      --vo=FILENAME          Raw UYVY video output file (or pipe) filename\n");
+	fprintf(stderr, "                             (default is standard output)\n");
+	fprintf(stderr, "      --help                 Display usage\n");
+	fprintf(stderr, "      --version              Display version information\n");
+	fprintf(stderr, "\n");
+	fprintf(stderr, "Examples (run as root):\n");
+	fprintf(stderr, "# PAL, CVBS/composite:\n");
+	fprintf(stderr, PROGRAM_NAME" | mplayer -vf yadif,screenshot -demuxer rawvideo -rawvideo \"pal:format=uyvy:fps=25\" -aspect 4:3 -\n");
+	fprintf(stderr, "\n");
+	fprintf(stderr, "# NTSC, S-VIDEO\n");
+	fprintf(stderr, PROGRAM_NAME" -n -s | mplayer -vf yadif,screenshot -demuxer rawvideo -rawvideo \"ntsc:format=uyvy:fps=30000/1001\" -aspect 4:3 -\n");
+	fprintf(stderr, "\n");
+	fprintf(stderr, "# NTSC, CVBS/composite, increased sharpness:\n");
+	fprintf(stderr, PROGRAM_NAME" -n --luminance=2 --lum-aperture=3 | mplayer -vf yadif,screenshot -demuxer rawvideo -rawvideo \"ntsc:format=uyvy:fps=30000/1001\" -aspect 4:3 -\n");
+}
+
+static int parse_cmdline(int argc, char **argv) {
+	int c;
+	int i = 0;
+	int option_index = 0;
+	static struct option long_options[] = {
+		{"help", 0, 0, 0},              /* index 0  */
+		{"iso-transfers", 1, 0, 0},     /* index 1  */
+		{"lum-aperture", 1, 0, 0},      /* index 2  */
+		{"lum-prefilter", 0, 0, 0},     /* index 3  */
+		{"luminance", 1, 0, 0},         /* index 4  */
+		{"ntsc-4.43-50", 0, 0, 0},      /* index 5  */
+		{"ntsc-4.43-60", 0, 0, 0},      /* index 6  */
+		{"ntsc-n", 0, 0, 0},            /* index 7  */
+		{"pal-4.43", 0, 0, 0},          /* index 8  */
+		{"pal-m", 0, 0, 0},             /* index 9  */
+		{"pal-combination-n", 0, 0, 0}, /* index 10 */
+		{"secam", 0, 0, 0},             /* index 11 */
+		{"sync", 1, 0, 0},              /* index 12 */
+		{"test-only", 0, 0, 0},         /* index 13 */
+		{"version", 0, 0, 0},           /* index 14 */
+		{"vo", 1, 0, 0},                /* index 15 */
+		{"brightness", 1, 0, 'B'},
+		{"cvbs", 0, 0, 'c'},
+		{"cvbs-input", 0, 0, 'i'},
+		{"contrast", 1, 0, 'C'},
+		{"frame-count", 1, 0, 'f'},
+		{"hue", 1, 0, 'H'},
+		{"ntsc", 0, 0, 'n'},
+		{"pal", 0, 0, 'p'},
+		{"s-video", 0, 0, 's'},
+		{"saturation", 1, 0, 'S'},
+		{0, 0, 0, 0}
+	};
+
+	while (1) {
+		c = getopt_long(argc, argv, "B:cC:f:H:npsS:", long_options, &option_index);
+		if (c == -1) {
+			break;
+		}
+		switch (c) {
+		case 0:
+			switch (option_index) {
+			case 0: /* --help */
+				usage();
+				return 0;
+			case 1: /* --iso-transfers */
+				num_iso_transfers = atoi(optarg);
+				if (num_iso_transfers < 1) {
+					fprintf(stderr, "Invalid iso transfers count '%i', must be at least 1\n", num_iso_transfers);
+					return 1;
+				}
+				break;
+			case 2: /* --lum-aperture */
+				luminance_aperture = atoi(optarg);
+				if (luminance_aperture < 0 || luminance_aperture > 3) {
+					fprintf(stderr, "Invalid luminance aperture '%i', must be from 0 to 3\n", luminance_mode);
+					return 1;
+				}
+				break;
+			case 3: /* --lum-prefilter */
+				luminance_prefilter = 1;
+				break;
+			case 4: /* --luminance */
+				luminance_mode = atoi(optarg);
+				if (luminance_mode < 0 || luminance_mode > 3) {
+					fprintf(stderr, "Invalid luminance mode '%i', must be from 0 to 3\n", luminance_mode);
+					return 1;
+				}
+				break;
+			case 5: /* --ntsc-4.43-50 */
+				tv_standard = NTSC_50;
+				break;
+			case 6: /* --ntsc-4.43-60 */
+				tv_standard = NTSC_60;
+				break;
+			case 7: /* --ntsc-n */
+				tv_standard = NTSC_N;
+				break;
+			case 8: /* --pal-4.43 */
+				tv_standard = PAL_60;
+				break;
+			case 9: /* --pal-m */
+				tv_standard = PAL_M;
+				break;
+			case 10: /* --pal-combination-n */
+				tv_standard = PAL_COMBO_N;
+				break;
+			case 11: /* --secam */
+				tv_standard = SECAM;
+				break;
+			case 12: /* --sync */
+				sync_algorithm = atoi(optarg);
+				if (sync_algorithm < 1 || sync_algorithm > 2) {
+					fprintf(stderr, "Invalid sync algorithm '%i', must be from 1 to 2\n", sync_algorithm);
+					return 1;
+				}
+				break;
+			case 13: /* --test-only */
+				test_only = 1;
+				break;
+			case 14: /* --version */
+				version();
+				return 0;
+			case 15: /* --vo */
+				video_fd = open(optarg, O_CREAT | O_WRONLY | O_TRUNC, S_IRUSR | S_IWUSR | S_IRGRP | S_IROTH);
+				if (video_fd == -1) {
+					fprintf(stderr, "%s: Failed to open video output file '%s': %s\n", program_path, optarg, strerror(errno));
+					return 1;
+				}
+				break;
+			default:
+				usage();
 				return 1;
 			}
-			libusb_fill_iso_transfer(tfr[i], devh, 0x00000082, isobuf[i], 64 * 3072, 64, gotdata, NULL, 2000);
-			libusb_set_iso_packet_lengths(tfr[i], 3072);
-		}
-
-		pending_requests = num_iso_transfers;
-		for (i = 0; i < num_iso_transfers; i++) {
-			ret = libusb_submit_transfer(tfr[i]);
-			if (ret) {
-				fprintf(stderr, "%s: Failed to submit request #%d for transfer: %s\n", argv[0], i, strerror(errno));
+			break;
+		case 'B':
+			i = atoi(optarg);
+			if (i < 0 || i > 255) {
+				fprintf(stderr, "Invalid brightness value '%i', must be from 0 to 255\n", i);
 				return 1;
 			}
-		}
-
-		somagic_write_reg(0x1800, 0x0d);
-
-		while (pending_requests > 0) {
-			libusb_handle_events(NULL);
-		}
-
-		for (i = 0; i < num_iso_transfers; i++) {
-			libusb_free_transfer(tfr[i]);
-		}
-	}
-
-	ret = libusb_release_interface(devh, 0);
-	if (ret) {
-		perror("Failed to release interface");
-		return 1;
-	}
-	libusb_close(devh);
-	libusb_exit(NULL);
-
-	/* Close video output file */
-	if (video_fd != 1) {
-		ret = close(video_fd);
-		if (ret) {
-			perror("Failed to close video output file");
+			brightness = i;
+			break;
+		case 'c':
+			input_type = CVBS;
+			break;
+		case 'C':
+			i = atoi(optarg);
+			if (i < -128 || i > 127) {
+				fprintf(stderr, "Invalid contrast value '%i', must be from -128 to 127\n", i);
+				return 1;
+			}
+			contrast = (int8_t)i;
+			break;
+		case 'f':
+			frame_count = atoi(optarg);
+			break;
+		case 'H':
+			i = atoi(optarg);
+			if (i < -128 || i > 127) {
+				fprintf(stderr, "Invalid hue phase '%i', must be from -128 to 127\n", i);
+				return 1;
+			}
+			hue = (int8_t)i;
+			break;
+		case 'i':
+			i = atoi(optarg);
+			switch (i) {
+			case 1:
+				cvbs_input = VIDEO1;
+				break;
+			case 2:
+				cvbs_input = VIDEO2;
+				break;
+			case 3:
+				cvbs_input = VIDEO3;
+				break;
+			case 4:
+				cvbs_input = VIDEO4;
+				break;
+			default:
+				fprintf(stderr, "Invalid CVBS input '%i', must be from 1 to 4\n", i);
+				return 1;
+			}
+			break;
+		case 'n':
+			tv_standard = NTSC;
+			break;
+		case 'p':
+			tv_standard = PAL;
+			break;
+		case 's':
+			input_type = SVIDEO;
+			break;
+		case 'S':
+			i = atoi(optarg);
+			if (i < -128 || i > 127) {
+				fprintf(stderr, "Invalid saturation value '%i', must be from -128 to 127\n", i);
+				return 1;
+			}
+			saturation = (int8_t)i;
+			break;
+		default:
+			usage();
 			return 1;
 		}
+	}
+	if (optind < argc) {
+		usage();
+		return 1;
+	}
+	if (input_type == SVIDEO && luminance_mode != 0) {
+		fprintf(stderr, "Luminance mode must be 0 for S-VIDEO\n");
+		return 1;
+	}
+
+	return 0;
+}
+
+int main(int argc, char **argv)
+{
+	int ret;
+
+	program_path = malloc(strlen(argv[0]) + 1);
+	if (program_path == NULL) {
+		perror("Failed to allocate memory for program_path");
+		return 1;
+	}
+	strcpy(program_path, argv[0]);
+
+	/* Parse command line arguments */
+	ret = parse_cmdline(argc, argv);
+	if (ret) {
+		return ret;
+	}
+
+	/* Initialize somagic registers */
+	ret = somagic_init();
+	if (ret) {
+		return ret;
+	}
+
+	/* Perform capture */
+	ret = somagic_capture();
+	if (ret) {
+		return ret;
 	}
 
 	return 0;
