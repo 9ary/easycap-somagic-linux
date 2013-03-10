@@ -1237,7 +1237,7 @@ static int parse_cmdline(int argc, char **argv) {
 		{"vo", 1, 0, 0},                /* index 15 */
 		{"brightness", 1, 0, 'B'},
 		{"cvbs", 0, 0, 'c'},
-		{"cvbs-input", 0, 0, 'i'},
+		{"cvbs-input", 1, 0, 'i'},
 		{"contrast", 1, 0, 'C'},
 		{"frame-count", 1, 0, 'f'},
 		{"hue", 1, 0, 'H'},
@@ -1249,7 +1249,7 @@ static int parse_cmdline(int argc, char **argv) {
 	};
 
 	while (1) {
-		c = getopt_long(argc, argv, "B:cC:f:H:npsS:", long_options, &option_index);
+		c = getopt_long(argc, argv, "B:cC:f:H:i:npsS:", long_options, &option_index);
 		if (c == -1) {
 			break;
 		}
