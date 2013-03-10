@@ -3,11 +3,11 @@ Upstream-Name: somagic-easycap
 Source: http://code.google.com/p/easycap-somagic-linux/
 
 Files: *
-Copyright: 2011, 2013 Tony Brown, Michal Demin, Jeffry Johnston, Jon Arne Jørgensen
+Copyright: 2011-2013 Tony Brown, Michal Demin, Jeffry Johnston, Jon Arne Jørgensen
 License: GPL-2.0+
 
 Files: debian/*
-Copyright: 2012, 2013 Jeffry Johnston <somagic@kidsquid.com>
+Copyright: 2012-2013 Jeffry Johnston <somagic@kidsquid.com>
 License: GPL-2.0+
 
 License: GPL-2.0+

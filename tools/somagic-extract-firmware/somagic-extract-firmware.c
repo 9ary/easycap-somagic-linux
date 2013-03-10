@@ -4,7 +4,7 @@
  * Extract the EasyCAP Somagic firmware from a Windows driver file.            *
  * *****************************************************************************
  *
- * Copyright 2011, 2012 Jeffry Johnston
+ * Copyright 2011-2013 Jeffry Johnston
  *
  * This file is part of somagic_easycap
  * http://code.google.com/p/easycap-somagic-linux/
@@ -80,7 +80,7 @@ static const unsigned char SOMAGIC_FIRMWARE_CRC32[PRODUCT_COUNT][4] = {
 static void version()
 {
 	fprintf(stderr, PROGRAM_NAME" "VERSION"\n");
-	fprintf(stderr, "Copyright 2011, 2012 Jeffry Johnston\n");
+	fprintf(stderr, "Copyright 2011-2013 Jeffry Johnston\n");
 	fprintf(stderr, "License GPLv2+: GNU GPL version 2 or later <http://gnu.org/licenses/gpl.html>.\n");
 	fprintf(stderr, "This is free software: you are free to change and redistribute it.\n");
 	fprintf(stderr, "There is NO WARRANTY, to the extent permitted by law.\n");

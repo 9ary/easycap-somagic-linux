@@ -7,7 +7,7 @@
  * Initializes the Somagic EasyCAP registers and performs video capture.       *
  * *****************************************************************************
  *
- * Copyright 2011, 2012 Tony Brown, Michal Demin, Jeffry Johnston, Jon Arne Jørgensen
+ * Copyright 2011-2013 Tony Brown, Michal Demin, Jeffry Johnston, Jon Arne Jørgensen
  *
  * This file is part of somagic_easycap
  * http://code.google.com/p/easycap-somagic-linux/
@@ -1115,7 +1115,7 @@ static int somagic_init()
 static void version()
 {
 	fprintf(stderr, PROGRAM_NAME" "VERSION"\n");
-	fprintf(stderr, "Copyright 2011, 2012 Tony Brown, Michal Demin, Jeffry Johnston,\n");
+	fprintf(stderr, "Copyright 2011-2013 Tony Brown, Michal Demin, Jeffry Johnston,\n");
 	fprintf(stderr, "                     Jon Arne Jørgensen\n");
 	fprintf(stderr, "License GPLv2+: GNU GPL version 2 or later <http://gnu.org/licenses/gpl.html>.\n");
 	fprintf(stderr, "This is free software: you are free to change and redistribute it.\n");
