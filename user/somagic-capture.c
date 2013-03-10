@@ -1,7 +1,7 @@
 /*******************************************************************************
  * somagic-capture.c                                                           *
  *                                                                             *
- * USB Driver for Somagic EasyCAP DC60 and Somagic EasyCAP002                  *
+ * USB Driver for Somagic EasyCAP DC60, EzCAP USB 2.0, and Somagic EasyCAP002  *
  * USB ID 1c88:003c, 1c88:003e, or 1c88:003f                                   *
  *                                                                             *
  * Initializes the Somagic EasyCAP registers and performs video capture.       *
@@ -1124,6 +1124,8 @@ static void version()
 
 static void usage()
 {
+        /*               00000000011111111112222222222333333333344444444445555555555666666666677777777778 */
+        /*               12345678901234567890123456789012345678901234567890123456789012345678901234567890 */
 	fprintf(stderr, "Usage: "PROGRAM_NAME" [options]\n");
 	fprintf(stderr, "  -B, --brightness=VALUE     Luminance brightness control,\n");
 	fprintf(stderr, "                             0 to 255 (default: 128)\n");
@@ -1143,8 +1145,9 @@ static void usage()
 	fprintf(stderr, "                                 0   0.000000 (luminance off)\n");
 	fprintf(stderr, "                               -64  -1.000000 (inverse)\n");
 	fprintf(stderr, "                              -128  -2.000000 (inverse)\n");
-	fprintf(stderr, "  -c, --cvbs                 Use CVBS (composite) input on the EasyCAP DC60,\n");
-	fprintf(stderr, "                             numbered inputs on the EasyCAP002 (default)\n");
+	fprintf(stderr, "  -c, --cvbs                 Use CVBS (composite) input on the EasyCAP DC60\n");
+	fprintf(stderr, "                             and EzCAP USB 2.0, numbered inputs on the\n");
+	fprintf(stderr, "                             EasyCAP002 (default)\n");
  	fprintf(stderr, "  -i, --cvbs-input=VALUE     Select CVBS (composite) input to use, 1 to 4,\n");
 	fprintf(stderr, "                             EasyCAP002 only (default: 3)\n");
 	fprintf(stderr, "  -f, --frames=COUNT         Number of frames to generate,\n");
@@ -1187,7 +1190,8 @@ static void usage()
 	fprintf(stderr, "                                 0   0.000000 (color off)\n");
 	fprintf(stderr, "                               -64  -1.000000 (inverse)\n");
 	fprintf(stderr, "                              -128  -2.000000 (inverse)\n");
-	fprintf(stderr, "  -s, --s-video              Use S-VIDEO input, EasyCAP DC60 only\n");
+	fprintf(stderr, "  -s, --s-video              Use S-VIDEO input, EasyCAP DC60 and EzCAP USB 2.0\n");
+	fprintf(stderr, "                             only\n");
 	fprintf(stderr, "      --secam                SECAM             [625 lines, 25 Hz]\n");
 	fprintf(stderr, "      --sync=VALUE           Sync algorithm (default: 2)\n");
 	fprintf(stderr, "                             Value  Algorithm\n");
@@ -1254,7 +1258,7 @@ static int parse_cmdline(int argc, char **argv) {
 			switch (option_index) {
 			case 0: /* --help */
 				usage();
-				return 0;
+				exit(0);
 			case 1: /* --iso-transfers */
 				num_iso_transfers = atoi(optarg);
 				if (num_iso_transfers < 1) {
@@ -1312,7 +1316,7 @@ static int parse_cmdline(int argc, char **argv) {
 				break;
 			case 14: /* --version */
 				version();
-				return 0;
+				exit(0);
 			case 15: /* --vo */
 				video_fd = open(optarg, O_CREAT | O_WRONLY | O_TRUNC, S_IRUSR | S_IWUSR | S_IRGRP | S_IROTH);
 				if (video_fd == -1) {
