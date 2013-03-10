@@ -1,12 +1,12 @@
-.TH somagic-capture "1" "February 2012" "somagic-capture 1.0" "Somagic EasyCAP"
+.TH somagic-capture "1" "March 2013" "somagic-capture 1.1" "Somagic EasyCAP"
 .SH NAME
-somagic-capture \- Perform video capture with the Somagic EasyCAP DC60 or Somagic EasyCAP002
+somagic-capture \- Perform video capture with the Somagic EasyCAP DC60, Somagic EasyCAP002, or EzCAP USB 2.0
 .SH SYNOPSIS
 .B somagic-capture
 [\fIOPTION\fR]...
 .SH DESCRIPTION
 .PP
-Initializes the Somagic EasyCAP DC60 or Somagic EasyCAP002 registers and performs video capture.
+Initializes the Somagic EasyCAP DC60, Somagic EasyCAP002, or EzCAP ESB 2.0 registers and performs video capture.
 This program must be run as root in order to interact with the USB capture device directly.
 .SH OPTIONS
 .TP
@@ -47,7 +47,7 @@ n n l.
 
 .TP
 \fB\-c\fR, \fB\-\-cvbs\fR
-For the EasyCAP DC60, use the CVBS (composite) input for video capture.
+For the EasyCAP DC60 or EzCAP USB 2.0, use the CVBS (composite) input for video capture.
 For the EasyCAP002, use the numbered inputs for video capture. Different devices seem to have different numbering schemes, so try each input in turn to determine which one is correct. 
 This is the default.
 .TP
@@ -184,7 +184,7 @@ n n l.
 
 .TP
 \fB\-s\fR, \fB\-\-s\-video\fR
-Use the S-VIDEO input for video capture. Only available on EasyCAP DC60.
+Use the S-VIDEO input for video capture. Only available on EasyCAP DC60 and EzCAP USB 2.0.
 .TP
 \fB\-\-secam\fR
 Decode the SECAM video standard.

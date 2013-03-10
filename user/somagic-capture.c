@@ -48,9 +48,10 @@
 #define PROGRAM_NAME "somagic-capture"
 #define VERSION "1.1"
 #define VENDOR 0x1c88
-#define PRODUCT_COUNT 3
+#define PRODUCT_COUNT 4
 static const int PRODUCT[PRODUCT_COUNT] = {
 	0x003c,
+	0x003d,
 	0x003e,
 	0x003f
 };
