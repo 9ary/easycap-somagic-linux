@@ -54,20 +54,38 @@
 
 #include <sound/core.h>
 #include <sound/pcm.h>
+#include <sound/pcm_params.h>
 #include <sound/initval.h>
 
 #define SMI2021_DRIVER_VERSION "0.1"
 
 /* For ISOC */
 #define SMI2021_MAX_PKT_SIZE 	3072
-#define SMI2021_NUM_PACKETS 	64
-#define SMI2021_NUM_BUFS 	16
+#define SMI2021_ISOC_PACKETS 	10 	/* 64 */
+#define SMI2021_ISOC_BUFS 	4	/* 16 */
 #define SMI2021_ISOC_EP 	0x82
 
+/* The structure of the array we use to send i2c settings to the device */
+#define SMI2021_CTRL_HEAD 0x00
+#define	SMI2021_CTRL_ADDR 0x01
+#define SMI2021_CTRL_BM_DATA_TYPE 0x02
+#define	SMI2021_CTRL_BM_DATA_OFFSET 0x03
+#define	SMI2021_CTRL_DATA_SIZE 0x04
+
+#define SMI2021_CTRL_REG_HI 0x05
+#define SMI2021_CTRL_REG_LO 0x06
+#define SMI2021_CTRL_REG_VAL 0x07
+
+#define SMI2021_CTRL_I2C_REG 0x05
+#define SMI2021_CTRL_I2C_VAL 0x06
+#define SMI2021_CTRL_I2C_RCV_VAL 0x05
+
+/* General video constants */
 #define SMI2021_BYTES_PER_LINE	1440
 #define SMI2021_PAL_LINES	576
 #define SMI2021_NTSC_LINES	486
 
+/* Timing Referance Codes, see saa7113 datasheet */
 #define SMI2021_TRC_EAV 	0x10
 #define SMI2021_TRC_VBI 	0x20
 #define SMI2021_TRC_FIELD_2 	0x40
@@ -94,27 +112,6 @@
 	pr_err("smi2021::%s: " fmt,		\
 		__func__, ##args)
 
-struct smi2021_i2c_data {
-	u8 reg;
-	u8 val;
-	u16 reserved;
-};
-
-struct smi2021_reg_data {
-	u16 reg;
-	u8 val;
-	u8 reserved;	
-};
-
-struct smi2021_usb_ctrl {
-	u8 head;
-	u8 addr;
-	u8 bm_data_type;
-	u8 bm_data_offset;
-	u8 data_size;
-	u8 data[4];
-};
-
 enum smi2021_sync {
 	HSYNC,
 	SYNCZ1,
@@ -135,6 +132,7 @@ struct smi2021_buffer {
 	bool				in_blank;
 	unsigned int			pos;
 
+	/* ActiveVideo - Line counter */
 	u16				trc_av;
 };
 
@@ -153,6 +151,11 @@ struct smi2021_fmt {
 	int				depth;
 };
 
+struct smi2021_input {
+	char				*name;
+	int				type;
+};
+
 struct smi2021_dev {
 	struct v4l2_device		v4l2_dev;
 	struct video_device 		vdev;
@@ -161,7 +164,7 @@ struct smi2021_dev {
 	struct v4l2_subdev 		*sd_saa7113;
 	
 	struct usb_device 		*udev;
-	struct device *			dev;
+	struct device			*dev;
 
 	/* Capture buffer queue */
 	struct vb2_queue 		vb_vidq;
@@ -175,7 +178,7 @@ struct smi2021_dev {
 	unsigned int 			ctl_input;	/* selected input */
 	v4l2_std_id			norm;		/* current norm */
 	struct smi2021_fmt 		*fmt;		/* selected format */
-	unsigned int			buf_count;	/* for buffers */
+	unsigned int			buf_count;	/* for video buffers */
 
 	/* i2c i/o */
 	struct i2c_adapter 		i2c_adap;
@@ -189,16 +192,15 @@ struct smi2021_dev {
 
 	/* audio */
 	struct snd_card			*snd_card;
-	struct snd_pcm			*snd_pcm;
 	struct snd_pcm_substream	*pcm_substream;
-	int				pcm_dma_offset;
-	int				pcm_dma_write_ptr;
-	unsigned int			pcm_packets;
-	bool				snd_elapsed_periode;
-};
+ 
+	unsigned int			pcm_write_ptr;
+	unsigned int			pcm_complete_samples;
 
-/* Provided by smi2021_bootloader.c */
-void smi2021_run_bootloader(struct usb_device *smi2021_device);
+	u8				pcm_read_offset;
+	struct work_struct		adev_capture_trigger;
+	atomic_t			adev_capturing;
+};
 
 /* Provided by smi2021_main.c */
 int smi2021_write_reg(struct smi2021_dev *dev, u8 addr, u16 reg, u8 val);

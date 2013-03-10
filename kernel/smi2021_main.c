@@ -36,8 +36,6 @@
 #include "smi2021.h"
 
 #define VENDOR_ID 			0x1c88
-#define BOOTLOADER_PRODUCT_ID		0x0007
-#define DC60_PRODUCT_ID			0x003c
 
 static unsigned int imput;
 module_param(imput, int, 0644);
@@ -50,8 +48,10 @@ MODULE_VERSION(SMI2021_DRIVER_VERSION);
 
 
 struct usb_device_id smi2021_usb_device_id_table[] = {
-	{ USB_DEVICE(VENDOR_ID, BOOTLOADER_PRODUCT_ID) },
-	{ USB_DEVICE(VENDOR_ID, DC60_PRODUCT_ID) },
+	{ USB_DEVICE(VENDOR_ID, 0x003c) },
+	{ USB_DEVICE(VENDOR_ID, 0x003d) },
+	{ USB_DEVICE(VENDOR_ID, 0x003e) },
+	{ USB_DEVICE(VENDOR_ID, 0x003f) },
 	{ }
 };
 
@@ -68,46 +68,43 @@ static unsigned short saa7113_addrs[] = {
 /*                                                                            */
 /******************************************************************************/
 
-inline int transfer_usb_ctrl(struct smi2021_dev *dev, struct smi2021_usb_ctrl data)
+inline int transfer_usb_ctrl(struct smi2021_dev *dev, u8 *data, int len)
 {
-	return usb_control_msg(dev->udev, usb_sndctrlpipe(dev->udev, 0x00), 0x01,
-			USB_DIR_OUT | USB_TYPE_VENDOR | USB_RECIP_DEVICE,
+	return usb_control_msg(dev->udev, usb_sndctrlpipe(dev->udev, 0x00),
+			0x01, USB_DIR_OUT | USB_TYPE_VENDOR | USB_RECIP_DEVICE,
 			0x0b, 0x00,
-			&data, sizeof(struct smi2021_usb_ctrl), 1000);
+			data, len, 1000);
 	
 }
 
 int smi2021_write_reg(struct smi2021_dev *dev, u8 addr, u16 reg, u8 val)
 {
 	int rc;
-	struct smi2021_usb_ctrl data;
+	u8 snd_data[8];
 
-	data.head = 0x0b;
-	data.data_size = 0x01;
-	data.addr = addr;
+	memset(snd_data, 0x00, 8);
+
+	snd_data[SMI2021_CTRL_HEAD] = 0x0b;
+	snd_data[SMI2021_CTRL_ADDR] = addr;
+	snd_data[SMI2021_CTRL_DATA_SIZE] = 0x01;
+
 	if (addr) {
-		struct smi2021_i2c_data d = {
-			.reg = reg,
-			.val = val,
-			.reserved = 0,
-		};
-		memcpy((void *)data.data, (void *)&d, 4);
+		/* This is I2C data for the saa7113 chip */
+		snd_data[SMI2021_CTRL_BM_DATA_TYPE] = 0xc0;
+		snd_data[SMI2021_CTRL_BM_DATA_OFFSET] = 0x01;
 
-		data.bm_data_type = 0xc0;
-		data.bm_data_offset = 0x01;
+		snd_data[SMI2021_CTRL_I2C_REG] = reg;
+		snd_data[SMI2021_CTRL_I2C_VAL] = val;
 	} else {
-		struct smi2021_reg_data d = {
-			.reg = __cpu_to_be16(reg),
-			.val = val,
-			.reserved = 0,
-		};
-		memcpy((void *)data.data, (void *)&d, 4);
+		/* This is register settings for the smi2021 chip */
+		snd_data[SMI2021_CTRL_BM_DATA_OFFSET] = 0x82;
 
-		data.bm_data_type = 0x00;
-		data.bm_data_offset = 0x82;
+		snd_data[SMI2021_CTRL_REG_HI] = __cpu_to_be16(reg) >> 8;
+		snd_data[SMI2021_CTRL_REG_LO] = __cpu_to_be16(reg);
+
 	}
 
-	rc = transfer_usb_ctrl(dev, data);
+	rc = transfer_usb_ctrl(dev, snd_data, 8);
 	if (rc < 0) {
 		smi2021_warn("write failed on register 0x%x, errno: %d\n",
 			reg, rc);
@@ -120,34 +117,32 @@ int smi2021_write_reg(struct smi2021_dev *dev, u8 addr, u16 reg, u8 val)
 int smi2021_read_reg(struct smi2021_dev *dev, u8 addr, u16 reg, u8 *val)
 {
 	int rc;
-	u8 rcv_data[13] = { 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0 };
-	struct smi2021_usb_ctrl data;
-	struct smi2021_i2c_data d = {
-		.reg = reg,
-		.val = 0x00,
-		.reserved = 0,
-	};
+	u8 rcv_data[13];
+	u8 snd_data[8];
+	memset(rcv_data, 0x00, 13);
+	memset(snd_data, 0x00, 8);
 
-	data.head = 0x0b;
-	data.addr = addr;
-	data.bm_data_type = 0x84;	/* 1000 0100 */
-	data.bm_data_offset = 0x00;
-	data.data_size = 0x01;
-	memcpy((void *)data.data, (void *)&d, 4);
+	snd_data[SMI2021_CTRL_HEAD] = 0x0b;
+	snd_data[SMI2021_CTRL_ADDR] = addr;
+	snd_data[SMI2021_CTRL_BM_DATA_TYPE] = 0x84;
+	snd_data[SMI2021_CTRL_DATA_SIZE] = 0x01;
+	snd_data[SMI2021_CTRL_I2C_REG] = reg;
 
 	*val = 0;
 
-	rc = transfer_usb_ctrl(dev, data);
+	rc = transfer_usb_ctrl(dev, snd_data, 8);
 	if (rc < 0) {
-		smi2021_warn("1st pass failing to read reg 0x%x, usb-errno: %d \n",
+		smi2021_warn(
+			"1st pass failing to read reg 0x%x, usb-errno: %d \n",
 			reg, rc);
 		return rc;
 	}
 
-	data.bm_data_type = 0xa0;	/* 1010 0000 */
-	rc = transfer_usb_ctrl(dev, data);
+	snd_data[SMI2021_CTRL_BM_DATA_TYPE] =0xa0;
+	rc = transfer_usb_ctrl(dev, snd_data, 8);
 	if (rc < 0) {
-		smi2021_warn("2nd pass failing to read reg 0x%x, usb-errno: %d\n",
+		smi2021_warn(
+			"2nd pass failing to read reg 0x%x, usb-errno: %d\n",
 			reg, rc);
 		return rc;
 	}
@@ -171,7 +166,7 @@ int smi2021_read_reg(struct smi2021_dev *dev, u8 addr, u16 reg, u8 *val)
 		rcv_data[9], rcv_data[10], rcv_data[11],
 		rcv_data[12]);
 	*/
-	*val = rcv_data[5];
+	*val = rcv_data[SMI2021_CTRL_I2C_RCV_VAL];
 	return 0;
 		
 }
@@ -213,8 +208,6 @@ static int smi2021_scan_usb(struct usb_interface *intf, struct usb_device *udev)
 			if (udev->speed == USB_SPEED_HIGH) {
 				size = size * hb_mult(sizedescr);
 			}
-
-			printk(KERN_INFO "ep: %d, size: %d\n", e, size);
 		}
 	}
 	return 0;
@@ -232,22 +225,9 @@ static int __devinit smi2021_usb_probe(struct usb_interface *intf,
 	struct usb_device *udev = interface_to_usbdev(intf);
 	struct smi2021_dev *dev;
 
-	smi2021_dbg("Probing for %04x:%04x\n",
-		le16_to_cpu(udev->descriptor.idVendor),
-		le16_to_cpu(udev->descriptor.idProduct));
-
 	if (udev == (struct usb_device *)NULL) {
 		smi2021_err("device is NULL\n");
 		return -EFAULT;
-	}
-
-  if (udev->descriptor.idProduct == BOOTLOADER_PRODUCT_ID) {
-		smi2021_run_bootloader(udev);
-		return 0;
-	}
-	
-  if (udev->descriptor.idProduct != DC60_PRODUCT_ID) {
-		return -ENODEV;
 	}
 
 	smi2021_scan_usb(intf, udev);
@@ -300,8 +280,6 @@ static int __devinit smi2021_usb_probe(struct usb_interface *intf,
 
 	v4l2_device_call_all(&dev->v4l2_dev, 0, core, reset, 0);
 	v4l2_device_call_all(&dev->v4l2_dev, 0, video, s_stream, 0);
-	v4l2_device_call_all(&dev->v4l2_dev, 0, video, s_routing,
-		SAA7115_COMPOSITE0, 0, 0);
 
 	rc = smi2021_snd_register(dev);
 	if (rc < 0) {
@@ -332,24 +310,17 @@ free_err:
 static void __devexit smi2021_usb_disconnect(struct usb_interface *intf)
 {
 	
-	struct usb_device *udev = interface_to_usbdev(intf);
-	struct smi2021_dev *dev;
- 
-	if (udev->descriptor.idProduct == BOOTLOADER_PRODUCT_ID) {
-		return;
-	}
+	struct smi2021_dev *dev = usb_get_intfdata(intf);
 
 	smi2021_dbg("Going for release!\n");
 
-	dev = usb_get_intfdata(intf);
 	usb_set_intfdata(intf, NULL);
 
 	mutex_lock(&dev->vb_queue_lock);
 	mutex_lock(&dev->v4l2_lock);
 
  	smi2021_uninit_isoc(dev);
- 	/*stk1160_ac97_unrgister(dev)*/
-  smi2021_clear_queue(dev);
+ 	smi2021_clear_queue(dev);
 
 	video_unregister_device(&dev->vdev);
 	v4l2_device_disconnect(&dev->v4l2_dev);

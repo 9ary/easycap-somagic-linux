@@ -43,6 +43,33 @@ static struct smi2021_fmt format[] = {
 	}
 };
 
+static const int inputs = 2;
+static struct smi2021_input input[] = {
+	{
+		.name = "Composite",
+		.type = SAA7115_COMPOSITE0,
+	},
+	{
+		.name = "S-Video",
+		.type = SAA7115_SVIDEO1,
+	} 	
+};
+
+static void smi2021_set_input(struct smi2021_dev *dev)
+{
+	if (dev->udev == NULL) {
+		return;
+	}
+
+	if (dev->ctl_input >= inputs) {
+		smi2021_err("BUG: ctl_input to big!\n");
+		return;
+	}
+
+	v4l2_device_call_all(&dev->v4l2_dev, 0, video, s_routing,
+		input[dev->ctl_input].type, 0, 0);
+}
+
 static int smi2021_start_streaming(struct smi2021_dev *dev)
 {
 	u8 data[2];
@@ -106,6 +133,7 @@ static int smi2021_start_streaming(struct smi2021_dev *dev)
 
 	
 	mutex_unlock(&dev->v4l2_lock);
+
 	smi2021_dbg("Streaming started!");
 	return 0;
 
@@ -146,6 +174,19 @@ static void smi2021_stop_hw(struct smi2021_dev *dev)
 
 static int smi2021_stop_streaming(struct smi2021_dev *dev)
 {
+	/* HACK: Stop the audio subsystem,
+	 * without this, the pcm middle-layer will hang waiting for more data.
+	 *
+	 * Is there a better way to do this?
+	 */
+	if (dev->pcm_substream && dev->pcm_substream->runtime) {
+		struct snd_pcm_runtime *runtime = dev->pcm_substream->runtime;
+		if (runtime->status) {
+			runtime->status->state = SNDRV_PCM_STATE_DRAINING;
+			wake_up(&runtime->sleep);
+		}
+	}
+
 	if (mutex_lock_interruptible(&dev->v4l2_lock)) {
 		return -ERESTARTSYS;
 	}
@@ -196,8 +237,8 @@ static int vidioc_querycap(struct file *file, void *priv,
 {
 	struct smi2021_dev *dev = video_drvdata(file);
 
-	strcpy(cap->driver, "smi2021_easycap_dc60");
-	strcpy(cap->card, "smi2021_easycap_dc60");
+	strcpy(cap->driver, "smi2021");
+	strcpy(cap->card, "smi2021");
 	usb_make_path(dev->udev, cap->bus_info, sizeof(cap->bus_info));
 	cap->device_caps =
 		V4L2_CAP_VIDEO_CAPTURE |
@@ -220,6 +261,7 @@ static int vidioc_g_fmt_vid_cap(struct file *file, void *priv,
 	f->fmt.pix.bytesperline = dev->width * 2;
 	f->fmt.pix.sizeimage = dev->height * f->fmt.pix.bytesperline;
 	f->fmt.pix.colorspace = V4L2_COLORSPACE_SMPTE170M;
+	f->fmt.pix.priv = 0;
 
 	return 0;
 }
@@ -236,6 +278,7 @@ static int vidioc_try_fmt_vid_cap(struct file *file, void *priv,
 	f->fmt.pix.bytesperline = dev->width * 2;
 	f->fmt.pix.sizeimage = dev->height * f->fmt.pix.bytesperline;
 	f->fmt.pix.colorspace = V4L2_COLORSPACE_SMPTE170M;
+	f->fmt.pix.priv = 0;
 
 	return 0;
 }
@@ -295,7 +338,6 @@ static int vidioc_s_std(struct file *file, void *priv, v4l2_std_id *norm)
 		return -EINVAL;
 	}
 
-	/* smi2021_set_std(dev); */
 	v4l2_device_call_all(&dev->v4l2_dev, 0, core, s_std, dev->norm);
 	return 0;
 }
@@ -305,12 +347,11 @@ static int vidioc_enum_input(struct file *file, void *priv,
 {
 	struct smi2021_dev *dev = video_drvdata(file);
 
-	/* TODO: Remove hardcoded values */
-	if (i->index > 1) {
+	if (i->index >= inputs) {
 		return -EINVAL;
 	}
 
-	sprintf(i->name, "Composite");
+	strlcpy(i->name, input[i->index].name, sizeof(i->name));
 	i->type = V4L2_INPUT_TYPE_CAMERA;
 	i->std = dev->vdev.tvnorms;
 	return 0;
@@ -327,17 +368,12 @@ static int vidioc_s_input(struct file *file, void *priv, unsigned int i)
 {
 	struct smi2021_dev *dev = video_drvdata(file);
 
-	if (vb2_is_busy(&dev->vb_vidq)) {
-		return -EBUSY;
-	}
-
-	/* TODO: REMOVE HARD HACK */
-	if (i > 1) {
+	if (i >= inputs) {
 		return -EINVAL;
 	}
 
 	dev->ctl_input = i;
-	/* smi2021_select_input(dev); */
+	smi2021_set_input(dev);
 
 	return 0;
 }
@@ -356,30 +392,31 @@ static int vidioc_g_chip_ident(struct file *file, void *priv,
 }
 
 static const struct v4l2_ioctl_ops smi2021_ioctl_ops = {
-	.vidioc_querycap          = vidioc_querycap,
-	.vidioc_enum_fmt_vid_cap  = vidioc_enum_fmt_vid_cap,
-	.vidioc_g_fmt_vid_cap     = vidioc_g_fmt_vid_cap,
-	.vidioc_try_fmt_vid_cap   = vidioc_try_fmt_vid_cap,
-	.vidioc_s_fmt_vid_cap     = vidioc_s_fmt_vid_cap,
-	.vidioc_querystd          = vidioc_querystd,
-	.vidioc_g_std             = vidioc_g_std,
-	.vidioc_s_std             = vidioc_s_std,
-	.vidioc_enum_input        = vidioc_enum_input,
-	.vidioc_g_input           = vidioc_g_input,
-	.vidioc_s_input           = vidioc_s_input,
+	.vidioc_querycap		= vidioc_querycap,
+	.vidioc_enum_fmt_vid_cap	= vidioc_enum_fmt_vid_cap,
+	.vidioc_g_fmt_vid_cap		= vidioc_g_fmt_vid_cap,
+	.vidioc_try_fmt_vid_cap		= vidioc_try_fmt_vid_cap,
+	.vidioc_s_fmt_vid_cap		= vidioc_s_fmt_vid_cap,
+	.vidioc_querystd		= vidioc_querystd,
+	.vidioc_g_std			= vidioc_g_std,
+	.vidioc_s_std			= vidioc_s_std,
+	.vidioc_enum_input		= vidioc_enum_input,
+	.vidioc_g_input			= vidioc_g_input,
+	.vidioc_s_input			= vidioc_s_input,
 
 	/* vb2 handle these */
-	.vidioc_reqbufs           = vb2_ioctl_reqbufs,
-	.vidioc_querybuf          = vb2_ioctl_querybuf,
-	.vidioc_qbuf              = vb2_ioctl_qbuf,
-	.vidioc_dqbuf             = vb2_ioctl_dqbuf,
-	.vidioc_streamon          = vb2_ioctl_streamon,
-	.vidioc_streamoff         = vb2_ioctl_streamoff,
+	.vidioc_reqbufs			= vb2_ioctl_reqbufs,
+	.vidioc_create_bufs		= vb2_ioctl_create_bufs,	
+	.vidioc_querybuf		= vb2_ioctl_querybuf,
+	.vidioc_qbuf			= vb2_ioctl_qbuf,
+	.vidioc_dqbuf			= vb2_ioctl_dqbuf,
+	.vidioc_streamon		= vb2_ioctl_streamon,
+	.vidioc_streamoff		= vb2_ioctl_streamoff,
 
-	.vidioc_log_status        = v4l2_ctrl_log_status,
-	.vidioc_subscribe_event   = v4l2_ctrl_subscribe_event,
-	.vidioc_unsubscribe_event = v4l2_event_unsubscribe,
-	.vidioc_g_chip_ident      = vidioc_g_chip_ident,
+	.vidioc_log_status		= v4l2_ctrl_log_status,
+	.vidioc_subscribe_event		= v4l2_ctrl_subscribe_event,
+	.vidioc_unsubscribe_event	= v4l2_event_unsubscribe,
+	.vidioc_g_chip_ident		= vidioc_g_chip_ident,
 
 };
 
@@ -451,20 +488,20 @@ static int stop_streaming(struct vb2_queue *vq)
 }
 
 static struct vb2_ops smi2021_video_qops = {
-	.queue_setup			= queue_setup,
-	.buf_queue				= buffer_queue,
+	.queue_setup		= queue_setup,
+	.buf_queue		= buffer_queue,
 	.start_streaming	= start_streaming,
 	.stop_streaming		= stop_streaming,
-	.wait_prepare			= vb2_ops_wait_prepare,
-	.wait_finish			= vb2_ops_wait_finish,
+	.wait_prepare		= vb2_ops_wait_prepare,
+	.wait_finish		= vb2_ops_wait_finish,
 };
 
 static struct video_device v4l2_template = {
-	.name = "easycap_smi2021_dc60",
-	.tvnorms = V4L2_STD_625_50 | V4L2_STD_525_60,
-	.fops = &smi2021_fops,
-	.ioctl_ops = &smi2021_ioctl_ops,
-	.release = video_device_release_empty,
+	.name 			= "easycap_smi2021_dc60",
+	.tvnorms	 	= V4L2_STD_625_50 | V4L2_STD_525_60,
+	.fops 			= &smi2021_fops,
+	.ioctl_ops 		= &smi2021_ioctl_ops,
+	.release 		= video_device_release_empty,
 };
 
 /* Must be called with both v4l2_lock and vb_queue_lock hold */
@@ -528,9 +565,9 @@ int smi2021_video_register(struct smi2021_dev *dev)
 	dev->height = SMI2021_PAL_LINES;
 
 	dev->fmt = &format[0];
-	/* smi2021_set_std(dev); */
 
 	v4l2_device_call_all(&dev->v4l2_dev, 0, core, s_std, dev->norm);
+	smi2021_set_input(dev);
 
 	video_set_drvdata(&dev->vdev, dev);
 	rc = video_register_device(&dev->vdev, VFL_TYPE_GRABBER, -1);
