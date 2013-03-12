@@ -43,7 +43,7 @@
 #include <unistd.h>
 
 #define PROGRAM_NAME "somagic-init"
-#define VERSION "1.1"
+#define VERSION "1.2"
 #define SOMAGIC_FIRMWARE_PATH "/lib/firmware/somagic_firmware.bin"
 #define PRODUCT_COUNT 3
 static const unsigned char SOMAGIC_FIRMWARE_CRC32[PRODUCT_COUNT][4] = {
