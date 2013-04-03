@@ -101,6 +101,16 @@ static void smi2021_buffer_done(struct smi2021_dev *dev)
 
 	dev->buf_count++;
 
+	if (buf->pos < dev->width * dev->height * 2) {
+		smi2021_dbg("Dropping buffer, Buf->pos: %u, trc_av: %u\n",
+				buf->pos, buf->trc_av);
+		buf->pos = 0;
+		buf->second_field = false;
+		buf->in_blank = true;
+		buf->trc_av = 0;
+		return;
+	}
+
 	buf->vb.v4l2_buf.sequence = dev->buf_count >> 1;
 	buf->vb.v4l2_buf.field = V4L2_FIELD_INTERLACED;
 	buf->vb.v4l2_buf.bytesused = buf->pos;
