@@ -181,7 +181,7 @@ static int smi2021_choose_firmware(struct usb_device *udev)
 	return 0;
 }
 
-static int __devinit smi2021_bootloader_probe(struct usb_interface *intf,
+static int smi2021_bootloader_probe(struct usb_interface *intf,
 					const struct usb_device_id *devid)
 {
 	struct usb_device *udev = interface_to_usbdev(intf);
@@ -229,7 +229,7 @@ err_out:
 	
 }
 
-static void __devexit smi2021_bootloader_disconnect(struct usb_interface *intf)
+static void smi2021_bootloader_disconnect(struct usb_interface *intf)
 {
 	struct usb_device *udev = interface_to_usbdev(intf);
 	int i;

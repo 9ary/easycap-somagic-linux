@@ -218,7 +218,7 @@ static int smi2021_scan_usb(struct usb_interface *intf, struct usb_device *udev)
 /*          DEVICE  -  PROBE   &   DISCONNECT                                 */
 /*                                                                            */
 /******************************************************************************/
-static int __devinit smi2021_usb_probe(struct usb_interface *intf,
+static int smi2021_usb_probe(struct usb_interface *intf,
 						const struct usb_device_id *devid)
 {
 	int rc = 0;
@@ -307,7 +307,7 @@ free_err:
 	return rc;
 }
 
-static void __devexit smi2021_usb_disconnect(struct usb_interface *intf)
+static void smi2021_usb_disconnect(struct usb_interface *intf)
 {
 	
 	struct smi2021_dev *dev = usb_get_intfdata(intf);
