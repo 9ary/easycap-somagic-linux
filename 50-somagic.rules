@@ -1,0 +1,3 @@
+ACTION=="add", ATTRS{idVendor}=="1c88", ATTRS{idProduct}=="0007", RUN+="/usr/bin/somagic-init"
+ATTRS{idVendor}=="1c88", GROUP="somagic", MODE="0660"
+
